@@ -31,6 +31,7 @@
     throw err;
   }
   const HT = ZZ.HEIGHTS;
+  const LOBBY = new ZZ.Lobby3D(R3.renderer);
   const canvas = $('overlay');
   const ctx = canvas.getContext('2d');
   let W = 0, H = 0, DPR = 1;
@@ -57,6 +58,10 @@
     normal: { skill: [0.3, 0.72] },
     hard: { skill: [0.55, 0.95] },
   };
+  const OUTFITS = ['#2d6fb8', '#3f5f3a', '#7a2f2f', '#2b2b2e', '#c9b48a', '#5e4a6b'];
+  const profile = Object.assign({ name: '', outfit: 0 }, store.get('zz_profile', {}));
+  // On-screen buttons by default (like mobile battle royales); keyboard + mouse can be chosen in settings.
+  const settings = Object.assign({ ctrl: 'touch', gfx: 'high' }, store.get('zz_settings', {}));
   let difficulty = store.get('zz_diff', 'normal');
   if (!DIFFICULTY[difficulty]) difficulty = 'normal';
 
@@ -91,7 +96,8 @@
     const u = {
       id: nextUnitId++, name, isPlayer, skill,
       x: 0, y: 0, r: 15, angle: 0, vx: 0, vy: 0,
-      hp: 100, alive: true, phase: 'plane', alt: 0,
+      hp: 100, alive: true, phase: 'plane', altM: 0, airV: 0,
+      stance: 'stand', jumpT: 0,
       slots: [null, null, null], active: -1,
       ammo: { '9mm': 0, '556': 0, '762': 0, '12g': 0, '300': 0 },
       meds: { bandage: 0, firstaid: 0, medkit: 0, drink: 0, pills: 0 },
@@ -289,15 +295,27 @@
     const moving = Math.hypot(u.vx, u.vy) > 40;
     let spread = w.spread * (u.aiming ? 0.45 : 1) * (moving ? (u.sprint ? 2 : 1.35) : 1);
     if (!u.aiming && (w.cls === 'sr' || w.cls === 'dmr')) spread += 0.05; // hip-firing scoped guns is inaccurate
+    if (u.stance === 'crouch') spread *= 0.78;
+    else if (u.stance === 'prone') spread *= 0.55;
+    if (u.jumpT > 0) spread *= 2.5;
     if (!u.isPlayer) spread += 0.03 + (1 - u.skill) * 0.07;
     const mx = u.x + Math.cos(u.angle) * (u.r + 14), my = u.y + Math.sin(u.angle) * (u.r + 14);
+    // Vertical aim: bullets fly from chest height toward the target's chest (or the crosshair point).
+    const y0 = ZZ.groundY(G.map, u.x, u.y) + chestOf(u);
+    let slope = 0;
+    const tgt = u.isPlayer ? aimPoint : u.ai && u.ai.target;
+    if (tgt) {
+      const ty = ZZ.groundY(G.map, tgt.x, tgt.y) + (u.isPlayer ? HT.chest : chestOf(tgt));
+      const dd = Math.hypot(tgt.x - u.x, tgt.y - u.y);
+      if (dd > 30) slope = clamp((ty - y0) / dd, -0.6, 0.6);
+    }
     for (let i = 0; i < w.pellets; i++) {
       const a = u.angle + (Math.random() + Math.random() - 1) * spread;
       const sp = w.speed * (w.pellets > 1 ? rand(0.85, 1.05) : 1);
       G.bullets.push({
         x: mx, y: my, px: u.x, py: u.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
         life: (w.range / w.speed) * (w.pellets > 1 ? rand(0.8, 1) : 1),
-        dmg: w.dmg, owner: u, weapon: s.type, cls: w.cls,
+        dmg: w.dmg, owner: u, weapon: s.type, cls: w.cls, y0, slope, dist: 0,
       });
     }
     G.particles.push({ x: mx, y: my, vx: 0, vy: 0, life: 0.06, max: 0.06, color: '#ffe9a8', size: w.cls === 'sr' ? 16 : 10, flash: true });
@@ -309,6 +327,8 @@
     if (s.mag === 0 && u.ammo[w.ammo] > 0) startReload(u);
     return true;
   }
+
+  function chestOf(u) { return u.stance === 'prone' ? 6 : u.stance === 'crouch' ? 19 : HT.chest; }
 
   function punch(u) {
     if (u.punchT > 0) return false;
@@ -494,7 +514,7 @@
     const w = WEAPONS[gun];
     for (const u of [p, opp]) {
       Object.assign(u, {
-        alive: true, hp: 100, inDuel: true, phase: 'ground', alt: 0,
+        alive: true, hp: 100, inDuel: true, phase: 'ground', altM: 0, stance: 'stand',
         slots: [null, null, null], grenades: 0, vest: 0, vestDur: 0, helmet: 0, helmetDur: 0, pack: 0, boost: 0,
         healT: 0, healType: null, reloadT: 0, slideT: 0, fireCd: 1, killer: null, lastHitBy: null,
       });
@@ -528,7 +548,7 @@
     const z = G.zone;
     const a = rand(0, TAU), d = Math.sqrt(Math.random()) * Math.max(50, z.nr * 0.7);
     winner.phase = 'chute';
-    winner.alt = 0.75;
+    winner.altM = 260;
     winner.hp = 100;
     winner.x = clamp(z.nx + Math.cos(a) * d, 200, G.map.size - 200);
     winner.y = clamp(z.ny + Math.sin(a) * d, 200, G.map.size - 200);
@@ -568,11 +588,12 @@
     };
 
     // Zone
-    G.zone = { phase: 0, state: 'wait', timer: ZONE_PHASES[0].wait, cx: S / 2, cy: S / 2, r: S * 0.76, dps: 0.4 };
+    G.zone = { phase: 0, state: 'wait', timer: ZONE_PHASES[0].wait, cx: S / 2, cy: S * 0.52, r: S * 0.72, dps: 0.4 };
     pickNextZone();
 
     // Units
-    const player = makeUnit('أنت', true, 1);
+    const player = makeUnit(profile.name || 'أنت', true, 1);
+    player.clothes = OUTFITS[profile.outfit] || OUTFITS[0];
     G.player = player;
     G.units.push(player);
     const [s0, s1] = DIFFICULTY[difficulty].skill;
@@ -597,6 +618,7 @@
           tx = bl.x + bl.w / 2; ty = bl.y + bl.h / 2;
         } else {
           tx = rand(300, S - 300); ty = rand(300, S - 300);
+          if (!M.isLand(G.map, tx, ty)) continue;
         }
         const minGap = k < 15 ? 380 : 200;
         if (!G.units.some((o) => !o.isPlayer && Math.hypot(o.dropX - tx, o.dropY - ty) < minGap)) break;
@@ -644,9 +666,12 @@
   }
 
   function planeOverLand() {
-    const pl = G.plane, S = G.map.size;
-    return pl.x > 150 && pl.y > 150 && pl.x < S - 150 && pl.y < S - 150;
+    const pl = G.plane;
+    return M.isLand(G.map, pl.x, pl.y);
   }
+
+  const PLANE_ALT = 800;   // metres
+  const CHUTE_AUTO = 160;  // the parachute opens automatically at this altitude
 
   function jump(u) {
     if (u.phase !== 'plane') return;
@@ -655,40 +680,74 @@
       showBanner('', 'انتظر حتى تصل الطائرة فوق الجزيرة', 1200);
       return;
     }
-    u.phase = 'chute';
-    u.alt = 1;
+    u.phase = 'fall';
+    u.altM = PLANE_ALT;
     u.x = clamp(u.x, 120, S - 120);
     u.y = clamp(u.y, 120, S - 120);
     if (u.isPlayer) {
       Sound.play('jump');
       Sound.setHum(false);
-      showBanner('', 'وجّه المظلة بأزرار الحركة', 2200);
+      showBanner('', 'اضغط للأمام للغوص أسرع — F لفتح المظلة', 2400);
     }
   }
 
-  function updateChute(u, dt) {
-    u.alt -= dt / 8;
-    let mx = 0, my = 0;
+  function openChute(u) {
+    if (u.phase !== 'fall' || u.altM > PLANE_ALT - 60) return;
+    u.phase = 'chute';
+    if (u.isPlayer) Sound.play('chute');
+  }
+
+  // Free fall then parachute. Diving (forward) falls and travels faster.
+  function updateAir(u, dt) {
+    let mx = 0, my = 0, dive = 0;
     if (u.isPlayer) {
       [mx, my] = moveInput();
+      if (mx || my) dive = Math.max(0, mx * Math.cos(look.yaw) + my * Math.sin(look.yaw));
+      if (mx || my) u.angle = Math.atan2(my, mx); else u.angle = look.yaw;
     } else {
       const dx = u.dropX - u.x, dy = u.dropY - u.y;
-      if (Math.hypot(dx, dy) > 20) { mx = dx; my = dy; }
+      const d = Math.hypot(dx, dy);
+      if (d > 30) { mx = dx / d; my = dy / d; dive = d > 900 ? 1 : 0.3; u.angle = Math.atan2(dy, dx); }
     }
     const l = Math.hypot(mx, my);
-    const speed = 270;
-    if (l) { u.x += (mx / l) * speed * dt; u.y += (my / l) * speed * dt; u.angle = Math.atan2(my, mx); }
+    let hs, vs;
+    if (u.phase === 'fall') {
+      hs = l ? 170 + 170 * dive : 0;
+      vs = 50 + 16 * dive;
+      if (u.altM <= CHUTE_AUTO) openChute(u);
+    } else {
+      hs = l ? 220 + 40 * dive : 0;
+      vs = 13;
+    }
+    if (l) { u.x += (mx / l) * hs * dt; u.y += (my / l) * hs * dt; }
+    u.airV = Math.hypot(hs * 0.12, vs) * 3.6; // km/h for the HUD
+    u.vx = l ? (mx / l) * hs : 0; u.vy = l ? (my / l) * hs : 0;
+    u.altM -= vs * dt;
     const S = G.map.size;
     u.x = clamp(u.x, 60, S - 60); u.y = clamp(u.y, 60, S - 60);
-    if (u.alt <= 0) {
-      u.alt = 0;
-      u.phase = 'ground';
-      const A = G.map.arena;
-      if (M.inArena(G.map, u.x, u.y)) { u.x = A.x + A.w + 40; u.y = Math.max(u.y, A.y + 40); }
-      u.landT = G.time;
-      M.collideCircle(G.map, u);
-      if (u.isPlayer) { Sound.play('land'); showBanner('', 'اجمع الأسلحة بسرعة!', 1800); }
+    if (u.altM <= 0) land(u);
+  }
+
+  function land(u) {
+    u.altM = 0;
+    u.phase = 'ground';
+    u.stance = 'stand';
+    // Never land in deep water or inside the arena: slide to the nearest dry spot.
+    const map = G.map;
+    if (M.inArena(map, u.x, u.y) || !M.isLand(map, u.x, u.y)) {
+      let best = null;
+      for (let r = 40; r < 3000 && !best; r += 40) {
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * TAU;
+          const x = u.x + Math.cos(a) * r, y = u.y + Math.sin(a) * r;
+          if (M.isLand(map, x, y) && !M.inArena(map, x, y)) { best = { x, y }; break; }
+        }
+      }
+      if (best) { u.x = best.x; u.y = best.y; }
     }
+    u.landT = G.time;
+    M.collideCircle(map, u);
+    if (u.isPlayer) { Sound.play('land'); showBanner('', 'اجمع الأسلحة بسرعة!', 1800); }
   }
 
   // ---------- Zone ----------
@@ -703,6 +762,7 @@
       const x = z.cx + Math.cos(a) * d, y = z.cy + Math.sin(a) * d;
       const margin = Math.min(ph.r * 0.6, 900) + 150;
       if (x < margin || y < margin || x > S - margin || y > S - margin) continue;
+      if (!M.isLand(G.map, x, y) && i < 35) continue; // keep the circle centred on land
       nx = x; ny = y; break;
     }
     z.nx = nx; z.ny = ny; z.nr = ph.r;
@@ -751,7 +811,7 @@
     for (let i = 0; i < 30; i++) {
       const a = rand(0, TAU), d = Math.sqrt(Math.random()) * z.nr * 0.8;
       const px = z.nx + Math.cos(a) * d, py = z.ny + Math.sin(a) * d;
-      if (M.isFree(G.map, px, py, 40) && M.buildingAt(G.map, px, py) < 0) { x = px; y = py; break; }
+      if (M.isFree(G.map, px, py, 40) && M.buildingAt(G.map, px, py) < 0 && M.isLand(G.map, px, py)) { x = px; y = py; break; }
     }
     G.airdrops.push({ x, y, alt: 1, landed: false, smoke: 40 });
     Sound.play('airdrop');
@@ -793,7 +853,7 @@
 
     for (const u of G.units) {
       if (!u.alive) continue;
-      if (u.phase === 'chute') { updateChute(u, dt); continue; }
+      if (u.phase === 'fall' || u.phase === 'chute') { updateAir(u, dt); continue; }
       if (u.phase !== 'ground') continue;
       if (!u.isPlayer) ZZ.AI.update(u, dt, G);
       updateUnit(u, dt);
@@ -826,7 +886,9 @@
     const dx = aimPoint.x - p.x, dy = aimPoint.y - p.y;
     p.angle = Math.hypot(dx, dy) > 40 ? Math.atan2(dy, dx) : look.yaw;
     p.aiming = mouse.right && !mapOpen && p.healT <= 0;
-    p.sprint = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !p.aiming && p.healT <= 0;
+    const touchSprint = ZZ.Touch.enabled && (ZZ.Touch.sprintLock || ZZ.Touch.move.y < -0.92);
+    p.sprint = (keys.has('ShiftLeft') || keys.has('ShiftRight') || touchSprint) && !p.aiming && p.healT <= 0 && p.stance !== 'prone';
+    if (p.sprint && p.stance === 'crouch' && p.slideT <= 0) p.stance = 'stand';
 
     if (!mapOpen) {
       const w = activeWeapon(p);
@@ -850,7 +912,8 @@
     if (keys.has('KeyS') || keys.has('ArrowDown')) f -= 1;
     if (keys.has('KeyD') || keys.has('ArrowRight')) r += 1;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) r -= 1;
-    if (!f && !r) return [0, 0];
+    if (ZZ.Touch.enabled) { f -= ZZ.Touch.move.y; r += ZZ.Touch.move.x; }
+    if (Math.abs(f) < 0.12 && Math.abs(r) < 0.12) return [0, 0];
     const c = Math.cos(look.yaw), s = Math.sin(look.yaw);
     const x = c * f - s * r, y = s * f + c * r;
     const l = Math.hypot(x, y);
@@ -866,10 +929,23 @@
     if (u.isPlayer) Sound.play('slide');
   }
 
+  // Stances (PUBG style): crouch and prone are quieter, slower and steadier.
+  function setStance(u, st) {
+    if (u.phase !== 'ground' || !u.alive) return;
+    if (st === 'crouch' && u.sprint && u.stance === 'stand' && (u.moveX || u.moveY)) { trySlide(u); u.stance = 'crouch'; return; }
+    u.stance = u.stance === st ? 'stand' : st;
+  }
+  function tryJump(u) {
+    if (u.phase !== 'ground' || u.jumpT > 0) return;
+    if (u.stance !== 'stand') { u.stance = 'stand'; return; }
+    u.jumpT = 0.45;
+  }
+
   function updateUnit(u, dt) {
     u.fireCd = Math.max(0, u.fireCd - dt);
     u.punchT = Math.max(0, u.punchT - dt);
     u.slideCd = Math.max(0, u.slideCd - dt);
+    u.jumpT = Math.max(0, u.jumpT - dt);
     u.hitFlash = Math.max(0, u.hitFlash - dt);
     if (u.reloadT > 0) { u.reloadT -= dt; if (u.reloadT <= 0) { u.reloadT = 0; finishReload(u); } }
     if (u.healT > 0) { u.healT -= dt; if (u.healT <= 0) { u.healT = 0; finishHeal(u); } }
@@ -888,6 +964,9 @@
     if (u.healT > 0) speed *= 0.45;
     if (u.boost > 60) speed *= 1.06;
     if (w && (w.cls === 'sr' || w.cls === 'lmg')) speed *= 0.94;
+    if (u.stance === 'crouch') speed *= u.sprint ? 0.85 : 0.6;
+    else if (u.stance === 'prone') speed *= 0.28;
+    speed *= M.terrainSpeed(G.map, u.x, u.y);
     const ox = u.x, oy = u.y;
     if (u.slideT > 0) {
       u.slideT -= dt;
@@ -898,6 +977,13 @@
       u.y += u.moveY * speed * dt;
     }
     M.collideCircle(G.map, u);
+    // Deep water stops you: slide along the shore instead of swimming out to sea.
+    if (M.isDeep(G.map, u.x, u.y)) {
+      const nx = u.x, ny = u.y;
+      if (!M.isDeep(G.map, nx, oy)) { u.y = oy; }
+      else if (!M.isDeep(G.map, ox, ny)) { u.x = ox; }
+      else { u.x = ox; u.y = oy; }
+    }
     u.vx = (u.x - ox) / Math.max(dt, 1e-4);
     u.vy = (u.y - oy) / Math.max(dt, 1e-4);
 
@@ -954,6 +1040,9 @@
       const ex = b.x + b.vx * dt, ey = b.y + b.vy * dt;
       const dx = ex - sx, dy = ey - sy;
       let tHit = M.segmentHit(G.map, sx, sy, ex, ey);
+      const step = Math.hypot(ex - sx, ey - sy);
+      b.dist += step;
+      if (b.y0 !== undefined && M.heightAt(G.map, ex, ey) > b.y0 + b.slope * b.dist + 3) tHit = tHit >= 0 ? Math.min(tHit, 0.99) : 0.99;
       let unitHit = null;
       for (const u of G.units) {
         if (u === b.owner || !u.alive || u.phase !== 'ground') continue;
@@ -1030,13 +1119,16 @@
     let fx, fz, fy, dist, shoulder, lift, fov = 70, hide = false;
     if (p.phase === 'plane') {
       fx = G.plane.x; fz = G.plane.y; fy = HT.plane; dist = 520; shoulder = 0; lift = 60;
-    } else if (p.phase === 'chute' && p.alive) {
-      fx = p.x; fz = p.y; fy = p.alt * HT.chute + 50; dist = 200; shoulder = 0; lift = 30;
+    } else if ((p.phase === 'fall' || p.phase === 'chute') && p.alive) {
+      fx = p.x; fz = p.y; fy = p.altM * HT.metersToUnits + (p.phase === 'chute' ? 60 : 20);
+      dist = p.phase === 'fall' ? 150 : 230; shoulder = 0; lift = 26;
     } else if (!p.alive) {
       const k = p.killer && p.killer.alive ? p.killer : p;
-      fx = k.x; fz = k.y; fy = 40; dist = 180; shoulder = 0; lift = 50;
+      fx = k.x; fz = k.y; fy = ZZ.groundY(G.map, k.x, k.y) + 40; dist = 180; shoulder = 0; lift = 50;
     } else {
-      fx = p.x; fz = p.y; fy = p.slideT > 0 ? 30 : 46;
+      fx = p.x; fz = p.y;
+      const g0 = ZZ.groundY(G.map, p.x, p.y);
+      fy = g0 + (p.stance === 'prone' ? 16 : p.stance === 'crouch' || p.slideT > 0 ? 32 : 46) + (p.jumpT > 0 ? Math.sin((p.jumpT / 0.45) * Math.PI) * 14 : 0);
       const w = activeWeapon(p);
       if (p.aiming && w) {
         fov = 70 / w.zoom;
@@ -1057,7 +1149,7 @@
         cy += (1 - k) * 34;
       }
     }
-    cy = Math.max(cy, 6);
+    cy = Math.max(cy, M.heightAt(G.map, cx, cz) + 8, ZZ.WATER_LEVEL + 4);
     if (shake > 0) { cx += rand(-shake, shake) * 0.25; cy += rand(-shake, shake) * 0.25; }
     cam.x = cx; cam.y = cy; cam.z = cz;
     cam.tx = cx + dx * 1000; cam.ty = cy + dy * 1000; cam.tz = cz + dz * 1000;
@@ -1065,9 +1157,14 @@
     cam.fx = fx; cam.fz = fz;
     cam.hidePlayer = hide;
 
-    // Where the crosshair points on the ground plane (chest height), used to aim.
+    // Where the crosshair points: march the view ray until it meets the terrain (at chest height).
     let t = 2500;
-    if (dy < -0.004) t = Math.min(2500, (HT.chest - cy) / dy);
+    if (dy < 0.05) {
+      for (let k = 30; k <= 2500; k += k < 300 ? 15 : 45) {
+        const x = cx + dx * k, z = cz + dz * k, y = cy + dy * k;
+        if (y < M.heightAt(G.map, x, z) + HT.chest) { t = k; break; }
+      }
+    }
     aimPoint = { x: cx + dx * t, y: cz + dz * t };
   }
 
@@ -1104,20 +1201,107 @@
   }
 
   // ---------- Rendering ----------
-  function render() {
+  function render(dt) {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    if (!G.map) { drawMenuBackdrop(); return; }
+    if (!G.map) { LOBBY.active = true; if (!DEBUG.noRender) LOBBY.render(dt, W, H); return; }
+    LOBBY.active = false;
     if (!DEBUG.noRender) R3.render(G, cam);
+    drawTownLabels();
     drawItemLabels();
     drawTexts();
     drawScreenEffects();
+    drawCompass();
+    drawAirGauges();
     drawMinimap();
     if (mapOpen) drawFullMap();
     if (state === 'playing' && !mapOpen && G.player.phase === 'ground' && G.player.alive) drawCrosshair();
   }
 
   function project(x, h, y) { return R3.project(x, h, y, W, H); }
+
+  // Compass strip at the top (bearing 0° = north, clockwise).
+  function drawCompass() {
+    const p = G.player;
+    const yaw = p.phase === 'ground' && p.alive ? look.yaw : look.yaw;
+    const bearing = (((yaw + Math.PI / 2) * 180) / Math.PI + 360) % 360;
+    const w = Math.min(560, W * 0.42), cx = W / 2, y = 8;
+    const pxPerDeg = w / 120;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(cx - w / 2, y, w, 34); ctx.clip();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.direction = 'ltr';
+    const names = { 0: 'ش', 45: 'ش.ق', 90: 'ق', 135: 'ج.ق', 180: 'ج', 225: 'ج.غ', 270: 'غ', 315: 'ش.غ' };
+    for (let d = Math.floor((bearing - 70) / 15) * 15; d <= bearing + 70; d += 15) {
+      const dd = ((d % 360) + 360) % 360;
+      const sx = cx + (d - bearing) * pxPerDeg;
+      const major = dd % 45 === 0;
+      ctx.globalAlpha = 1 - Math.min(1, Math.abs(d - bearing) / 62) * 0.75;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(sx - 0.5, y, 1, major ? 8 : 5);
+      ctx.font = major ? 'bold 15px "Segoe UI", Tahoma, sans-serif' : '11px "Segoe UI", Tahoma, sans-serif';
+      ctx.fillText(names[dd] || String(dd), sx, y + 11);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffd34d';
+    ctx.beginPath(); ctx.moveTo(cx - 6, y + 34); ctx.lineTo(cx + 6, y + 34); ctx.lineTo(cx, y + 27); ctx.fill();
+    ctx.direction = 'inherit';
+  }
+
+  // Altitude and speed scales while skydiving.
+  function drawAirGauges() {
+    const p = G.player;
+    if (!p.alive || (p.phase !== 'fall' && p.phase !== 'chute')) return;
+    const h = Math.min(380, H * 0.48), top = H / 2 - h / 2;
+    const gauge = (x, value, max, label, unit, alignLeft) => {
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + h); ctx.stroke();
+      for (let i = 0; i <= 10; i++) {
+        const yy = top + (h * i) / 10;
+        ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + (alignLeft ? -1 : 1) * (i % 5 === 0 ? 12 : 6), yy); ctx.stroke();
+      }
+      const yv = top + h * (1 - Math.min(1, value / max));
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(x + (alignLeft ? -86 : 14), yv - 18, 72, 36);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.direction = 'ltr';
+      ctx.font = 'bold 20px "Segoe UI", Tahoma, sans-serif';
+      ctx.fillText(String(Math.round(value)), x + (alignLeft ? -50 : 50), yv - 5);
+      ctx.font = '11px "Segoe UI", Tahoma, sans-serif';
+      ctx.fillText(unit, x + (alignLeft ? -50 : 50), yv + 11);
+      ctx.font = '13px "Segoe UI", Tahoma, sans-serif';
+      ctx.fillText(label, x, top + h + 16);
+      ctx.direction = 'inherit';
+    };
+    gauge(W / 2 - 170, p.altM, 800, 'الارتفاع', 'متر', true);
+    gauge(W / 2 + 170, Math.min(234, p.airV || 0), 250, 'السرعة', 'كم/س', false);
+  }
+
+  // Big town names floating over the island while in the air.
+  function drawTownLabels() {
+    const p = G.player;
+    const airborne = p.phase === 'plane' || ((p.phase === 'fall' || p.phase === 'chute') && p.altM > 120);
+    if (!airborne) return;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const t of G.map.towns) {
+      const sc = project(t.x, M.heightAt(G.map, t.x, t.y) + 60, t.y);
+      if (!sc || sc.x < -100 || sc.x > W + 100 || sc.y < 40 || sc.y > H) continue;
+      const d = Math.hypot(cam.x - t.x, cam.z - t.y, cam.y);
+      const size = clamp(9000 / d, 13, 30);
+      ctx.font = `italic 900 ${size}px "Segoe UI", Tahoma, sans-serif`;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+      ctx.strokeText(t.name, sc.x, sc.y);
+      ctx.fillStyle = t.military ? '#ffe08a' : '#ffffff';
+      ctx.fillText(t.name, sc.x, sc.y);
+    }
+  }
 
   function drawItemLabels() {
     const p = G.player;
@@ -1235,24 +1419,14 @@
     }
   }
 
-  function planeShape(s) {
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 90 * s, 14 * s, 0, 0, TAU);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(10 * s, 0); ctx.lineTo(-20 * s, -95 * s); ctx.lineTo(-38 * s, -95 * s); ctx.lineTo(-20 * s, 0);
-    ctx.lineTo(-38 * s, 95 * s); ctx.lineTo(-20 * s, 95 * s); ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-70 * s, 0); ctx.lineTo(-88 * s, -32 * s); ctx.lineTo(-96 * s, -32 * s); ctx.lineTo(-90 * s, 0);
-    ctx.lineTo(-96 * s, 32 * s); ctx.lineTo(-88 * s, 32 * s); ctx.closePath(); ctx.fill();
-  }
+
 
   // Local minimap around the player (bottom-left).
   function drawMinimap() {
-    const size = 180, pad = 14;
-    const x = pad, y = H - size - pad;
+    const size = 200, pad = 12;
+    const x = W - size - pad, y = pad;
     const p = G.player;
-    const range = 1400;
+    const range = 1600;
     const s = size / range;
     const cx = p.phase === 'plane' ? G.plane.x : p.x, cy = p.phase === 'plane' ? G.plane.y : p.y;
     const toX = (wx) => x + size / 2 + (wx - cx) * s;
@@ -1265,6 +1439,11 @@
     const gs = M.GROUND_SCALE;
     const sx0 = cx - range / 2, sy0 = cy - range / 2;
     ctx.drawImage(G.map.ground, sx0 * gs, sy0 * gs, range * gs, range * gs, x, y, size, size);
+    // 1 km grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    for (let k = Math.ceil(sx0 / 1000) * 1000; k < sx0 + range; k += 1000) { ctx.beginPath(); ctx.moveTo(toX(k), y); ctx.lineTo(toX(k), y + size); ctx.stroke(); }
+    for (let k = Math.ceil(sy0 / 1000) * 1000; k < sy0 + range; k += 1000) { ctx.beginPath(); ctx.moveTo(x, toY(k)); ctx.lineTo(x + size, toY(k)); ctx.stroke(); }
     ctx.fillStyle = 'rgba(70,60,50,0.9)';
     for (const b of G.map.buildings) {
       if (b.x > sx0 + range || b.x + b.w < sx0 || b.y > sy0 + range || b.y + b.h < sy0) continue;
@@ -1355,13 +1534,25 @@
     ctx.fill('evenodd');
     drawZoneOn(ctx, toX, toY, s);
     ctx.restore();
-    // Grid letters
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    // 8×8 grid of 1 km squares with letters/numbers on the edges.
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
     ctx.lineWidth = 1;
     for (let i = 1; i < 8; i++) {
       const k = (size / 8) * i;
       ctx.beginPath(); ctx.moveTo(x + k, y); ctx.lineTo(x + k, y + size); ctx.moveTo(x, y + k); ctx.lineTo(x + size, y + k); ctx.stroke();
     }
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = 'bold 12px "Segoe UI", Tahoma, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const letters = 'ABCDEFGH';
+    for (let i = 0; i < 8; i++) {
+      ctx.fillText(letters[i], x + (size / 8) * (i + 0.5), y + 10);
+      ctx.fillText(String(i + 1), x + 10, y + (size / 8) * (i + 0.5));
+    }
+    // Scale bar
+    ctx.fillRect(x + size - 20 - size / 8, y + size - 14, size / 8, 3);
+    ctx.fillText('1 كم', x + size - 20 - size / 16, y + size - 26);
     // Plane path
     const pl = G.plane;
     if (pl.active) {
@@ -1405,29 +1596,6 @@
     ctx.fillStyle = '#fff';
     ctx.font = '13px "Segoe UI", Tahoma, sans-serif';
     ctx.fillText('انقر لوضع علامة — M للإغلاق', W / 2, y + size + 20);
-  }
-
-  // Menu backdrop: drifting island silhouette and rings.
-  let menuT = 0;
-  function drawMenuBackdrop() {
-    menuT += 1 / 60;
-    const cx = W / 2, cy = H / 2;
-    const r = Math.min(W, H) * 0.36;
-    ctx.fillStyle = '#10161d';
-    ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = 'rgba(70,130,255,0.35)';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(cx, cy, r * (1 + Math.sin(menuT * 0.6) * 0.04), 0, TAU); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx + Math.cos(menuT * 0.3) * 40, cy + Math.sin(menuT * 0.3) * 30, r * 0.55, 0, TAU); ctx.stroke();
-    // Plane crossing
-    const px = ((menuT * 60) % (W + 400)) - 200;
-    ctx.save();
-    ctx.translate(px, cy - r * 0.6);
-    ctx.fillStyle = 'rgba(200,205,210,0.25)';
-    planeShape(0.6);
-    ctx.restore();
   }
 
   // ---------- HUD ----------
@@ -1528,6 +1696,15 @@
       nearbyItems.sort((a, b) => a.d - b.d);
       nearbyItems = nearbyItems.slice(0, 7).map((o) => o.it);
     }
+    // Context button for touch controls.
+    let ctxLabel = '';
+    if (p.alive) {
+      if (p.phase === 'plane') ctxLabel = planeOverLand() ? 'اقفز' : '';
+      else if (p.phase === 'fall' && p.altM < 740) ctxLabel = 'افتح المظلة';
+      else if (p.phase === 'ground' && nearbyItems[0]) ctxLabel = 'التقاط';
+    }
+    ZZ.Touch.setContext(ctxLabel);
+    if (ZZ.Touch.enabled && p.phase === 'plane') prompt = '';
     setHTML(H$.prompt, 'prompt', prompt);
     H$.prompt.classList.toggle('hidden', !prompt);
     const listKey = nearbyItems.map((it) => it.id + ':' + it.amount).join(',');
@@ -1549,6 +1726,54 @@
     }
   }
 
+  // F / the context button: jump from the plane, open the parachute, or pick up.
+  function interact() {
+    const p = G.player;
+    if (!p.alive) return;
+    if (p.phase === 'plane') jump(p);
+    else if (p.phase === 'fall') openChute(p);
+    else if (p.phase === 'ground' && nearbyItems[0]) pickup(p, nearbyItems[0]);
+  }
+
+  // Heal button: the best item for the current health.
+  function smartHeal(p) {
+    const order = p.hp < 50 ? ['medkit', 'firstaid', 'bandage', 'pills', 'drink'] : p.hp < 75 ? ['firstaid', 'bandage', 'pills', 'drink'] : ['drink', 'pills'];
+    for (const m of order) if (useMed(p, m)) return;
+  }
+
+  ZZ.Touch.init({
+    look(dx, dy) {
+      if (state !== 'playing' || mapOpen) return;
+      const k = look.sens * 1.6 * (G.player && G.player.aiming ? 0.5 : 1);
+      look.yaw += dx * k;
+      look.pitch = clamp(look.pitch - dy * k, -1.25, 0.8);
+    },
+    action(act, down) {
+      Sound.init();
+      if (act === 'pause') { if (down) pauseGame(); return; }
+      if (state !== 'playing') return;
+      if (act === 'map') { if (down) toggleMap(); return; }
+      const p = G.player;
+      if (!p.alive) return;
+      if (act === 'fire') { mouse.down = down; if (down) shotQueueT = 0.2; return; }
+      if (!down) return;
+      if (act === 'aim') mouse.right = !mouse.right;
+      else if (act === 'reload') startReload(p);
+      else if (act === 'jump') { if (p.phase === 'plane') jump(p); else tryJump(p); }
+      else if (act === 'crouch') setStance(p, 'crouch');
+      else if (act === 'prone') setStance(p, 'prone');
+      else if (act === 'grenade') throwGrenade(p, aimPoint.x, aimPoint.y);
+      else if (act === 'heal') smartHeal(p);
+      else if (act === 'interact') interact();
+    },
+  });
+  // Weapon cards are tappable in touch mode.
+  document.querySelectorAll('.wslot').forEach((el) => el.addEventListener('pointerdown', (e) => {
+    if (!ZZ.Touch.enabled || state !== 'playing') return;
+    e.stopPropagation();
+    switchSlot(G.player, +el.dataset.slot);
+  }));
+
   // ---------- Input handlers ----------
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Tab') e.preventDefault();
@@ -1561,14 +1786,16 @@
       if (e.code === 'Escape') { if (mapOpen) toggleMap(false); else pauseGame(); }
       else if (e.code === 'KeyM' || e.code === 'Tab') toggleMap();
       else if (!p.alive) return;
-      else if (e.code === 'KeyF') { if (p.phase === 'plane') jump(p); else if (nearbyItems[0]) pickup(p, nearbyItems[0]); }
+      else if (e.code === 'KeyF') interact();
       else if (e.code === 'KeyR') startReload(p);
       else if (e.code === 'Digit1') switchSlot(p, 0);
       else if (e.code === 'Digit2') switchSlot(p, 1);
       else if (e.code === 'Digit3') switchSlot(p, 2);
       else if (e.code === 'KeyX') switchSlot(p, -1);
       else if (e.code === 'KeyG') throwGrenade(p, aimPoint.x, aimPoint.y);
-      else if (e.code === 'KeyC' || e.code === 'ControlLeft') trySlide(p);
+      else if (e.code === 'KeyC' || e.code === 'ControlLeft') setStance(p, 'crouch');
+      else if (e.code === 'KeyZ') setStance(p, 'prone');
+      else if (e.code === 'Space') { if (p.phase === 'plane') jump(p); else tryJump(p); }
       else {
         const med = MED_ORDER.find((m) => 'Digit' + MEDS[m].key === e.code);
         if (med && !useMed(p, med) && p.meds[med] > 0) showBanner('', p.hp >= 75 && med !== 'medkit' && !MEDS[med].boost ? 'لا يمكن الشفاء أكثر بهذا الغرض' : '', 1200);
@@ -1580,14 +1807,14 @@
   // Mouse look (pointer lock gives unlimited movement; without it deltas still work).
   window.addEventListener('mousemove', (e) => {
     mouse.x = e.clientX; mouse.y = e.clientY;
-    if (state !== 'playing' || mapOpen) return;
+    if (state !== 'playing' || mapOpen || ZZ.Touch.enabled) return;
     const k = look.sens * (G.player && G.player.aiming ? 0.55 : 1);
     look.yaw += e.movementX * k;
     look.pitch = clamp(look.pitch - e.movementY * k, -1.25, 0.8);
   });
   function lockPointer() {
     const el = $('game');
-    if (document.pointerLockElement || !el.requestPointerLock) return;
+    if (ZZ.Touch.enabled || document.pointerLockElement || !el.requestPointerLock) return;
     try { const r = el.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch { /* not supported */ }
   }
   let unlockingForMap = false;
@@ -1642,7 +1869,7 @@
   }
 
   // ---------- State transitions ----------
-  const overlays = ['menu', 'help', 'pause', 'results'];
+  const overlays = ['menu', 'help', 'pause', 'results', 'stats', 'outfit', 'settings'];
   function showOverlay(id) { overlays.forEach((o) => $(o).classList.toggle('hidden', o !== id)); }
 
   function startGame() {
@@ -1736,6 +1963,16 @@
   }
 
   function refreshMenuStats() {
+    const st0 = store.get('zz_stats', { wins: 0, best: 0, kills: 0, games: 0 });
+    $('lb-wins').textContent = String(st0.wins);
+    $('lb-kills').textContent = String(st0.kills);
+    $('lb-name').textContent = profile.name || 'لاعب';
+    $('lb-avatar').textContent = (profile.name || 'ص').trim().charAt(0) || 'ص';
+    $('lb-level').textContent = `المستوى ${1 + Math.floor((st0.kills * 10 + st0.games * 25 + st0.wins * 100) / 200)}`;
+    $('mode-diff').textContent = 'الخصوم: ' + { easy: 'سهل', normal: 'عادي', hard: 'صعب' }[difficulty];
+    document.querySelectorAll('#ctrl-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === settings.ctrl));
+    document.querySelectorAll('#gfx-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === settings.gfx));
+    $('in-sens').value = String(+(look.sens * 1000).toFixed(1));
     const st = store.get('zz_stats', { wins: 0, best: 0, kills: 0, games: 0 });
     $('st-wins').textContent = String(st.wins);
     $('st-best').textContent = st.best ? '#' + st.best : '-';
@@ -1752,6 +1989,56 @@
 
   $('btn-start').addEventListener('click', startGame);
   $('btn-help').addEventListener('click', () => showOverlay('help'));
+  $('btn-stats').addEventListener('click', () => { refreshMenuStats(); showOverlay('stats'); });
+  $('btn-settings').addEventListener('click', () => { refreshMenuStats(); showOverlay('settings'); });
+  $('btn-settings2').addEventListener('click', () => { refreshMenuStats(); showOverlay('settings'); });
+  $('btn-outfit').addEventListener('click', () => { $('in-name').value = profile.name || ''; buildSwatches(); showOverlay('outfit'); });
+  $('mode-card').addEventListener('click', () => {
+    const order = ['easy', 'normal', 'hard'];
+    difficulty = order[(order.indexOf(difficulty) + 1) % 3];
+    store.set('zz_diff', difficulty);
+    refreshMenuStats();
+  });
+  document.querySelectorAll('.back-btn').forEach((b) => b.addEventListener('click', () => {
+    if (!$('outfit').classList.contains('hidden')) {
+      profile.name = $('in-name').value.trim().slice(0, 16);
+      store.set('zz_profile', profile);
+      LOBBY.setOutfit({ clothes: OUTFITS[profile.outfit] });
+    }
+    refreshMenuStats();
+    showOverlay(state === 'paused' ? 'pause' : 'menu');
+  }));
+  document.querySelectorAll('#ctrl-seg button').forEach((b) => b.addEventListener('click', () => {
+    settings.ctrl = b.dataset.v; store.set('zz_settings', settings); applySettings(); refreshMenuStats();
+  }));
+  document.querySelectorAll('#gfx-seg button').forEach((b) => b.addEventListener('click', () => {
+    settings.gfx = b.dataset.v; store.set('zz_settings', settings); applySettings(); refreshMenuStats();
+  }));
+  $('in-sens').addEventListener('input', () => {
+    look.sens = (+$('in-sens').value) / 1000;
+    store.set('zz_sens', look.sens);
+  });
+  function buildSwatches() {
+    const box = $('swatches');
+    box.innerHTML = '';
+    OUTFITS.forEach((c, i) => {
+      const b = document.createElement('button');
+      b.className = `swatch sw-${i}` + (i === profile.outfit ? ' on' : '');
+      b.setAttribute('aria-label', 'لون ' + (i + 1));
+      b.addEventListener('click', () => {
+        profile.outfit = i;
+        store.set('zz_profile', profile);
+        LOBBY.setOutfit({ clothes: c });
+        buildSwatches();
+      });
+      box.appendChild(b);
+    });
+  }
+  function applySettings() {
+    ZZ.Touch.setEnabled(settings.ctrl === 'touch');
+    R3.setQuality(settings.gfx);
+    if (ZZ.Touch.enabled && document.pointerLockElement) document.exitPointerLock();
+  }
   $('btn-help-back').addEventListener('click', () => showOverlay(G.map && state === 'paused' ? 'pause' : 'menu'));
   $('btn-sound').addEventListener('click', () => { Sound.init(); toggleMute(); });
   $('btn-quit').addEventListener('click', () => window.close());
@@ -1767,12 +2054,15 @@
   }));
 
   if (store.get('zz_muted', false)) toggleMute();
+  applySettings();
+  LOBBY.setOutfit({ clothes: OUTFITS[profile.outfit] });
   refreshMenuStats();
 
   // Bots call into the world through these.
   Object.assign(G, {
     tryFire, startReload, switchSlot, pickup, useMed, throwGrenade,
     segmentHit: (x1, y1, x2, y2) => M.segmentHit(G.map, x1, y1, x2, y2),
+    terrainBlocks: (a, b) => M.terrainBlocks(G.map, a.x, a.y, ZZ.groundY(G.map, a.x, a.y) + chestOf(a), b.x, b.y, ZZ.groundY(G.map, b.x, b.y) + chestOf(b)),
     buildingAt: (x, y) => M.buildingAt(G.map, x, y),
   });
 
@@ -1792,7 +2082,7 @@
     } else if (state === 'over' && G.map) {
       updateEffects(rawDt);
     }
-    render();
+    render(rawDt);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
