@@ -9,6 +9,7 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+  <canvas id="overlay"></canvas>
 
   <!-- HUD -->
   <div id="hud" class="hidden">
@@ -60,7 +61,7 @@
     <div class="card">
       <h1 class="title">منطقة الصفر</h1>
       <div class="subtitle">ZERO ZONE · BATTLE ROYALE</div>
-      <p class="tagline">50 لاعباً، جزيرة واحدة، ناجٍ واحد فقط.</p>
+      <p class="tagline">50 لاعباً، جزيرة واحدة، ناجٍ واحد فقط — بمنظور الشخص الثالث.</p>
       <div class="diff">
         <span class="label">مستوى الخصوم</span>
         <div class="seg" id="diff-seg">
@@ -89,11 +90,12 @@
     <div class="card wide">
       <h2>طريقة اللعب</h2>
       <div class="help-grid">
-        <div><kbd>F</kbd></div><div>القفز من الطائرة / التقاط الأغراض</div>
+        <div>الفأرة</div><div>النظر والتصويب (انقر داخل اللعبة لتثبيت المؤشر)</div>
+        <div><kbd>F</kbd></div><div>القفز من الطائرة / التقاط أقرب غرض</div>
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><div>الحركة (والتوجيه بالمظلة)</div>
-        <div><kbd>Shift</kbd></div><div>الركض السريع</div>
+        <div><kbd>Shift</kbd></div><div>الركض السريع — ومعه <kbd>C</kbd> انزلاق سريع</div>
         <div>زر الفأرة الأيسر</div><div>إطلاق النار</div>
-        <div>زر الفأرة الأيمن</div><div>التصويب بالمنظار (رؤية أبعد ودقة أعلى)</div>
+        <div>زر الفأرة الأيمن</div><div>التصويب: كاميرا أقرب، والقناصات بمنظار حقيقي</div>
         <div><kbd>R</kbd></div><div>إعادة التلقيم</div>
         <div><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> / العجلة</div><div>تبديل السلاح — <kbd>X</kbd> لإخفائه</div>
         <div><kbd>4</kbd> … <kbd>8</kbd></div><div>ضمادة، إسعاف أولي، حقيبة طبية، مشروب طاقة، مسكّن</div>
@@ -101,13 +103,14 @@
         <div><kbd>M</kbd> / <kbd>Tab</kbd></div><div>الخريطة الكاملة (انقر لوضع علامة)</div>
         <div><kbd>Esc</kbd></div><div>إيقاف مؤقت — <kbd>N</kbd> كتم الصوت — <kbd>F11</kbd> ملء الشاشة</div>
       </div>
+      <h3>قوانين منطقة الصفر</h3>
       <ul class="tips">
-        <li>اقفز من الطائرة فوق المكان الذي تريده، ثم اجمع الأسلحة والدروع والذخيرة بسرعة.</li>
-        <li>الذخيرة والأدوية والدروع الأفضل تُلتقط تلقائياً، والأسلحة بالضغط على <kbd>F</kbd>.</li>
-        <li>الدائرة البيضاء هي المنطقة الآمنة القادمة، والزرقاء تتقلص نحوها وتؤذي كل من خارجها.</li>
-        <li>الخوذة تحمي من الطلقات في الرأس، والسترة تخفف ضرر الجسد.</li>
-        <li>المشروبات والمسكنات ترفع شريط الطاقة: شفاء تدريجي وسرعة أعلى.</li>
-        <li>راقب الإنزالات الجوية بالدخان الأحمر — فيها أقوى الأسلحة.</li>
+        <li><b>القفز والغنائم:</b> اقفز من الطائرة حيث تشاء، واجمع الأسلحة والدروع (ثلاثة مستويات) والذخيرة.</li>
+        <li><b>المنطقة الزرقاء:</b> تضيق على 7 مراحل نحو الدائرة البيضاء، وتؤذي كل من خارجها.</li>
+        <li><b>الفرصة الثانية:</b> إذا سقطت قبل المرحلة الرابعة تُنقل إلى الحلبة لمبارزة واحد لواحد — اربح وستعود بالمظلة!</li>
+        <li><b>الدمار:</b> القنابل تفتح ثغرات في جدران المباني والصناديق.</li>
+        <li><b>طائرة الاستطلاع:</b> كل 3 قتلى تكشف لك مواقع الأعداء على الخريطة لمدة 25 ثانية.</li>
+        <li><b>الإنزالات الجوية:</b> دخان أحمر يدل على أقوى الأسلحة (AWM و M249) ودروع المستوى 3.</li>
       </ul>
       <button id="btn-help-back" class="primary">رجوع</button>
     </div>
@@ -145,10 +148,12 @@
     </div>
   </div>
 
+  <script src="vendor/three.min.js"></script>
   <script src="audio.js"></script>
   <script src="data.js"></script>
   <script src="map.js"></script>
   <script src="ai.js"></script>
+  <script src="render3d.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

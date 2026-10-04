@@ -99,7 +99,7 @@
   function think(b, G) {
     const ai = b.ai;
     const now = G.time;
-    const z = G.zone;
+    const z = b.inDuel ? G.duelZone : G.zone;
 
     // Perception: a forward vision cone, plus hearing nearby gunfire.
     const viewRange = 430 + b.skill * 300;
@@ -295,7 +295,7 @@
           my = uy * fwd + ux * ai.strafeDir * strafe;
         }
         // Drift toward the zone while fighting outside it.
-        const z = G.zone;
+        const z = b.inDuel ? G.duelZone : G.zone;
         if (!insideCircle(b.x, b.y, z.cx, z.cy, z.r)) {
           const zd = Math.hypot(z.cx - b.x, z.cy - b.y) || 1;
           mx += (z.cx - b.x) / zd * 0.8; my += (z.cy - b.y) / zd * 0.8;
