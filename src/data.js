@@ -6,7 +6,7 @@ window.ZZ = window.ZZ || {};
 (() => {
   const ZZ = window.ZZ;
 
-  ZZ.MAP_SIZE = 6500;
+  ZZ.MAP_SIZE = 8000; // shown in-game as an 8×8 grid of 1 km squares
   ZZ.PLAYER_COUNT = 50;
 
   // ---------- Ammo ----------
@@ -101,12 +101,12 @@ window.ZZ = window.ZZ || {};
   // ---------- Zone phases ----------
   // wait: seconds before shrinking, shrink: shrink duration, r: target radius, dps: damage/s while outside.
   ZZ.ZONE_PHASES = [
-    { wait: 110, shrink: 60, r: 2200, dps: 0.6 },
-    { wait: 70,  shrink: 45, r: 1350, dps: 1.2 },
-    { wait: 55,  shrink: 40, r: 780,  dps: 2.5 },
-    { wait: 45,  shrink: 30, r: 430,  dps: 4 },
-    { wait: 35,  shrink: 25, r: 210,  dps: 7 },
-    { wait: 25,  shrink: 25, r: 70,   dps: 10 },
+    { wait: 120, shrink: 60, r: 2700, dps: 0.6 },
+    { wait: 75,  shrink: 50, r: 1650, dps: 1.2 },
+    { wait: 60,  shrink: 40, r: 960,  dps: 2.5 },
+    { wait: 45,  shrink: 30, r: 530,  dps: 4 },
+    { wait: 35,  shrink: 25, r: 260,  dps: 7 },
+    { wait: 25,  shrink: 25, r: 85,   dps: 10 },
     { wait: 15,  shrink: 20, r: 0,    dps: 14 },
   ];
   ZZ.AIRDROP_PHASES = [1, 3]; // phase indexes at whose start a care package drops

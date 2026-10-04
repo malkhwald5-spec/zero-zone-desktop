@@ -14,8 +14,8 @@
   <!-- HUD -->
   <div id="hud" class="hidden">
     <div id="topbar">
-      <div class="pill"><span class="label">الأحياء</span><b id="hud-alive">50</b></div>
-      <div class="pill"><span class="label">القتلى</span><b id="hud-kills">0</b></div>
+      <div class="tb"><span class="label">المتبقون</span><b id="hud-alive">50</b></div>
+      <div class="tb"><span class="label">القتلى</span><b id="hud-kills">0</b></div>
     </div>
     <div id="zone-info" class="pill"></div>
     <div id="killfeed"></div>
@@ -56,31 +56,96 @@
     </div>
   </div>
 
-  <!-- Main menu -->
-  <div id="menu" class="overlay">
+  <!-- On-screen (touch) controls -->
+  <div id="touch">
+    <div id="look-pad"></div>
+    <div id="joy"><div id="joy-ring"></div><div id="joy-knob"></div><div id="joy-sprint">ركض ⬆</div></div>
+    <button class="tbtn fire-l" data-act="fire" aria-label="إطلاق">🔫</button>
+    <button class="tbtn fire-r" data-act="fire" aria-label="إطلاق">🔫</button>
+    <button class="tbtn t-aim" data-act="aim">⌖<small>منظار</small></button>
+    <button class="tbtn t-reload" data-act="reload">⟳<small>تلقيم</small></button>
+    <button class="tbtn t-jump" data-act="jump">⤒<small>قفز</small></button>
+    <button class="tbtn t-crouch" data-act="crouch">⤓<small>انحناء</small></button>
+    <button class="tbtn t-prone" data-act="prone">▁<small>انبطاح</small></button>
+    <button class="tbtn t-nade" data-act="grenade">●<small>قنبلة</small></button>
+    <button class="tbtn t-heal" data-act="heal">✚<small>علاج</small></button>
+    <button class="tbtn t-map" data-act="map">⌗<small>الخريطة</small></button>
+    <button class="tbtn t-pause" data-act="pause">⚙</button>
+    <button class="tbtn t-interact hidden" data-act="interact" id="t-interact"></button>
+  </div>
+
+  <!-- Lobby -->
+  <div id="menu" class="overlay lobby">
+    <div class="lobby-top">
+      <div class="profile">
+        <div class="avatar" id="lb-avatar">ص</div>
+        <div class="who"><b id="lb-name">لاعب</b><span id="lb-level">المستوى 1</span></div>
+      </div>
+      <div class="lobby-brand">منطقة الصفر<small>ZERO ZONE</small></div>
+      <div class="wallet">
+        <div class="coin" title="انتصارات">🏆 <b id="lb-wins">0</b></div>
+        <div class="coin" title="مجموع القتلى">☠ <b id="lb-kills">0</b></div>
+        <button class="icon-btn" id="btn-settings" aria-label="الإعدادات">⚙</button>
+      </div>
+    </div>
+    <p class="tagline">50 لاعباً على جزيرة 8×8 كم — ناجٍ واحد فقط.</p>
+    <div class="lobby-left">
+      <button class="mode-card" id="mode-card">
+        <span class="mode-thumb">8×8</span>
+        <span class="mode-text"><b>كلاسيكي — فردي</b><span>جزيرة الصفر</span><span id="mode-diff">الخصوم: عادي</span></span>
+      </button>
+      <button id="btn-start" class="start-btn">ابدأ</button>
+    </div>
+    <div class="lobby-bottom">
+      <button id="btn-stats">الإحصائيات</button>
+      <button id="btn-outfit">المظهر</button>
+      <button id="btn-help">طريقة اللعب</button>
+      <button id="btn-settings2">الإعدادات</button>
+      <button id="btn-quit">خروج</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats" class="overlay dim hidden">
     <div class="card">
-      <h1 class="title">منطقة الصفر</h1>
-      <div class="subtitle">ZERO ZONE · BATTLE ROYALE</div>
-      <p class="tagline">50 لاعباً، جزيرة واحدة، ناجٍ واحد فقط — بمنظور الشخص الثالث.</p>
-      <div class="diff">
-        <span class="label">مستوى الخصوم</span>
-        <div class="seg" id="diff-seg">
-          <button data-diff="easy">سهل</button>
-          <button data-diff="normal">عادي</button>
-          <button data-diff="hard">صعب</button>
-        </div>
-      </div>
-      <div class="buttons">
-        <button id="btn-start" class="primary">ابدأ المباراة</button>
-        <button id="btn-help">طريقة اللعب</button>
-        <button id="btn-sound">الصوت: يعمل</button>
-        <button id="btn-quit">خروج</button>
-      </div>
+      <h2>الإحصائيات</h2>
       <div class="career">
         <div><span>انتصارات</span><b id="st-wins">0</b></div>
         <div><span>أفضل ترتيب</span><b id="st-best">-</b></div>
         <div><span>مجموع القتلى</span><b id="st-kills">0</b></div>
         <div><span>مباريات</span><b id="st-games">0</b></div>
+      </div>
+      <div class="buttons"><button class="primary back-btn">رجوع</button></div>
+    </div>
+  </div>
+
+  <!-- Outfit -->
+  <div id="outfit" class="overlay dim hidden">
+    <div class="card">
+      <h2>المظهر</h2>
+      <label class="field"><span>اسم اللاعب</span><input id="in-name" maxlength="16" autocomplete="off"></label>
+      <div class="field"><span>لون الملابس</span><div class="swatches" id="swatches"></div></div>
+      <div class="buttons"><button class="primary back-btn">حفظ</button></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings" class="overlay dim hidden">
+    <div class="card">
+      <h2>الإعدادات</h2>
+      <div class="field"><span>مستوى الخصوم</span>
+        <div class="seg" id="diff-seg"><button data-diff="easy">سهل</button><button data-diff="normal">عادي</button><button data-diff="hard">صعب</button></div>
+      </div>
+      <div class="field"><span>طريقة التحكم</span>
+        <div class="seg" id="ctrl-seg"><button data-v="touch">أزرار على الشاشة</button><button data-v="kbm">لوحة مفاتيح وفأرة</button></div>
+      </div>
+      <div class="field"><span>جودة الرسوميات</span>
+        <div class="seg" id="gfx-seg"><button data-v="low">منخفضة</button><button data-v="medium">متوسطة</button><button data-v="high">عالية</button></div>
+      </div>
+      <label class="field"><span>حساسية النظر</span><input type="range" id="in-sens" min="0.8" max="5" step="0.1"></label>
+      <div class="buttons">
+        <button id="btn-sound">الصوت: يعمل</button>
+        <button class="primary back-btn">رجوع</button>
       </div>
     </div>
   </div>
@@ -91,9 +156,10 @@
       <h2>طريقة اللعب</h2>
       <div class="help-grid">
         <div>الفأرة</div><div>النظر والتصويب (انقر داخل اللعبة لتثبيت المؤشر)</div>
-        <div><kbd>F</kbd></div><div>القفز من الطائرة / التقاط أقرب غرض</div>
+        <div><kbd>F</kbd></div><div>القفز من الطائرة / فتح المظلة / التقاط أقرب غرض</div>
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><div>الحركة (والتوجيه بالمظلة)</div>
-        <div><kbd>Shift</kbd></div><div>الركض السريع — ومعه <kbd>C</kbd> انزلاق سريع</div>
+        <div><kbd>Shift</kbd></div><div>الركض السريع</div>
+        <div><kbd>C</kbd> / <kbd>Z</kbd> / <kbd>Space</kbd></div><div>انحناء (أثناء الركض: انزلاق) / انبطاح / قفز</div>
         <div>زر الفأرة الأيسر</div><div>إطلاق النار</div>
         <div>زر الفأرة الأيمن</div><div>التصويب: كاميرا أقرب، والقناصات بمنظار حقيقي</div>
         <div><kbd>R</kbd></div><div>إعادة التلقيم</div>
@@ -103,6 +169,13 @@
         <div><kbd>M</kbd> / <kbd>Tab</kbd></div><div>الخريطة الكاملة (انقر لوضع علامة)</div>
         <div><kbd>Esc</kbd></div><div>إيقاف مؤقت — <kbd>N</kbd> كتم الصوت — <kbd>F11</kbd> ملء الشاشة</div>
       </div>
+      <h3>أزرار الشاشة</h3>
+      <ul class="tips">
+        <li>عصا الحركة في الأسفل يساراً — اسحبها لأعلى كثيراً لتثبيت الركض.</li>
+        <li>اسحب بإصبعك أو بالفأرة في الجهة اليمنى للنظر. زرّا الإطلاق يديران الكاميرا أيضاً أثناء الضغط.</li>
+        <li>الزر الأوسط يتغير حسب الموقف: «اقفز» من الطائرة، «افتح المظلة» أثناء السقوط، «التقاط» قرب الغنائم.</li>
+        <li>يمكنك التبديل إلى لوحة المفاتيح والفأرة من الإعدادات.</li>
+      </ul>
       <h3>قوانين منطقة الصفر</h3>
       <ul class="tips">
         <li><b>القفز والغنائم:</b> اقفز من الطائرة حيث تشاء، واجمع الأسلحة والدروع (ثلاثة مستويات) والذخيرة.</li>
@@ -154,6 +227,8 @@
   <script src="map.js"></script>
   <script src="ai.js"></script>
   <script src="render3d.js"></script>
+  <script src="lobby3d.js"></script>
+  <script src="touch.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

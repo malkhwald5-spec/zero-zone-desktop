@@ -117,7 +117,10 @@
       if (!inCone && d > 130) continue;
       // Tree canopies give some concealment at range.
       if (d > 320 && u.underCanopy && Math.random() < 0.6) continue;
+      // Crouching and lying prone make you harder to spot.
+      if (d > viewRange * (u.stance === 'prone' ? 0.5 : u.stance === 'crouch' ? 0.8 : 1)) continue;
       if (G.segmentHit(b.x, b.y, u.x, u.y) >= 0) continue;
+      if (G.terrainBlocks(b, u)) continue;
       seen = u; seenD = d;
     }
     if (!seen && b.lastHitBy && b.lastHitBy.alive && now - b.lastHitT < 2.5) {
@@ -194,6 +197,7 @@
       ai.mode = 'rotate';
       const a = ai.zoneOffset.a, d = ai.zoneOffset.d * zoneTarget.r;
       ai.wp = { x: zoneTarget.x + Math.cos(a) * d, y: zoneTarget.y + Math.sin(a) * d };
+      if (ZZ.Map.isDeep(G.map, ai.wp.x, ai.wp.y)) ai.wp = { x: zoneTarget.x, y: zoneTarget.y };
     } else {
       // Heal / boost when safe.
       if (b.healT <= 0 && b.reloadT <= 0 && !recentlySeen) {
@@ -249,6 +253,7 @@
             x: Math.max(100, Math.min(G.map.size - 100, zoneTarget.x + Math.cos(a) * d)),
             y: Math.max(100, Math.min(G.map.size - 100, zoneTarget.y + Math.sin(a) * d)),
           };
+          if (!ZZ.Map.isLand(G.map, ai.roam.x, ai.roam.y)) ai.roam = { x: zoneTarget.x, y: zoneTarget.y };
         }
         ai.wp = ai.roam;
       }
