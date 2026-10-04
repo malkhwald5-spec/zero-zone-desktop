@@ -2,7 +2,7 @@
   "name": "zero-zone-desktop",
   "productName": "Zero Zone",
   "version": "0.1.0",
-  "description": "لعبة منطقة الصفر - Zero Zone: لعبة بقاء وتصويب من منظور علوي داخل منطقة تتقلص",
+  "description": "لعبة منطقة الصفر - Zero Zone: لعبة باتل رويال من منظور علوي ضد 49 خصماً على جزيرة تتقلص منطقتها الآمنة",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -11,7 +11,7 @@
     "dist:linux": "electron-builder --linux",
     "dist:mac": "electron-builder --mac"
   },
-  "keywords": ["game", "electron", "shooter", "arabic"],
+  "keywords": ["game", "electron", "battle-royale", "shooter", "arabic"],
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.2.0",
