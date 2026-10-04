@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>منطقة الصفر - Zero Zone</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="stat">
+        <span class="label">النقاط</span>
+        <span id="hud-score" class="value">0</span>
+        <span id="hud-combo" class="combo"></span>
+      </div>
+      <div class="stat">
+        <span class="label">الموجة</span>
+        <span id="hud-wave" class="value">1</span>
+      </div>
+      <div class="stat">
+        <span class="label">الأعداء</span>
+        <span id="hud-enemies" class="value">0</span>
+      </div>
+      <div class="stat">
+        <span class="label">المنطقة</span>
+        <span id="hud-zone" class="value small">مستقرة</span>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div class="panel health">
+        <span class="label">الصحة</span>
+        <div class="bar"><div id="hud-hp-fill" class="fill"></div></div>
+        <span id="hud-hp" class="value">100</span>
+      </div>
+      <div class="panel weapon">
+        <span id="hud-weapon" class="label">مسدس</span>
+        <span id="hud-ammo" class="value">12 / ∞</span>
+        <div class="bar thin"><div id="hud-reload" class="fill reload"></div></div>
+      </div>
+      <div class="panel slots">
+        <div class="slot" data-weapon="pistol"><b>1</b>مسدس</div>
+        <div class="slot" data-weapon="smg"><b>2</b>رشاش</div>
+        <div class="slot" data-weapon="shotgun"><b>3</b>خرطوش</div>
+      </div>
+      <div class="panel dash">
+        <span class="label">اندفاع</span>
+        <div class="bar thin"><div id="hud-dash" class="fill dash-fill"></div></div>
+      </div>
+    </div>
+
+    <div id="zone-warning" class="hidden">⚠ أنت خارج المنطقة الآمنة!</div>
+    <div id="banner"></div>
+  </div>
+
+  <!-- Main menu -->
+  <div id="menu" class="overlay">
+    <div class="card">
+      <h1 class="title">منطقة الصفر</h1>
+      <div class="subtitle">ZERO ZONE</div>
+      <p class="tagline">ابقَ داخل المنطقة الآمنة، واصمد أمام موجات الأعداء.</p>
+      <div class="buttons">
+        <button id="btn-start" class="primary">ابدأ اللعب</button>
+        <button id="btn-help">طريقة اللعب</button>
+        <button id="btn-sound">الصوت: يعمل</button>
+        <button id="btn-quit">خروج</button>
+      </div>
+      <div class="best">أفضل نتيجة: <span id="menu-best">0</span></div>
+    </div>
+  </div>
+
+  <!-- Help -->
+  <div id="help" class="overlay hidden">
+    <div class="card wide">
+      <h2>طريقة اللعب</h2>
+      <div class="help-grid">
+        <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / الأسهم</div><div>الحركة</div>
+        <div>الفأرة</div><div>التصويب</div>
+        <div>زر الفأرة الأيسر</div><div>إطلاق النار (اضغط مطولاً)</div>
+        <div><kbd>R</kbd></div><div>إعادة التلقيم</div>
+        <div><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> / عجلة الفأرة</div><div>تبديل السلاح</div>
+        <div><kbd>Shift</kbd> / <kbd>Space</kbd></div><div>اندفاع سريع (حصانة لحظية)</div>
+        <div><kbd>Esc</kbd> / <kbd>P</kbd></div><div>إيقاف مؤقت</div>
+        <div><kbd>M</kbd></div><div>كتم الصوت</div>
+        <div><kbd>F11</kbd></div><div>ملء الشاشة</div>
+      </div>
+      <ul class="tips">
+        <li>المنطقة الآمنة تتقلص مع كل موجة، والبقاء خارجها يستنزف صحتك.</li>
+        <li>اجمع الصناديق للحصول على الرشاش والخرطوش، والعلب الخضراء للصحة، والصفراء للذخيرة.</li>
+        <li>اقتل الأعداء بسرعة متتالية لرفع مضاعف النقاط.</li>
+        <li>كل خمس موجات يظهر <b>الحارس</b>… كن مستعداً.</li>
+      </ul>
+      <button id="btn-help-back" class="primary">رجوع</button>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="overlay hidden">
+    <div class="card">
+      <h2>إيقاف مؤقت</h2>
+      <div class="buttons">
+        <button id="btn-resume" class="primary">متابعة</button>
+        <button id="btn-restart">إعادة البدء</button>
+        <button id="btn-menu">القائمة الرئيسية</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div id="gameover" class="overlay hidden">
+    <div class="card">
+      <h2 class="danger">انتهت اللعبة</h2>
+      <div id="new-record" class="record hidden">رقم قياسي جديد!</div>
+      <div class="results">
+        <div><span>النقاط</span><b id="go-score">0</b></div>
+        <div><span>الموجة</span><b id="go-wave">0</b></div>
+        <div><span>القتلى</span><b id="go-kills">0</b></div>
+        <div><span>زمن البقاء</span><b id="go-time">0:00</b></div>
+        <div><span>أفضل نتيجة</span><b id="go-best">0</b></div>
+      </div>
+      <div class="buttons">
+        <button id="btn-again" class="primary">العب مجدداً</button>
+        <button id="btn-go-menu">القائمة الرئيسية</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
