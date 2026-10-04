@@ -11,16 +11,7 @@
     "dist:linux": "electron-builder --linux",
     "dist:mac": "electron-builder --mac"
   },
-<<<<<<< Updated upstream
   "keywords": ["game", "electron", "battle-royale", "shooter", "arabic"],
-=======
-  "keywords": [
-    "game",
-    "electron",
-    "shooter",
-    "arabic"
-  ],
->>>>>>> Stashed changes
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.2.0",
@@ -42,8 +33,5 @@
     "mac": {
       "target": "dmg"
     }
-  },
-  "dependencies": {
-    "zero-zone-desktop": "github:malkhwald5-spec/zero-zone-desktop"
   }
 }

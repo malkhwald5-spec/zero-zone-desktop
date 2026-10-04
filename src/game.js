@@ -476,7 +476,7 @@
     pickNextZone();
 
     // Units
-    const player = makeUnit('أنت', true, 1);
+    const player = makeUnit((ZZ.Profile && ZZ.Profile.name()) || 'أنت', true, 1);
     G.player = player;
     G.units.push(player);
     const [s0, s1] = DIFFICULTY[difficulty].skill;
@@ -1659,6 +1659,7 @@
 
   // ---------- Input handlers ----------
   window.addEventListener('keydown', (e) => {
+    if (e.target && e.target.tagName === 'INPUT') return;
     if (e.code === 'Tab') e.preventDefault();
     if (e.repeat) return;
     keys.add(e.code);
@@ -1820,6 +1821,7 @@
     $('st-kills').textContent = String(st.kills);
     $('st-games').textContent = String(st.games);
     document.querySelectorAll('#diff-seg button').forEach((b) => b.classList.toggle('on', b.dataset.diff === difficulty));
+    if (ZZ.onMenuRefresh) ZZ.onMenuRefresh(st);
   }
 
   function toggleMute() {

@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>منطقة الصفر - Zero Zone</title>
   <link rel="stylesheet" href="style.css">
@@ -13,6 +13,7 @@
   <!-- HUD -->
   <div id="hud" class="hidden">
     <div id="topbar">
+      <div class="pill me-pill"><img id="hud-avatar" src="assets/avatar.jpg" alt=""><b id="hud-name">المحارب</b></div>
       <div class="pill"><span class="label">الأحياء</span><b id="hud-alive">50</b></div>
       <div class="pill"><span class="label">القتلى</span><b id="hud-kills">0</b></div>
     </div>
@@ -55,11 +56,50 @@
     </div>
   </div>
 
-  <!-- Main menu -->
-  <div id="menu" class="overlay">
-    <div class="card">
-      <h1 class="title">منطقة الصفر</h1>
-      <div class="subtitle">ZERO ZONE · BATTLE ROYALE</div>
+  <!-- Main menu: lobby with the player's showcase -->
+  <div id="menu" class="overlay lobby">
+    <div class="lobby-bg" aria-hidden="true">
+      <div class="ring r1"></div><div class="ring r2"></div>
+      <div class="floor"></div>
+      <div class="dust"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+
+    <header class="lobby-top">
+      <button id="profile-chip" class="profile-chip" title="تعديل الملف الشخصي">
+        <span class="pf-frame"><img id="pf-avatar" src="assets/avatar.jpg" alt=""><b id="pf-level">1</b></span>
+        <span class="pf-info">
+          <span class="pf-name"><span id="pf-name">المحارب</span><span class="pf-edit">✎</span></span>
+          <span class="pf-tier"><span id="pf-tier-icon" class="tier-icon"></span><span id="pf-tier">برونزي</span></span>
+          <span class="pf-xp"><span id="pf-xp-fill"></span></span>
+        </span>
+      </button>
+      <div class="pf-stats">
+        <span title="انتصارات">🏆 <b id="pf-wins">0</b></span>
+        <span title="مجموع القتلى">💀 <b id="pf-kills">0</b></span>
+        <span title="مباريات">🎮 <b id="pf-games">0</b></span>
+      </div>
+      <div class="brand"><b>منطقة الصفر</b><small>ZERO ZONE</small></div>
+    </header>
+
+    <main class="stage">
+      <div id="showcase" class="showcase" title="اضغط لعرض الصورة">
+        <div class="beam"></div>
+        <svg class="gold-lines" viewBox="0 0 400 520" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="40,0 40,200 80,260 80,520" />
+          <polyline points="360,0 360,200 320,260 320,520" />
+        </svg>
+        <div id="hero-frame" class="hero-frame">
+          <img id="hero-img" src="assets/hero.jpg" alt="صورة اللاعب">
+          <div class="shine"></div>
+          <span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span>
+          <div class="hero-badge">★ <span id="hero-tier">برونزي</span></div>
+        </div>
+        <div class="nameplate"><b id="hero-name">المحارب</b><small id="hero-sub">المستوى 1</small></div>
+        <div class="podium"><div class="podium-glow"></div></div>
+      </div>
+    </main>
+
+    <aside class="lobby-panel">
       <p class="tagline">50 لاعباً، جزيرة واحدة، ناجٍ واحد فقط.</p>
       <div class="diff">
         <span class="label">مستوى الخصوم</span>
@@ -70,7 +110,8 @@
         </div>
       </div>
       <div class="buttons">
-        <button id="btn-start" class="primary">ابدأ المباراة</button>
+        <button id="btn-start" class="primary start">ابدأ المباراة</button>
+        <button id="btn-profile">الملف الشخصي</button>
         <button id="btn-help">طريقة اللعب</button>
         <button id="btn-sound">الصوت: يعمل</button>
         <button id="btn-quit">خروج</button>
@@ -80,6 +121,39 @@
         <div><span>أفضل ترتيب</span><b id="st-best">-</b></div>
         <div><span>مجموع القتلى</span><b id="st-kills">0</b></div>
         <div><span>مباريات</span><b id="st-games">0</b></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Photo viewer -->
+  <div id="viewer" class="modal hidden">
+    <div class="viewer-box">
+      <img id="viewer-img" src="assets/hero.jpg" alt="صورة اللاعب">
+      <div class="viewer-cap"><b id="viewer-name">المحارب</b><span id="viewer-tier"></span></div>
+    </div>
+    <button id="viewer-close" class="x-btn" title="إغلاق">✕</button>
+  </div>
+
+  <!-- Profile editor -->
+  <div id="profile" class="modal hidden">
+    <div class="card profile-card">
+      <h2>الملف الشخصي</h2>
+      <div class="pe-row">
+        <div class="pe-avatar"><img id="pe-avatar" src="assets/avatar.jpg" alt=""></div>
+        <div class="pe-fields">
+          <label for="pe-name" class="label">اسم اللاعب</label>
+          <input id="pe-name" type="text" maxlength="16" autocomplete="off" spellcheck="false">
+          <div class="pe-btns">
+            <button id="pe-photo">تغيير الصورة</button>
+            <button id="pe-reset">الصورة الأصلية</button>
+          </div>
+          <input id="pe-file" type="file" accept="image/*" class="hidden">
+          <div id="pe-msg" class="muted small"></div>
+        </div>
+      </div>
+      <div class="buttons">
+        <button id="pe-save" class="primary">حفظ</button>
+        <button id="pe-cancel">إلغاء</button>
       </div>
     </div>
   </div>
@@ -128,6 +202,7 @@
   <!-- Results -->
   <div id="results" class="overlay hidden">
     <div class="card">
+      <div class="res-player"><img id="res-avatar" src="assets/avatar.jpg" alt=""><b id="res-name">المحارب</b></div>
       <div id="res-win" class="win hidden">فوز! أنت الناجي الأخير</div>
       <div id="res-title" class="rank">#1</div>
       <div id="res-sub" class="muted"></div>
@@ -150,5 +225,6 @@
   <script src="map.js"></script>
   <script src="ai.js"></script>
   <script src="game.js"></script>
+  <script src="lobby.js"></script>
 </body>
 </html>
