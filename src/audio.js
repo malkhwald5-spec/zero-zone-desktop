@@ -115,6 +115,8 @@ const Sound = {
       case 'jump': this.noise(0.8, 0.25, 1200, 'bandpass'); break;
       case 'chute': this.noise(0.5, 0.25, 400); this.tone(200, 0.2, 'triangle', 0.1, 120); break;
       case 'land': this.noise(0.18, 0.35, 400); break;
+      case 'slide': this.noise(0.45, 0.22, 900, 'bandpass'); break;
+      case 'uav': [600, 900, 600, 900].forEach((f, i) => this.tone(f, 0.12, 'sine', 0.12, null, i * 0.14)); break;
       case 'throw': this.noise(0.15, 0.15, 2500, 'highpass'); break;
       case 'explosion': this.noise(1.1, 0.8, 500); this.tone(70, 0.8, 'sawtooth', 0.35, 30); break;
       case 'zone': this.tone(220, 0.4, 'triangle', 0.18); this.tone(165, 0.5, 'triangle', 0.18, null, 0.35); break;

@@ -25,7 +25,8 @@ html, body {
 body.playing { cursor: none; }
 body.playing.map-open { cursor: crosshair; }
 
-#game { position: fixed; inset: 0; display: block; }
+#game, #overlay { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+#overlay { pointer-events: none; }
 
 .hidden { display: none !important; }
 
@@ -298,6 +299,7 @@ body.map-open #bottom, body.map-open #pickup-list { display: none; }
 .seg button.on { background: var(--accent); color: #111; font-weight: 800; }
 
 h2 { margin: 0 0 16px; font-size: 30px; }
+h3 { margin: 6px 0 8px; font-size: 18px; color: var(--accent-2); text-align: right; }
 
 .buttons { display: flex; flex-direction: column; gap: 9px; margin-top: 8px; }
 

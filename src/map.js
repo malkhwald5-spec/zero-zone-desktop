@@ -6,6 +6,9 @@
   const CELL = 250;
   const WALL = 12;
   const DOOR = 64;
+  const WALL_SEG = 64; // walls are split into segments so explosions can break holes in them
+  // Fenced "second chance" duel arena in the north-west corner.
+  const ARENA = { x: 140, y: 140, w: 560, h: 560 };
   const GROUND_SCALE = 0.4;
 
   const TOWN_NAMES = ['الميناء', 'المدينة القديمة', 'المزرعة', 'المحطة', 'الوادي', 'القلعة', 'السوق', 'المصنع', 'التلال', 'الواحة',
@@ -27,6 +30,7 @@
     const RI = (a, b) => Math.floor(R(a, b + 1));
     const S = ZZ.MAP_SIZE;
     const area = (S / 5000) ** 2; // scale prop counts with map area
+    const nearArena = (x, y, pad) => x > ARENA.x - pad && x < ARENA.x + ARENA.w + pad && y > ARENA.y - pad && y < ARENA.y + ARENA.h + pad;
 
     const map = {
       size: S, seed,
@@ -50,6 +54,7 @@
       const x = R(500 + r * 0.5, S - 500 - r * 0.5);
       const y = R(500 + r * 0.5, S - 500 - r * 0.5);
       if (map.towns.some((t) => Math.hypot(t.x - x, t.y - y) < t.r + r + 450)) continue;
+      if (nearArena(x, y, r + 250)) continue;
       map.towns.push({ name: military ? 'القاعدة العسكرية' : names.pop() || 'قرية', x, y, r, military });
     }
 
@@ -73,7 +78,20 @@
 
     // ----- Buildings -----
     const overlapsBuilding = (x, y, w, h, pad) => map.buildings.some((b) =>
-      x < b.x + b.w + pad && x + w + pad > b.x && y < b.y + b.h + pad && y + h + pad > b.y);
+      x < b.x + b.w + pad && x + w + pad > b.x && y < b.y + b.h + pad && y + h + pad > b.y) ||
+      (x < ARENA.x + ARENA.w + pad && x + w + pad > ARENA.x && y < ARENA.y + ARENA.h + pad && y + h + pad > ARENA.y);
+
+    // Adds a straight wall as several breakable segments.
+    function pushWall(x, y, w, h, extra) {
+      const horizontal = w >= h;
+      const len = horizontal ? w : h;
+      const n = Math.max(1, Math.round(len / WALL_SEG));
+      const step = len / n;
+      for (let i = 0; i < n; i++) {
+        if (horizontal) map.obs.push({ t: 0, x: x + i * step, y, w: step, h, kind: 'wall', ...extra });
+        else map.obs.push({ t: 0, x, y: y + i * step, w, h: step, kind: 'wall', ...extra });
+      }
+    }
 
     function addBuilding(x, y, w, h, military) {
       const bi = map.buildings.length;
@@ -88,17 +106,17 @@
         const sx = side === 1 ? x + w - WALL : x;
         const sy = side === 2 ? y + h - WALL : y;
         if (!doorSides.has(side)) {
-          map.obs.push(horizontal ? { t: 0, x: sx, y: sy, w: len, h: WALL, kind: 'wall', bld: bi } : { t: 0, x: sx, y: sy, w: WALL, h: len, kind: 'wall', bld: bi });
+          if (horizontal) pushWall(sx, sy, len, WALL, { bld: bi }); else pushWall(sx, sy, WALL, len, { bld: bi });
           continue;
         }
         const off = R(WALL + 20, len - WALL - 20 - DOOR);
         if (horizontal) {
-          map.obs.push({ t: 0, x: sx, y: sy, w: off, h: WALL, kind: 'wall', bld: bi });
-          map.obs.push({ t: 0, x: sx + off + DOOR, y: sy, w: len - off - DOOR, h: WALL, kind: 'wall', bld: bi });
+          pushWall(sx, sy, off, WALL, { bld: bi });
+          pushWall(sx + off + DOOR, sy, len - off - DOOR, WALL, { bld: bi });
           b.doors.push({ x: sx + off + DOOR / 2, y: sy + WALL / 2, nx: 0, ny: side === 0 ? -1 : 1 });
         } else {
-          map.obs.push({ t: 0, x: sx, y: sy, w: WALL, h: off, kind: 'wall', bld: bi });
-          map.obs.push({ t: 0, x: sx, y: sy + off + DOOR, w: WALL, h: len - off - DOOR, kind: 'wall', bld: bi });
+          pushWall(sx, sy, WALL, off, { bld: bi });
+          pushWall(sx, sy + off + DOOR, WALL, len - off - DOOR, { bld: bi });
           b.doors.push({ x: sx + WALL / 2, y: sy + off + DOOR / 2, nx: side === 3 ? -1 : 1, ny: 0 });
         }
       }
@@ -137,6 +155,17 @@
       addBuilding(x, y, w, h, false);
       lone++;
     }
+
+    // Arena: closed fence (unbreakable) with a few crates for cover.
+    const A = ARENA, F = 16;
+    pushWall(A.x, A.y, A.w, F, { fence: true, bld: -1 });
+    pushWall(A.x, A.y + A.h - F, A.w, F, { fence: true, bld: -1 });
+    pushWall(A.x, A.y + F, F, A.h - 2 * F, { fence: true, bld: -1 });
+    pushWall(A.x + A.w - F, A.y + F, F, A.h - 2 * F, { fence: true, bld: -1 });
+    for (const [cx, cy] of [[0.5, 0.5], [0.3, 0.32], [0.7, 0.68], [0.3, 0.7], [0.7, 0.3]]) {
+      map.obs.push({ t: 0, x: A.x + A.w * cx - 24, y: A.y + A.h * cy - 24, w: 48, h: 48, kind: 'crate', arena: true });
+    }
+    map.arena = { ...ARENA, spawnA: { x: A.x + A.w * 0.2, y: A.y + A.h * 0.5 }, spawnB: { x: A.x + A.w * 0.8, y: A.y + A.h * 0.5 } };
 
     const blockedForProp = (x, y, r) =>
       overlapsBuilding(x - r, y - r, r * 2, r * 2, 40) || nearRoad(x, y, r + 8) || x < 80 || y < 80 || x > S - 80 || y > S - 80;
@@ -218,7 +247,7 @@
       const cell = map.grid[c];
       for (let i = 0; i < cell.length; i++) {
         const o = map.obs[cell[i]];
-        if (o._s === stamp) continue;
+        if (o._s === stamp || o.dead) continue;
         o._s = stamp;
         fn(o);
       }
@@ -371,6 +400,12 @@
       g.lineWidth = rd.w;
       g.beginPath(); g.moveTo(rd.x1, rd.y1); g.lineTo(rd.x2, rd.y2); g.stroke();
     }
+    // Arena floor
+    g.fillStyle = '#7d7f7a';
+    g.fillRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
+    g.strokeStyle = 'rgba(255,255,255,0.35)';
+    g.lineWidth = 6;
+    g.strokeRect(ARENA.x + 40, ARENA.y + 40, ARENA.w - 80, ARENA.h - 80);
     // Building floors
     for (const b of map.buildings) {
       g.fillStyle = b.military ? '#77786f' : '#9a8569';
@@ -382,103 +417,24 @@
     return cv;
   }
 
-  // ---------- Map rendering helpers (world space) ----------
-  function inView(v, x, y, pad) {
-    return x > v.x0 - pad && x < v.x1 + pad && y > v.y0 - pad && y < v.y1 + pad;
-  }
-
-  function drawGround(ctx, map, v) {
-    const gs = GROUND_SCALE, S = map.size;
-    // Sea outside the island
-    ctx.fillStyle = '#2b5a78';
-    ctx.fillRect(v.x0 - 10, v.y0 - 10, v.x1 - v.x0 + 20, v.y1 - v.y0 + 20);
-    const x0 = Math.max(0, v.x0), y0 = Math.max(0, v.y0);
-    const x1 = Math.min(S, v.x1), y1 = Math.min(S, v.y1);
-    if (x1 <= x0 || y1 <= y0) return;
-    ctx.drawImage(map.ground, x0 * gs, y0 * gs, (x1 - x0) * gs, (y1 - y0) * gs, x0, y0, x1 - x0, y1 - y0);
-    // Beach outline
-    ctx.strokeStyle = '#c9b77f';
-    ctx.lineWidth = 18;
-    ctx.strokeRect(-9, -9, S + 18, S + 18);
-  }
-
-  function drawObstacles(ctx, map, v) {
-    query(map, v.x0 - 60, v.y0 - 60, v.x1 + 60, v.y1 + 60, (o) => {
-      if (o.kind === 'wall') {
-        ctx.fillStyle = map.buildings[o.bld].military ? '#3f423b' : '#5a4a3a';
-        ctx.fillRect(o.x, o.y, o.w, o.h);
-      } else if (o.kind === 'crate') {
-        ctx.fillStyle = '#8a6a3e';
-        ctx.fillRect(o.x, o.y, o.w, o.h);
-        ctx.strokeStyle = '#5e4526';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(o.x + 2, o.y + 2, o.w - 4, o.h - 4);
-        ctx.beginPath(); ctx.moveTo(o.x + 4, o.y + 4); ctx.lineTo(o.x + o.w - 4, o.y + o.h - 4); ctx.stroke();
-      } else if (o.kind === 'container') {
-        ctx.fillStyle = '#7a3b2c';
-        ctx.fillRect(o.x, o.y, o.w, o.h);
-        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-        ctx.lineWidth = 2;
-        const horiz = o.w > o.h;
-        for (let k = 8; k < (horiz ? o.w : o.h); k += 10) {
-          ctx.beginPath();
-          if (horiz) { ctx.moveTo(o.x + k, o.y); ctx.lineTo(o.x + k, o.y + o.h); }
-          else { ctx.moveTo(o.x, o.y + k); ctx.lineTo(o.x + o.w, o.y + k); }
-          ctx.stroke();
-        }
-      } else if (o.kind === 'rock') {
-        ctx.fillStyle = o.shade < 0.5 ? '#7c7f7a' : '#6c6f6a';
-        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.beginPath(); ctx.arc(o.x - o.r * 0.25, o.y - o.r * 0.25, o.r * 0.55, 0, TAU); ctx.fill();
-      } else if (o.kind === 'tree') {
-        ctx.fillStyle = '#4b3424';
-        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.fill();
-      }
+  // Breaks walls/crates within radius r of (x, y). Returns the destroyed obstacles.
+  function destroyAt(map, x, y, r) {
+    const out = [];
+    query(map, x - r, y - r, x + r, y + r, (o) => {
+      if (o.t !== 0 || o.fence || o.arena || (o.kind !== 'wall' && o.kind !== 'crate')) return;
+      const cx = Math.max(o.x, Math.min(x, o.x + o.w)), cy = Math.max(o.y, Math.min(y, o.y + o.h));
+      if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) { o.dead = true; out.push(o); }
     });
+    return out;
   }
 
-  function drawCanopies(ctx, map, v, px, py) {
-    for (const t of map.trees) {
-      if (!inView(v, t.x, t.y, t.canopy)) continue;
-      // Fade canopies that cover the player so they stay visible.
-      const near = Math.hypot(px - t.x, py - t.y) < t.canopy;
-      ctx.globalAlpha = near ? 0.35 : 0.88;
-      ctx.fillStyle = t.shade < 0.33 ? '#2f5a2a' : t.shade < 0.66 ? '#376630' : '#2a4f27';
-      ctx.beginPath(); ctx.arc(t.x, t.y, t.canopy, 0, TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
-      ctx.beginPath(); ctx.arc(t.x - t.canopy * 0.3, t.y - t.canopy * 0.3, t.canopy * 0.5, 0, TAU); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // Roofs hide building interiors unless the viewer is inside.
-  function drawRoofs(ctx, map, v, insideIdx, roofAlpha) {
-    map.buildings.forEach((b, i) => {
-      if (b.x > v.x1 || b.x + b.w < v.x0 || b.y > v.y1 || b.y + b.h < v.y0) return;
-      const a = i === insideIdx ? roofAlpha[i] || 0 : roofAlpha[i] === undefined ? 1 : roofAlpha[i];
-      if (a <= 0.01) return;
-      ctx.globalAlpha = a;
-      ctx.fillStyle = b.roof;
-      ctx.fillRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      if (b.w > b.h) { ctx.moveTo(b.x, b.y + b.h / 2); ctx.lineTo(b.x + b.w, b.y + b.h / 2); }
-      else { ctx.moveTo(b.x + b.w / 2, b.y); ctx.lineTo(b.x + b.w / 2, b.y + b.h); }
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
-      for (let k = 14; k < Math.max(b.w, b.h); k += 28) {
-        if (b.w > b.h) ctx.fillRect(b.x + k, b.y - 4, 3, b.h + 8);
-        else ctx.fillRect(b.x - 4, b.y + k, b.w + 8, 3);
-      }
-    });
-    ctx.globalAlpha = 1;
+  function inArena(map, x, y) {
+    const A = map.arena;
+    return x > A.x && x < A.x + A.w && y > A.y && y < A.y + A.h;
   }
 
   ZZ.Map = {
     CELL, GROUND_SCALE,
-    createMap, collideCircle, isFree, segmentHit, buildingAt, query,
-    drawGround, drawObstacles, drawCanopies, drawRoofs, inView, distToSegment,
+    createMap, collideCircle, isFree, segmentHit, buildingAt, query, destroyAt, inArena, distToSegment,
   };
 })();
