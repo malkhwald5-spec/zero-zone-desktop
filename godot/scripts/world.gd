@@ -21,20 +21,19 @@ var map_texture: Texture2D
 var match_over := false
 var time := 0.0
 var _shot_stream: AudioStreamWAV
-var _loading: Label
+var loading: LoadingScreen
+var ready_done := false
 
 func _ready() -> void:
-	_loading = Label.new()
-	_loading.text = "جاري تحميل الجزيرة…"
-	_loading.add_theme_font_size_override("font_size", 32)
-	_loading.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	var cl := CanvasLayer.new()
-	cl.add_child(_loading)
-	add_child(cl)
-	await get_tree().process_frame
-	await get_tree().process_frame
+	loading = LoadingScreen.new()
+	add_child(loading)
+	loading.set_progress(0.03, "جاري توليد الجزيرة")
+	await _frame()
 	_build()
-	cl.queue_free()
+
+func _frame() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 func _build() -> void:
 	var seed_v := randi()
@@ -43,12 +42,20 @@ func _build() -> void:
 	island = Island.new(seed_v, Game.MAP_SIZE)
 	island.generate()
 	builder = WorldBuilder.new(island, self)
-	builder.build_all()
+	var steps := builder.steps()
+	for i in steps.size():
+		loading.set_progress(0.1 + 0.6 * i / steps.size(), steps[i][1])
+		await _frame()
+		steps[i][0].call()
+	loading.set_progress(0.75, "جاري توزيع الأسلحة")
+	await _frame()
 	effects = Effects.new()
 	add_child(effects)
 	_shot_stream = _make_shot_sound()
 	_spawn_loot()
 	_make_plane()
+	loading.set_progress(0.85, "جاري تجهيز اللاعبين")
+	await _frame()
 	player = Player.new()
 	player.world = self
 	add_child(player)
@@ -60,7 +67,13 @@ func _build() -> void:
 	hud.world = self
 	add_child(hud)
 	player.died.connect(_on_player_died)
+	loading.set_progress(0.95, "جاري رسم الخريطة")
 	await _capture_map()
+	loading.set_progress(1.0, "يلا!")
+	await get_tree().create_timer(0.6).timeout
+	loading.queue_free()
+	loading = null
+	ready_done = true
 	Game.stats.games += 1
 	Game.save_data()
 
@@ -250,9 +263,9 @@ func _end_match(won: bool) -> void:
 	var rank := 1 if won else alive_count() + 1
 	if won: Game.stats.wins += 1
 	if Game.stats.best == 0 or rank < Game.stats.best: Game.stats.best = rank
-	Game.save_data()
+	var reward := Game.reward_match(rank, player.kills, won)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	hud.show_results(won, rank, player.kills)
+	hud.show_results(won, rank, player.kills, reward)
 
 # ---------- Per frame ----------
 func _process(delta: float) -> void:

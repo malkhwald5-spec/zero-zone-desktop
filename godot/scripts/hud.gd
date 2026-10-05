@@ -12,6 +12,7 @@ var banner: Label
 var results: PanelContainer
 var pause_panel: PanelContainer
 var map_open := false
+var bag_open := false
 var hit_t := 0.0
 var hit_head := false
 var dmg_dirs: Array = []     # [{dir: Vector3, t}]
@@ -55,8 +56,10 @@ func _ready() -> void:
 	p.damaged.connect(func(dir): dmg_dirs.append({"dir": dir, "t": 1.2}))
 	p.message.connect(show_banner)
 	show_banner("مرحباً في منطقة الصفر — اقفز من الطائرة فوق الجزيرة")
+	Game.cursor_free = false
 	if Game.settings.controls == "kbm":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		get_tree().create_timer(3.2).timeout.connect(func(): show_banner("اضغط Ctrl لإظهار الماوس أو إخفائه"))
 
 func show_banner(text: String) -> void:
 	banner.text = text
@@ -94,22 +97,47 @@ func _unhandled_input(event: InputEvent) -> void:
 func toggle_map() -> void:
 	map_open = not map_open
 
+## Ctrl: show the cursor (camera and shooting stop) or hide it again.
+func toggle_cursor() -> void:
+	if pause_panel or results: return
+	if Game.settings.controls != "kbm":
+		# Ctrl on a PC switches from on-screen buttons to keyboard + mouse.
+		Game.settings.controls = "kbm"
+		Game.save_data()
+		touch.visible = false
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		Game.cursor_free = true
+		world.player.firing = false
+		world.player.aiming = false
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		Game.cursor_free = false
+
+func toggle_bag() -> void:
+	bag_open = not bag_open
+
 func toggle_pause() -> void:
 	if results: return
 	if pause_panel:
 		pause_panel.queue_free()
 		pause_panel = null
 		get_tree().paused = false
-		if Game.settings.controls == "kbm": Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if Game.settings.controls == "kbm":
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			Game.cursor_free = false
 		return
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	pause_panel = _panel("إيقاف مؤقت", [["متابعة", toggle_pause], ["القائمة الرئيسية", _to_lobby]])
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 
-func show_results(won: bool, rank: int, kills: int) -> void:
-	var title := "فوز! أنت الناجي الأخير" if won else "الترتيب #%d" % rank
-	results = _panel(title, [["العودة إلى اللوبي", _to_lobby]], "القتلى: %d" % kills)
+func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> void:
+	var title := "فوز! أنت الناجي الأخير 🏆" if won else "الترتيب #%d" % rank
+	var sub := "الإقصاءات: %d" % kills
+	if not reward.is_empty():
+		sub += "\n+%d ذهب    +%d خبرة موسم" % [reward.gold, reward.xp]
+	results = _panel(title, [["العودة إلى اللوبي", _to_lobby]], sub)
 
 func _to_lobby() -> void:
 	get_tree().paused = false
@@ -185,18 +213,21 @@ func _draw_hud() -> void:
 		c.draw_arc(center, 120.0, a - 0.3, a + 0.3, 12, Color(1, 0.2, 0.2, minf(1.0, d.t)), 6.0)
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
+	if bag_open and not map_open:
+		_draw_bag(c, sz, p)
 	if map_open:
 		_draw_full_map(c, sz, p)
 
 func _draw_counters(c: Control) -> void:
-	var boxes := [["المتبقون", str(world.alive_count())], ["القتلى", str(world.player.kills)]]
+	# Mobile-BR style pills: "17 متبقي" and "0 الإقصاءات".
 	var x := 14.0
-	for b in boxes:
-		var r := Rect2(x, 12, 118, 36)
-		c.draw_rect(r, Color(0, 0, 0, 0.55))
-		_text(c, Vector2(x + 76, 37), b[0], 14, Color(0.8, 0.85, 0.9))
-		_text(c, Vector2(x + 26, 39), b[1], 22, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)
-		x += 124
+	for b in [[str(world.alive_count()), "متبقي"], [str(world.player.kills), "الإقصاءات"]]:
+		var w: float = 52.0 + String(b[1]).length() * 9.0
+		c.draw_rect(Rect2(x, 12, w, 30), Color(0, 0, 0, 0.42))
+		c.draw_rect(Rect2(x, 12, 40, 30), Color(0, 0, 0, 0.55))
+		_text(c, Vector2(x + 20, 35), b[0], 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 40)
+		_text(c, Vector2(x + 46, 34), b[1], 14, Color(0.92, 0.94, 0.96), HORIZONTAL_ALIGNMENT_LEFT, null, w - 46)
+		x += w + 6
 
 func _draw_compass(c: Control, sz: Vector2, p: Player) -> void:
 	var bearing := fposmod(rad_to_deg(-p.yaw), 360.0)
@@ -237,34 +268,67 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 		if gy > r.position.y and gy < r.end.y: c.draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), Color(1, 1, 1, 0.25))
 	_arrow(c, r.get_center(), -p.yaw, Color("ffd34d"), 9.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.4), false, 1.5)
+	# Match clock and connection, under the minimap.
+	var tm := int(world.time)
+	var y := r.end.y + 4
+	c.draw_rect(Rect2(r.position.x, y, size, 22), Color(0, 0, 0, 0.4))
+	_text(c, Vector2(r.position.x + 8, y + 17), "⏱ %02d:%02d" % [tm / 60, tm % 60], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, null, 90)
+	_text(c, Vector2(r.end.x - 8, y + 17), "%d ms 📶" % (18 + int(world.time * 3.7) % 9), 12, Color("8ef08e"), HORIZONTAL_ALIGNMENT_RIGHT, null, 90)
 
 func _arrow(c: Control, at: Vector2, ang: float, col: Color, s: float) -> void:
 	var f := Vector2(sin(ang), -cos(ang))
 	var rgt := Vector2(-f.y, f.x)
 	c.draw_colored_polygon(PackedVector2Array([at + f * s, at - f * s * 0.6 + rgt * s * 0.6, at - f * s * 0.2, at - f * s * 0.6 - rgt * s * 0.6]), col)
 
+## Weapon card rectangles (also used by the touch UI as tap areas).
+static func slot_rect(i: int, sz: Vector2) -> Rect2:
+	var w: float = [150.0, 150.0, 92.0][i]
+	var x: float = sz.x * 0.5 + [-160.0, 2.0, 164.0][i]
+	return Rect2(x, sz.y - 98.0, w, 62.0)
+
 func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
-	var w := 420.0
+	# Health bar.
+	var w := 360.0
 	var x0 := sz.x * 0.5 - w * 0.5
 	var y := sz.y - 26.0
-	c.draw_rect(Rect2(x0, y, w, 9), Color(0, 0, 0, 0.55))
+	c.draw_rect(Rect2(x0, y, w, 8), Color(0, 0, 0, 0.5))
 	var hp := clampf(p.health / 100.0, 0.0, 1.0)
-	c.draw_rect(Rect2(x0, y, w * hp, 9), Color.WHITE if hp > 0.6 else (Color("ffcf5a") if hp > 0.3 else Color("ff3d4a")))
-	# Weapon slots
-	var sw := (w - 12.0) / 3.0
+	c.draw_rect(Rect2(x0, y, w * hp, 8), Color.WHITE if hp > 0.6 else (Color("ffcf5a") if hp > 0.3 else Color("ff3d4a")))
+	c.draw_rect(Rect2(x0, y, w, 8), Color(1, 1, 1, 0.35), false, 1.0)
+	# Weapon cards with silhouettes and ammo.
 	for i in 3:
-		var rr := Rect2(x0 + i * (sw + 6.0), y - 52.0, sw, 40.0)
+		var rr := slot_rect(i, sz)
 		var active := p.active == i
-		c.draw_rect(rr, Color(0.95, 0.66, 0.0, 0.25) if active else Color(0, 0, 0, 0.45))
-		c.draw_rect(rr, Color("ffd34d") if active else Color(1, 1, 1, 0.2), false, 1.5)
 		var s = p.slots[i]
-		var name: String = "فارغ" if s == null else Game.WEAPONS[s.id].name
-		_text(c, Vector2(rr.get_center().x, rr.position.y + 19), name, 15, Color.WHITE if s else Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_CENTER, bold, sw)
-		if s != null:
-			var at: String = Game.WEAPONS[s.id].ammo
-			_text(c, Vector2(rr.get_center().x, rr.position.y + 36), "%d / %d" % [s.mag, p.ammo[at]], 12, Color(0.85, 0.88, 0.92), HORIZONTAL_ALIGNMENT_CENTER, null, sw)
+		c.draw_rect(rr, Color(0, 0, 0, 0.5) if active else Color(0, 0, 0, 0.3))
+		c.draw_rect(rr, Color("ffd34d") if active else Color(1, 1, 1, 0.18), false, 1.5 if active else 1.0)
+		if s == null:
+			_text(c, Vector2(rr.get_center().x, rr.position.y + 38), str(i + 1), 18, Color(1, 1, 1, 0.3), HORIZONTAL_ALIGNMENT_CENTER, bold, rr.size.x)
+			continue
+		var wd: Dictionary = Game.WEAPONS[s.id]
+		_gun_icon(c, Rect2(rr.position + Vector2(8, 6), Vector2(rr.size.x - 16, 30)), wd.cls, Color.WHITE if active else Color(1, 1, 1, 0.75))
+		var ammo_txt := "%d/%d" % [s.mag, p.ammo[wd.ammo]]
+		_text(c, Vector2(rr.position.x + 6, rr.end.y - 7), ammo_txt, 14, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, bold, rr.size.x)
+		_text(c, Vector2(rr.end.x - 6, rr.end.y - 7), wd.name, 11, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, null, rr.size.x)
+		if active:
+			c.draw_colored_polygon(PackedVector2Array([Vector2(rr.get_center().x - 6, rr.position.y - 8), Vector2(rr.get_center().x + 6, rr.position.y - 8), Vector2(rr.get_center().x, rr.position.y - 2)]), Color("ffd34d"))
 	if p.reload_t > 0.0:
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.62), "إعادة تلقيم…", 18, Color("ffcf5a"))
+
+## Side-view gun silhouette for the weapon cards.
+func _gun_icon(c: Control, r: Rect2, cls: String, col: Color) -> void:
+	var shapes := {
+		# Normalised polygons (x 0..1 left = stock, y 0..1).
+		"ar": [[0.0, 0.35], [0.22, 0.3], [0.3, 0.2], [0.62, 0.2], [0.66, 0.32], [1.0, 0.32], [1.0, 0.42], [0.66, 0.44], [0.6, 0.55], [0.5, 0.55], [0.47, 0.95], [0.4, 0.95], [0.4, 0.55], [0.32, 0.55], [0.3, 0.8], [0.24, 0.8], [0.22, 0.55], [0.0, 0.6]],
+		"smg": [[0.08, 0.35], [0.25, 0.3], [0.3, 0.2], [0.75, 0.2], [0.78, 0.32], [0.95, 0.32], [0.95, 0.42], [0.75, 0.46], [0.6, 0.5], [0.56, 0.95], [0.48, 0.95], [0.48, 0.5], [0.36, 0.5], [0.34, 0.78], [0.27, 0.78], [0.25, 0.55], [0.08, 0.55]],
+		"shotgun": [[0.0, 0.4], [0.28, 0.32], [0.34, 0.25], [1.0, 0.25], [1.0, 0.36], [0.6, 0.4], [0.6, 0.5], [0.36, 0.52], [0.34, 0.75], [0.27, 0.75], [0.26, 0.52], [0.0, 0.66]],
+		"sr": [[0.0, 0.42], [0.25, 0.36], [0.3, 0.3], [0.38, 0.3], [0.38, 0.12], [0.6, 0.12], [0.6, 0.3], [1.0, 0.33], [1.0, 0.39], [0.55, 0.44], [0.4, 0.5], [0.33, 0.72], [0.27, 0.72], [0.26, 0.52], [0.0, 0.62]],
+		"pistol": [[0.25, 0.2], [0.85, 0.2], [0.85, 0.4], [0.55, 0.42], [0.5, 0.9], [0.32, 0.9], [0.36, 0.42], [0.25, 0.4]],
+	}
+	var pts := PackedVector2Array()
+	for q in shapes.get(cls, shapes.ar):
+		pts.append(r.position + Vector2(q[0] * r.size.x, q[1] * r.size.y))
+	c.draw_colored_polygon(pts, col)
 
 func _draw_crosshair(c: Control, sz: Vector2, p: Player) -> void:
 	var ctr := sz * 0.5
@@ -358,3 +422,21 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	_arrow(c, r.position + Vector2(p.global_position.x, p.global_position.z) * k, -p.yaw, Color("ffd34d"), 10.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
 	_text(c, Vector2(sz.x * 0.5, r.end.y + 26), "كل مربع = %d م — اضغط M للإغلاق" % int(S / Game.GRID), 14)
+
+func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
+	var r := Rect2(16, 70, 300, 64 + 30 * 7)
+	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.82))
+	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
+	_text(c, Vector2(r.position.x + 14, r.position.y + 32), "الحقيبة", 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_LEFT, bold, 200)
+	var y := r.position.y + 64
+	for i in 3:
+		var s = p.slots[i]
+		var name: String = ["السلاح 1", "السلاح 2", "المسدس"][i]
+		var val: String = "—" if s == null else Game.WEAPONS[s.id].name
+		_text(c, Vector2(r.position.x + 14, y), name, 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 140)
+		_text(c, Vector2(r.end.x - 14, y), val, 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
+		y += 30
+	for at in p.ammo:
+		_text(c, Vector2(r.position.x + 14, y), "ذخيرة " + Game.AMMO_NAMES[at], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 180)
+		_text(c, Vector2(r.end.x - 14, y), str(p.ammo[at]), 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 80)
+		y += 30

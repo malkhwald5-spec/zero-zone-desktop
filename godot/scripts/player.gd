@@ -60,7 +60,7 @@ func _ready() -> void:
 	floor_snap_length = 0.4
 	floor_max_angle = deg_to_rad(50)
 
-	model = SoldierModel.new(Game.outfit_color(), Color("f2a900"))
+	model = SoldierModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
 	add_child(model)
 
 	cam_rig = Node3D.new()
@@ -108,8 +108,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		add_look(event.relative.x, event.relative.y)
 	elif event is InputEventMouseButton:
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and event.pressed:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			# Cursor shown with Ctrl: clicks don't shoot. Otherwise a click grabs the mouse again.
+			if event.pressed and not Game.cursor_free:
+				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			firing = false
+			aiming = false
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT: firing = event.pressed
 		elif event.button_index == MOUSE_BUTTON_RIGHT: aiming = event.pressed

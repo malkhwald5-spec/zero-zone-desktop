@@ -4,6 +4,11 @@ extends Node
 const MAP_SIZE := 3072.0          # metres; shown on the map as an 8×8 grid
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
+const VERSION := "v0.7.1"
+const STUDIO := "Jordan Dan"
+const SEASON_NAME := "ليلة القمر الأحمر"
+const PASS_XP := 300               # season-pass XP per level
+const PASS_MAX := 30
 
 ## Weapons. dmg per hit, rate = seconds between shots, range in metres.
 const WEAPONS := {
@@ -16,17 +21,35 @@ const WEAPONS := {
 }
 const AMMO_NAMES := {"9mm": "9 ملم", "556": "5.56 ملم", "762": "7.62 ملم", "12g": "خرطوش 12"}
 
-const OUTFITS := [Color("2d6fb8"), Color("3f5f3a"), Color("7a2f2f"), Color("2b2b2e"), Color("c9b48a"), Color("5e4a6b")]
+## Wardrobe items: [name, shirt colour, pants colour, price in gold (0 = owned from start)].
+const WARDROBE := [
+	["أزرق المدينة", Color("2d6fb8"), Color("3a4250"), 0],
+	["زيتي الصحراء", Color("3f5f3a"), Color("6b5f45"), 0],
+	["خطوط البحر", Color("2f8f86"), Color("b7ad95"), 0],
+	["أحمر النار", Color("a8302c"), Color("2b2b2e"), 250],
+	["الظل الأسود", Color("1f2023"), Color("1a1a1c"), 400],
+	["رمال ذهبية", Color("c9b48a"), Color("7a6a4c"), 300],
+	["ليلة القمر", Color("5e3a7a"), Color("2b2433"), 600],
+	["الثلج", Color("e6e8ea"), Color("9aa3ab"), 500],
+]
 
 var settings := {
-	"controls": "touch",      # "touch" (on-screen buttons) or "kbm" (keyboard + mouse)
+	"controls": "kbm",        # "kbm" (keyboard + mouse, PC default) or "touch" (on-screen buttons)
 	"quality": "high",        # "low" | "medium" | "high"
 	"sensitivity": 1.0,
 	"sound": true,
 	"difficulty": "normal",
 }
-var profile := {"name": "", "outfit": 0}
+var profile := {"name": "", "outfit": 0, "clan": "", "owned": [0, 1, 2]}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0}
+## Lobby economy: gold earned in matches, season-pass XP, claimed mail/rewards.
+var wallet := {"gold": 0, "zc": 0, "xp": 0, "claimed": [], "mail_read": false}
+## Key art rendered once at start-up (used by the loading screens).
+var key_art: Texture2D
+## Last match summary shown in the lobby.
+var last_reward := {}
+## In a match with keyboard+mouse: true while the player freed the cursor with Ctrl.
+var cursor_free := false
 
 func _ready() -> void:
 	load_data()
@@ -40,7 +63,10 @@ func load_data() -> void:
 	var data = JSON.parse_string(f.get_as_text())
 	if typeof(data) != TYPE_DICTIONARY:
 		return
-	for key in ["settings", "profile", "stats"]:
+	# Saves from before v0.7.1 defaulted to touch buttons; the game is now PC-first.
+	if int(data.get("save_version", 1)) < 2 and data.has("settings") and typeof(data.settings) == TYPE_DICTIONARY:
+		data.settings.controls = "kbm"
+	for key in ["settings", "profile", "stats", "wallet"]:
 		if data.has(key) and typeof(data[key]) == TYPE_DICTIONARY:
 			var target: Dictionary = get(key)
 			for k in data[key]:
@@ -49,10 +75,31 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"settings": settings, "profile": profile, "stats": stats}))
+		f.store_string(JSON.stringify({"save_version": 2, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
-	return OUTFITS[clampi(int(profile.outfit), 0, OUTFITS.size() - 1)]
+	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
+
+func pants_color() -> Color:
+	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][2]
+
+func owns(i: int) -> bool:
+	for o in profile.owned:
+		if int(o) == i: return true
+	return false
+
+func pass_level() -> int:
+	return mini(PASS_MAX, 1 + int(wallet.xp) / PASS_XP)
+
+## Rewards after a match: gold and season XP.
+func reward_match(rank: int, kills: int, won: bool) -> Dictionary:
+	var gold := 20 + kills * 15 + maxi(0, 17 - rank) * 4 + (100 if won else 0)
+	var xp := 60 + kills * 40 + (200 if won else 0)
+	wallet.gold = int(wallet.gold) + gold
+	wallet.xp = int(wallet.xp) + xp
+	last_reward = {"gold": gold, "xp": xp, "rank": rank, "kills": kills, "won": won}
+	save_data()
+	return last_reward
 
 func player_name() -> String:
 	return profile.name if String(profile.name) != "" else "لاعب"

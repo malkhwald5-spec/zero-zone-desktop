@@ -17,6 +17,7 @@ var vest: MeshInstance3D
 var helmet: MeshInstance3D
 var pack: MeshInstance3D
 var canopy: MeshInstance3D
+var hair: MeshInstance3D
 var mats := {}
 var walk_phase := 0.0
 var _has_weapon := false
@@ -37,6 +38,13 @@ static func _mesh(key: String) -> Mesh:
 			m = SphereMesh.new(); m.radius = 0.115; m.height = 0.24
 		"helmet":
 			m = SphereMesh.new(); m.radius = 0.135; m.height = 0.2; m.is_hemisphere = true
+		"hair":
+			m = SphereMesh.new(); m.radius = 0.122; m.height = 0.17; m.is_hemisphere = true
+		"eye":
+			m = SphereMesh.new(); m.radius = 0.014; m.height = 0.028
+		"brow": m = _box(Vector3(0.045, 0.01, 0.012))
+		"nose": m = _box(Vector3(0.024, 0.04, 0.03))
+		"neck": m = _capsule(0.05, 0.14)
 		"hand":
 			m = SphereMesh.new(); m.radius = 0.05; m.height = 0.1
 		"boot": m = _box(Vector3(0.12, 0.08, 0.24))
@@ -65,10 +73,12 @@ static func _box(s: Vector3) -> BoxMesh:
 	b.size = s
 	return b
 
-func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a")) -> void:
+func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"), pants: Color = Color("33373d")) -> void:
 	mats.skin = _mat(Color("d9a77f"), 0.7)
 	mats.shirt = _mat(clothes, 0.85)
-	mats.pants = _mat(Color("33373d"), 0.9)
+	mats.pants = _mat(pants, 0.9)
+	mats.hair = _mat(Color("1c1712"), 0.8)
+	mats.eye = _mat(Color("15110e"), 0.3)
 	mats.boots = _mat(Color("1d1d1f"), 0.6)
 	mats.vest = _mat(Color("4e6fa8"), 0.8)
 	mats.helmet = _mat(Color("5a7a4a"), 0.5)
@@ -118,7 +128,17 @@ func _build() -> void:
 	var torso := _part("torso", mats.shirt, spine, Vector3(0, 0.3, 0))
 	torso.scale = Vector3(1.15, 1, 0.8)
 	vest = _part("vest", mats.vest, spine, Vector3(0, 0.33, 0))
-	_part("head", mats.skin, spine, Vector3(0, 0.75, -0.02))
+	_part("neck", mats.skin, spine, Vector3(0, 0.62, -0.01))
+	var head := _part("head", mats.skin, spine, Vector3(0, 0.75, -0.02))
+	head.scale = Vector3(0.95, 1.05, 1.0)
+	for side in [-1, 1]:
+		_part("eye", mats.eye, spine, Vector3(0.042 * side, 0.765, -0.128))
+		var brow := _part("brow", mats.hair, spine, Vector3(0.042 * side, 0.792, -0.124))
+		brow.rotation.z = -0.12 * side
+	_part("nose", mats.skin, spine, Vector3(0, 0.74, -0.13))
+	hair = _part("hair", mats.hair, spine, Vector3(0, 0.785, 0.0))
+	hair.scale = Vector3(1.0, 1.1, 1.08)
+	hair.visible = false
 	helmet = _part("helmet", mats.helmet, spine, Vector3(0, 0.79, -0.01))
 	pack = _part("pack", mats.pack, spine, Vector3(0, 0.36, 0.23))
 
@@ -162,6 +182,7 @@ func set_weapon(cls: String) -> void:
 func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 	vest.visible = vest_lvl > 0
 	helmet.visible = helmet_lvl > 0
+	hair.visible = helmet_lvl == 0
 	pack.visible = pack_lvl > 0
 	var vc := [Color.WHITE, Color("8d9a6b"), Color("4e6fa8"), Color("2b2b2b")]
 	var hc := [Color.WHITE, Color("a8a27c"), Color("5a7a4a"), Color("1e1e1e")]
