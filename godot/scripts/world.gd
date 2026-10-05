@@ -671,7 +671,8 @@ func _spawn_vehicles() -> void:
 			if island.height_at(p.x, p.y) < 0.8 or _in_building(p, 3.0): continue
 			var v := Vehicle.new()
 			v.world = self
-			v.paint = CAR_COLORS[randi() % CAR_COLORS.size()]
+			v.kind = "jeep" if randf() < 0.4 else "sedan"
+			v.paint = CAR_COLORS[randi() % CAR_COLORS.size()] if v.kind == "sedan" else [Color("4b5a3a"), Color("6b6250"), Color("3d4a52")][randi() % 3]
 			v.position = Vector3(p.x, island.height_at(p.x, p.y) + 0.9, p.y)
 			v.rotation.y = atan2(dir.x, dir.y) + (PI if randf() < 0.5 else 0.0)   # cars face +Z
 			add_child(v)

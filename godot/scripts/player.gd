@@ -536,7 +536,7 @@ func _update_camera(delta: float) -> void:
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
 	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
 	_update_wind()
-	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane" and state != "vehicle"
+	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane"
 
 func scoped() -> bool:
 	return aiming and state == "ground" and float(weapon().get("zoom", 1.0)) >= 3.0
@@ -547,7 +547,12 @@ func _update_model(delta: float) -> void:
 	if state == "fall" and move_input.length() > 0.1 and move_input.y < 0.0:
 		target_yaw = yaw    # backing up: keep facing forward
 	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (4.0 if state == "fall" else 12.0)))
-	if state == "chute":
+	if state == "vehicle" and vehicle:
+		# Sitting in the driver's seat (left side), facing the car's front (+Z).
+		var seat := Vector3(0.38, 0.42 if vehicle.kind == "sedan" else 0.62, -0.18)
+		model.global_transform = vehicle.global_transform * Transform3D(Basis(Vector3.UP, PI), seat)
+		model.steer = vehicle.steer_in
+	elif state == "chute":
 		ry = chute_heading
 		# Swing and bank around the canopy, not the feet.
 		var b := Basis(Vector3.UP, ry) * Basis(Vector3.BACK, chute_bank) * Basis(Vector3.RIGHT, chute_swing)
@@ -568,6 +573,7 @@ func _update_model(delta: float) -> void:
 		"fall": pose = "fall"
 		"chute": pose = "chute"
 		"dead": pose = "dead"
+		"vehicle": pose = "drive"
 		"ground": pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
 	var sp := Vector2(velocity.x, velocity.z).length()
 	model.set_pose(pose, sp, active >= 0, delta, Time.get_ticks_msec() / 1000.0)

@@ -403,6 +403,14 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			_arm("Right", Vector3(0.85, 1.45, -0.1).lerp(Vector3(0.3, 0.95, 0.12), d) - Vector3(0, flap, 0), Vector3(0, -1, 0).lerp(Vector3(0, 0, 1), d))
 			_leg("Left", Vector3(-0.32, 0.12, 0.3).lerp(Vector3(-0.1, 0.02, 0.06), d), Vector3(0, 0, 1))
 			_leg("Right", Vector3(0.32, 0.12, 0.3).lerp(Vector3(0.1, 0.02, 0.06), d), Vector3(0, 0, 1))
+		"drive":
+			# Seated: hips low, feet on the pedals, hands on the wheel (turning it).
+			body.position.y = -0.6
+			var a := steer * 0.9
+			for side in [["Left", -1.0], ["Right", 1.0]]:
+				var ang: float = (PI * 0.5 + 0.35) * side[1] + a
+				_arm(side[0], Vector3(sin(ang) * 0.17, 1.02 + cos(ang) * 0.17 * 0.8, -0.42), Vector3(side[1], -1, 0.5))
+				_leg(side[0], Vector3(side[1] * 0.16, 0.02, -0.62), Vector3(0, 1, -1))
 		"chute":
 			# Hands on the toggles; pulling one down turns, both down flares.
 			var pl := 0.4 * maxf(-steer, 0.0) + 0.35 * brake
