@@ -98,5 +98,22 @@ func _run() -> void:
 	world.hud.toggle_map()
 	await wait(0.4)
 	await shot("map")
+	world.zone.start()
+	world.zone.speed = 40.0
+	await wait(2.5)
+	world.zone.speed = 1.0
+	await shot("map_zone")
+	world.hud.toggle_map()
+	# Put a small circle 20 m in front of the player and look at its wall.
+	var z = world.zone
+	var pp: Vector3 = world.player.global_position
+	var fwd := Vector2(-sin(world.player.yaw), -cos(world.player.yaw))
+	z.state = "done"
+	z.center = Vector2(pp.x, pp.z) + fwd * 70.0
+	z.radius = 50.0
+	z._update_wall()
+	world.player.pitch = 0.05
+	await wait(1.5)
+	await shot("zone_wall")
 	print("TEST DONE")
 	get_tree().quit()

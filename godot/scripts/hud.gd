@@ -69,9 +69,14 @@ func show_banner(text: String) -> void:
 	banner.modulate.a = 1.0
 	_banner_t = 3.0
 
-func kill_feed(killer: String, victim: String, mine: bool) -> void:
+func kill_feed(killer: String, victim: String, mine: bool, by_zone := false) -> void:
 	var l := Label.new()
-	l.text = ("%s ⟵ %s" % [victim, killer]) if killer != "" else ("%s سقط" % victim)
+	if by_zone:
+		l.text = "%s مات بالمنطقة الزرقاء" % victim
+	elif killer != "":
+		l.text = "%s ⟵ %s" % [victim, killer]
+	else:
+		l.text = "%s سقط" % victim
 	l.add_theme_font_size_override("font_size", 15)
 	l.add_theme_color_override("font_color", Color("ffd34d") if mine else Color.WHITE)
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
@@ -221,6 +226,9 @@ func _draw_hud() -> void:
 		var center := sz * 0.5
 		var a := -rel - PI / 2.0
 		c.draw_arc(center, 120.0, a - 0.3, a + 0.3, 12, Color(1, 0.2, 0.2, minf(1.0, d.t)), 6.0)
+	if p.state == "ground" and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
+		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.1, 0.3, 1.0, 0.13))
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت خارج المنطقة الآمنة!", 22, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
 	if bag_open and not map_open:
@@ -276,6 +284,7 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 		var gy := r.position.y + size * 0.5 + (i * cell - pos.z) * s
 		if gx > r.position.x and gx < r.end.x: c.draw_line(Vector2(gx, r.position.y), Vector2(gx, r.end.y), Color(1, 1, 1, 0.25))
 		if gy > r.position.y and gy < r.end.y: c.draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), Color(1, 1, 1, 0.25))
+	_draw_zone(c, r, pos, s)
 	_arrow(c, r.get_center(), -p.yaw, Color("ffd34d"), 9.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.4), false, 1.5)
 	# Match clock and connection, under the minimap.
@@ -283,6 +292,13 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	var y := r.end.y + 4
 	c.draw_rect(Rect2(r.position.x, y, size, 22), Color(0, 0, 0, 0.4))
 	_text(c, Vector2(r.position.x + 8, y + 17), "⏱ %02d:%02d" % [tm / 60, tm % 60], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, null, 90)
+	# Zone timer and distance to safety.
+	var zy := y + 26
+	c.draw_rect(Rect2(r.position.x, zy, size, 22), Color(0.05, 0.2, 0.55, 0.55))
+	_text(c, Vector2(r.position.x + size * 0.5, zy + 17), world.zone.label(), 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, size)
+	var dist: float = world.zone.distance_to_safe(p.global_position)
+	if dist > 0.0 and world.zone.state != "idle":
+		_text(c, Vector2(r.position.x + size * 0.5, zy + 40), "🏃 %d م للمنطقة الآمنة" % int(dist), 13, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, null, size)
 	_text(c, Vector2(r.end.x - 8, y + 17), "%d ms 📶" % (18 + int(world.time * 3.7) % 9), 12, Color("8ef08e"), HORIZONTAL_ALIGNMENT_RIGHT, null, 90)
 
 func _arrow(c: Control, at: Vector2, ang: float, col: Color, s: float) -> void:
@@ -429,6 +445,10 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 		_text(c, r.position + t.pos * k, t.name, 14, Color("ffe08a") if t.military else Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if world.plane_active:
 		c.draw_dashed_line(r.position + Vector2(world.plane_from.x, world.plane_from.z) * k, r.position + Vector2(world.plane_to.x, world.plane_to.z) * k, Color(1, 1, 1, 0.7), 2.0, 8.0)
+	var z: Zone = world.zone
+	if z.state != "idle":
+		_clipped_circle(c, r, r.position + z.center * k, z.radius * k, Color(0.25, 0.5, 1.0, 0.95), 2.5)
+		_clipped_circle(c, r, r.position + z.next_center * k, z.next_radius * k, Color.WHITE, 2.0)
 	_arrow(c, r.position + Vector2(p.global_position.x, p.global_position.z) * k, -p.yaw, Color("ffd34d"), 10.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
 	_text(c, Vector2(sz.x * 0.5, r.end.y + 26), "كل مربع = %d م — اضغط M للإغلاق" % int(S / Game.GRID), 14)
@@ -450,3 +470,31 @@ func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
 		_text(c, Vector2(r.position.x + 14, y), "ذخيرة " + Game.AMMO_NAMES[at], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 180)
 		_text(c, Vector2(r.end.x - 14, y), str(p.ammo[at]), 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 80)
 		y += 30
+
+## Blue zone and next safe circle on the minimap (world -> minimap: centre + (q - pos) * s).
+func _draw_zone(c: Control, r: Rect2, pos: Vector3, s: float) -> void:
+	var z: Zone = world.zone
+	if z.state == "idle": return
+	var me := Vector2(pos.x, pos.z)
+	var ctr := r.get_center()
+	var cur := ctr + (z.center - me) * s
+	var nxt := ctr + (z.next_center - me) * s
+	_clipped_circle(c, r, cur, z.radius * s, Color(0.25, 0.5, 1.0, 0.95), 2.5)
+	_clipped_circle(c, r, nxt, z.next_radius * s, Color.WHITE, 1.8)
+	# Line to the safe zone when outside it.
+	if z.distance_to_safe(pos) > 0.0:
+		var dir := (z.next_center - me).normalized()
+		c.draw_line(ctr, ctr + dir * (r.size.x * 0.48), Color(1, 1, 1, 0.8), 1.5)
+
+## Draws only the part of a circle that lies inside rect r.
+func _clipped_circle(c: Control, r: Rect2, at: Vector2, radius: float, col: Color, width: float) -> void:
+	var pts := PackedVector2Array()
+	var segs := 192
+	for i in segs + 1:
+		var q: Vector2 = at + Vector2(radius, 0).rotated(i * TAU / segs)
+		if r.has_point(q):
+			pts.append(q)
+		else:
+			if pts.size() > 1: c.draw_polyline(pts, col, width)
+			pts = PackedVector2Array()
+	if pts.size() > 1: c.draw_polyline(pts, col, width)

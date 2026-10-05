@@ -17,7 +17,8 @@ static func render(host: Node, size := Vector2i(1280, 720)) -> Texture2D:
 	host.add_child(vp)
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
-	var tex := ImageTexture.create_from_image(vp.get_texture().get_image())
+	var img := vp.get_texture().get_image()
+	var tex: Texture2D = ImageTexture.create_from_image(img) if img else null
 	vp.queue_free()
 	return tex
 

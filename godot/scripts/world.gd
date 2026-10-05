@@ -2,13 +2,16 @@ extends Node3D
 ## Match scene: builds the island, flies the plane, spawns loot and bots,
 ## and keeps the HUD fed.
 
-const BOT_COUNT := 16
+const BOT_COUNT := 49          # + the player = 50
 
 var island: Island
 var builder: WorldBuilder
 var effects: Effects
 var player: Player
 var hud: Hud
+var zone: Zone
+var _zone_tick := 0.0
+var zone_deaths := 0
 var bots: Array = []
 var pickups: Array = []
 var plane: Node3D
@@ -63,6 +66,9 @@ func _build() -> void:
 	player.yaw = atan2(-(plane_to - plane_from).x, -(plane_to - plane_from).z)
 	player.pitch = -0.5
 	_spawn_bots()
+	zone = Zone.new()
+	add_child(zone)
+	zone.setup(self)
 	hud = Hud.new()
 	hud.world = self
 	add_child(hud)
@@ -249,41 +255,167 @@ func pickup(who: Player, it: Node3D) -> void:
 		who.give_weapon(data.id, data.mag)
 	else:
 		who.ammo[data.type] += data.amount
-	pickups.erase(it)
-	var c := _cell(it.global_position)
-	if _grid.has(c): _grid[c].erase(it)
-	it.queue_free()
+	_remove_pickup(it)
 
 func drop_weapon(id: String, mag: int, pos: Vector3) -> void:
 	_add_pickup({"kind": "weapon", "id": id, "mag": mag}, pos + Vector3(randf_range(-0.6, 0.6), 0, randf_range(-0.6, 0.6)))
 
 # ---------- Bots ----------
+const BOT_NAMES := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ليث", "Falcon_IQ", "Viper_SY", "نمر_EG", "Hunter_JO", "Storm_MA",
+	"قناص_العرب", "Titan313", "Wolf_YT", "برق", "Cobra_007", "رعد", "أسد_الجبل", "Ninja_DZ", "Sniper_LB", "فهد", "Eagle_PS", "Joker_TN",
+	"زلزال", "Rex_QA", "عقاب", "Blaze_KW", "Hawk_OM", "إعصار", "Raven_BH", "شبح", "Fury_LY", "صاعقة", "Ace_SD", "نسر", "Bullet_YE",
+	"الذئب_الأبيض", "Zero_MR", "Kaiser_AE", "سهم", "Phantom_IQ", "ثعلب", "Venom_SA", "بركان", "Ice_JO", "Sultan_EG", "شاهين", "Rage_SY",
+	"Toxic_MA", "عاصفة"]
+
 func _spawn_bots() -> void:
-	var names := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ليث", "Falcon_IQ", "Viper_SY", "نمر_EG", "Hunter_JO", "Storm_MA", "قناص_العرب", "Titan313", "Wolf_YT", "برق", "Cobra_007", "رعد"]
+	var dir := plane_to - plane_from
 	for i in BOT_COUNT:
-		var t: Dictionary = island.towns[i % island.towns.size()]
-		var p: Vector2 = t.pos
-		for k in 20:
-			var c: Vector2 = t.pos + Vector2(randf_range(10.0, t.r), 0).rotated(randf() * TAU)
-			if island.is_land(c.x, c.y) and not island.is_deep(c.x, c.y) and not _in_building(c, 1.0):
-				p = c
-				break
 		var b := Bot.new()
 		b.world = self
-		b.display_name = names[i % names.size()]
-		b.skill = {"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15)
-		b.weapon_id = ["m416", "akm", "ump", "m416", "s1897"][i % 5]
-		b.mag = Game.WEAPONS[b.weapon_id].mag
-		# Position first: the bot remembers it as its home in _ready().
-		b.position = Vector3(p.x, island.height_at(p.x, p.y) + 0.5, p.y)
+		b.display_name = BOT_NAMES[i % BOT_NAMES.size()]
+		b.skill = clampf({"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15), 0.05, 0.95)
+		# Pick a landing spot: mostly towns (hot drops), some lone houses/fields.
+		var dest := _landing_spot()
+		# Jump where the plane passes closest to that spot.
+		var t := clampf((Vector2(dest.x, dest.z) - Vector2(plane_from.x, plane_from.z)).dot(Vector2(dir.x, dir.z)) / Vector2(dir.x, dir.z).length_squared(), 0.04, 0.96)
+		b.dest = dest
+		b.jump_at = t + randf_range(-0.03, 0.01)
+		b.chute_alt = randf_range(110.0, 220.0)
+		b.position = plane_position() + Vector3(0, -3, 0)
 		add_child(b)
 		bots.append(b)
 
+func _landing_spot() -> Vector3:
+	for k in 30:
+		var p: Vector2
+		if randf() < 0.8:
+			var t: Dictionary = island.towns[randi() % island.towns.size()]
+			p = t.pos + Vector2(randf_range(0.0, t.r * 1.1), 0).rotated(randf() * TAU)
+		else:
+			p = Vector2(randf_range(0.1, 0.9), randf_range(0.1, 0.9)) * island.size
+		if island.is_land(p.x, p.y) and not island.is_deep(p.x, p.y) and not _in_building(p, 1.5):
+			return Vector3(p.x, island.height_at(p.x, p.y), p.y)
+	var t2: Dictionary = island.towns[0]
+	return Vector3(t2.pos.x, island.height_at(t2.pos.x, t2.pos.y), t2.pos.y)
+
 func _in_building(p: Vector2, pad: float) -> bool:
-	for bl in island.buildings:
+	return building_at(p, pad) >= 0
+
+## Index of the building containing p (with padding), or -1.
+func building_at(p: Vector2, pad := 0.0) -> int:
+	for i in island.buildings.size():
+		var bl: Dictionary = island.buildings[i]
 		if absf(p.x - bl.pos.x) < bl.size.x * 0.5 + pad and absf(p.y - bl.pos.y) < bl.size.y * 0.5 + pad:
-			return true
-	return false
+			return i
+	return -1
+
+## Door positions of a building: [outside point, inside point] per door.
+func _doors(i: int) -> Array:
+	var bl: Dictionary = island.buildings[i]
+	var h: Vector2 = bl.size * 0.5
+	var res := []
+	for d in bl.doors:
+		var n: Vector2 = [Vector2(0, -1), Vector2(1, 0), Vector2(0, 1), Vector2(-1, 0)][d]
+		var edge: Vector2 = bl.pos + Vector2(n.x * h.x, n.y * h.y)
+		res.append([edge + n * 2.0, edge - n * 1.5])
+	return res
+
+func _v3(p: Vector2) -> Vector3:
+	return Vector3(p.x, island.height_at(p.x, p.y), p.y)
+
+## Waypoints for walking from a to b: leave/enter buildings through doors and
+## cross deep water on bridges. The goal itself is not included.
+func route(a: Vector3, b: Vector3) -> Array:
+	var pts := []
+	var a2 := Vector2(a.x, a.z)
+	var b2 := Vector2(b.x, b.z)
+	var ia := building_at(a2)
+	var ib := building_at(b2)
+	if ia >= 0 and ia != ib:
+		var best: Array = _doors(ia)[0]
+		for d in _doors(ia):
+			if d[0].distance_to(b2) < best[0].distance_to(b2): best = d
+		pts.append(_v3(best[1]))
+		pts.append(_v3(best[0]))
+		a2 = best[0]
+	# Deep water in between: use the nearest bridge.
+	var wet := false
+	for k in range(1, 20):
+		var q := a2.lerp(b2, k / 20.0)
+		if island.is_deep(q.x, q.y):
+			wet = true
+			break
+	if wet and not island.bridges.is_empty():
+		var br: Dictionary = island.bridges[0]
+		var bd := INF
+		for bb in island.bridges:
+			var dd: float = a2.distance_to(bb.a) + b2.distance_to(bb.b)
+			var dd2: float = a2.distance_to(bb.b) + b2.distance_to(bb.a)
+			if minf(dd, dd2) < bd:
+				bd = minf(dd, dd2)
+				br = bb
+		var e1: Vector2 = br.a
+		var e2: Vector2 = br.b
+		if a2.distance_to(e2) < a2.distance_to(e1):
+			var tmp := e1
+			e1 = e2
+			e2 = tmp
+		pts.append(Vector3(e1.x, 1.3, e1.y))
+		pts.append(Vector3(e2.x, 1.3, e2.y))
+	if ib >= 0 and ib != ia:
+		var best2: Array = _doors(ib)[0]
+		var from := Vector2(pts[-1].x, pts[-1].z) if not pts.is_empty() else a2
+		for d in _doors(ib):
+			if d[0].distance_to(from) < best2[0].distance_to(from): best2 = d
+		pts.append(_v3(best2[0]))
+		pts.append(_v3(best2[1]))
+	return pts
+
+## Everyone still in the match (player and bots).
+func actors() -> Array:
+	var res := []
+	if player and player.state != "dead": res.append(player)
+	for b in bots:
+		if not b.dead: res.append(b)
+	return res
+
+## Nearest pickup within r for which ok(it) is true.
+func find_pickup(p: Vector3, r: float, ok: Callable) -> Node3D:
+	var best: Node3D = null
+	var bd := r
+	var c := _cell(p)
+	var n := ceili(r / CELL)
+	for dx in range(-n, n + 1):
+		for dz in range(-n, n + 1):
+			for it in _grid.get(c + Vector2i(dx, dz), []):
+				var d: float = it.global_position.distance_to(p)
+				if d < bd and ok.call(it):
+					bd = d
+					best = it
+	return best
+
+## A bot picks something up.
+func bot_take(b: Bot, it: Node3D) -> void:
+	if not is_instance_valid(it) or not pickups.has(it): return
+	var data: Dictionary = it.get_meta("data")
+	if data.kind == "weapon":
+		if b.armed():
+			drop_weapon(b.weapon_id, b.mag, b.global_position)
+		b.weapon_id = data.id
+		b.mag = int(data.mag)
+		b.reserve = maxi(b.reserve, 0)
+		b.model.set_weapon(Game.WEAPONS[data.id].cls)
+		if b.mag == 0: b.reload_t = Game.WEAPONS[data.id].reload
+		b.reserve += 30   # some rounds come with the gun
+	elif data.kind == "ammo":
+		b.reserve += int(data.amount)
+	_remove_pickup(it)
+
+func _remove_pickup(it: Node3D) -> void:
+	pickups.erase(it)
+	var c := _cell(it.global_position)
+	if _grid.has(c): _grid[c].erase(it)
+	it.queue_free()
 
 func alive_count() -> int:
 	var n := 1 if player and player.state != "dead" else 0
@@ -291,16 +423,24 @@ func alive_count() -> int:
 		if not b.dead: n += 1
 	return n
 
-func on_bot_killed(bot: Bot, attacker: Node) -> void:
-	hud.kill_feed(attacker.display_name if attacker and "display_name" in attacker else "", bot.display_name, attacker == player)
+## Someone died (player or bot). attacker is null for the blue zone.
+func on_actor_killed(victim: Node, attacker: Node) -> void:
+	var killer: String = attacker.display_name if attacker and "display_name" in attacker else ""
+	if hud: hud.kill_feed(killer, victim.display_name, attacker == player, attacker == null)
 	if attacker == player:
 		Game.stats.kills += 1
-	drop_weapon(bot.weapon_id, 0, bot.global_position)
+	if attacker == null: zone_deaths += 1
+	if victim is Bot:
+		var v: Bot = victim
+		if v.armed():
+			drop_weapon(v.weapon_id, 0, v.global_position)
+			var at: String = Game.WEAPONS[v.weapon_id].ammo
+			if v.reserve > 0:
+				_add_pickup({"kind": "ammo", "type": at, "amount": mini(v.reserve, 60)}, v.global_position + Vector3(0.5, 0, 0.4))
 	if player.state != "dead" and alive_count() == 1:
 		_end_match(true)
 
-func _on_player_died(killer: String) -> void:
-	hud.kill_feed(killer, player.display_name, false)
+func _on_player_died(_killer: String) -> void:
 	_end_match(false)
 
 func _end_match(won: bool) -> void:
@@ -323,11 +463,19 @@ func _process(delta: float) -> void:
 		if plane_t >= 1.0:
 			plane_active = false
 			plane.visible = false
+			zone.start()
 		elif plane_t > 0.92 and player.state == "plane" and plane_over_land():
 			player.jump_from_plane()
 		elif plane_t >= 0.995 and player.state == "plane":
 			player.jump_from_plane()
 	builder.update_grass(player.global_position)
+	# Blue zone damage, once a second.
+	_zone_tick += delta
+	if _zone_tick >= 1.0 and zone.state != "idle":
+		_zone_tick = 0.0
+		for a in actors():
+			if a.on_ground() and zone.is_outside(a.global_position):
+				a.take_damage(zone.dps, null)
 	# Auto-pickup ammo for guns the player carries.
 	if player.state == "ground":
 		for it in pickups_near(player.global_position, 1.4):
@@ -389,7 +537,8 @@ func _capture_map() -> void:
 	plane.visible = false
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
-	map_texture = ImageTexture.create_from_image(vp.get_texture().get_image())
+	var img := vp.get_texture().get_image()
+	if img: map_texture = ImageTexture.create_from_image(img)   # null when running headless
 	vp.queue_free()
 	plane.visible = plane_was and plane_active
 	player.camera.current = true

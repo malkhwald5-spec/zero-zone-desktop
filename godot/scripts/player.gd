@@ -358,8 +358,12 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 		else:
 			world.effects.impact(end, hit.normal, false)
 
-func take_damage(amount: float, attacker: Node) -> bool:
-	if state == "dead": return false
+func on_ground() -> bool:
+	return state == "ground"
+
+## attacker is null for blue-zone damage.
+func take_damage(amount: float, attacker: Node, _head := false) -> bool:
+	if state == "dead" or world.match_over: return false
 	health -= amount
 	if attacker is Node3D:
 		damaged.emit((attacker.global_position - global_position).normalized())
@@ -367,6 +371,7 @@ func take_damage(amount: float, attacker: Node) -> bool:
 		health = 0.0
 		state = "dead"
 		firing = false
+		world.on_actor_killed(self, attacker)
 		died.emit(attacker.display_name if attacker and "display_name" in attacker else "")
 		return true
 	return false
