@@ -132,29 +132,75 @@ func _make_plane() -> void:
 	add_child(plane)
 	plane.look_at_from_position(plane_from, plane_to, Vector3.UP)
 
+## Four-engine military transport (C-130 style) with spinning propellers and
+## an open rear ramp. Faces -Z.
+var plane_props: Array = []
+
 func _plane_model() -> Node3D:
 	var plane := Node3D.new()
-	var body_mat := StandardMaterial3D.new()
-	body_mat.albedo_color = Color("c9cdd2")
-	body_mat.metallic = 0.4
-	body_mat.roughness = 0.4
+	var skin := StandardMaterial3D.new()
+	skin.albedo_color = Color("7d858a")
+	skin.metallic = 0.35
+	skin.roughness = 0.55
 	var dark := StandardMaterial3D.new()
-	dark.albedo_color = Color("4a5058")
+	dark.albedo_color = Color("2b2f33")
+	dark.roughness = 0.5
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color("10161c")
+	glass.metallic = 0.8
+	glass.roughness = 0.1
+	var nose := SphereMesh.new()
+	nose.radius = 2.3
+	nose.height = 4.6
 	var parts := [
-		[_cyl(1.9, 1.6, 30.0), Vector3(0, 0, 0), Vector3(PI / 2, 0, 0), body_mat],
-		[_box(Vector3(38, 0.5, 5)), Vector3(0, 0, -1), Vector3.ZERO, body_mat],
-		[_box(Vector3(12, 0.4, 3)), Vector3(0, 0.5, 13.5), Vector3.ZERO, body_mat],
-		[_box(Vector3(0.4, 5, 3.4)), Vector3(0, 2.6, 13.5), Vector3.ZERO, body_mat],
+		# Fuselage, nose, cockpit glass, tail cone rising to the fin.
+		[_cyl(2.3, 2.3, 22.0), Vector3(0, 0, 0), Vector3(PI / 2, 0, 0), skin, Vector3.ONE],
+		[nose, Vector3(0, -0.15, -11.0), Vector3.ZERO, skin, Vector3(1.0, 0.95, 1.6)],
+		[_box(Vector3(2.6, 0.7, 1.4)), Vector3(0, 1.25, -12.6), Vector3(-0.5, 0, 0), glass, Vector3.ONE],
+		[_cyl(0.7, 2.3, 9.0), Vector3(0, 0.9, 15.3), Vector3(PI / 2 - 0.12, 0, 0), skin, Vector3.ONE],
+		# High wing with engines hanging below it.
+		[_box(Vector3(40.0, 0.55, 4.6)), Vector3(0, 2.3, -2.5), Vector3.ZERO, skin, Vector3.ONE],
+		[_box(Vector3(4.0, 0.8, 4.0)), Vector3(0, 2.0, -2.5), Vector3.ZERO, skin, Vector3.ONE],
+		# Tail: fin and stabiliser.
+		[_box(Vector3(0.45, 7.5, 5.0)), Vector3(0, 5.2, 18.0), Vector3(0.25, 0, 0), skin, Vector3.ONE],
+		[_box(Vector3(15.0, 0.4, 3.4)), Vector3(0, 2.0, 18.8), Vector3.ZERO, skin, Vector3.ONE],
+		# Open rear ramp hanging down, landing-gear pods.
+		[_box(Vector3(3.2, 0.25, 5.0)), Vector3(0, -2.4, 13.6), Vector3(0.35, 0, 0), dark, Vector3.ONE],
+		[_box(Vector3(1.4, 1.4, 6.0)), Vector3(-2.4, -1.6, 0.5), Vector3.ZERO, skin, Vector3.ONE],
+		[_box(Vector3(1.4, 1.4, 6.0)), Vector3(2.4, -1.6, 0.5), Vector3.ZERO, skin, Vector3.ONE],
 	]
-	for x in [-11.0, -5.5, 5.5, 11.0]:
-		parts.append([_cyl(0.8, 0.9, 3.4), Vector3(x, -0.6, -2.0), Vector3(PI / 2, 0, 0), dark])
+	for x in [-13.0, -6.5, 6.5, 13.0]:
+		parts.append([_cyl(0.75, 0.9, 5.0), Vector3(x, 1.7, -3.6), Vector3(PI / 2, 0, 0), skin, Vector3.ONE])
+		parts.append([_cyl(0.35, 0.0, 0.8), Vector3(x, 1.7, -6.5), Vector3(-PI / 2, 0, 0), dark, Vector3.ONE])
 	for p in parts:
 		var mi := MeshInstance3D.new()
 		mi.mesh = p[0]
 		mi.position = p[1]
 		mi.rotation = p[2]
+		mi.scale = p[4]
 		mi.material_override = p[3]
 		plane.add_child(mi)
+	# Window row and roundels.
+	for i in 7:
+		var w := MeshInstance3D.new()
+		w.mesh = _box(Vector3(4.66, 0.35, 0.45))
+		w.position = Vector3(0, 0.9, -8.0 + i * 2.2)
+		w.material_override = glass
+		plane.add_child(w)
+	# Propellers: four blades each, spun every frame.
+	plane_props.clear()
+	for x in [-13.0, -6.5, 6.5, 13.0]:
+		var hub := Node3D.new()
+		hub.position = Vector3(x, 1.7, -6.6)
+		plane.add_child(hub)
+		for k in 4:
+			var blade := MeshInstance3D.new()
+			blade.mesh = _box(Vector3(0.28, 2.0, 0.08))
+			blade.material_override = dark
+			blade.position = Vector3(0, 1.0, 0).rotated(Vector3.BACK, k * PI / 2)
+			blade.rotation.z = k * PI / 2
+			hub.add_child(blade)
+		plane_props.append(hub)
 	return plane
 
 func _cyl(r1: float, r2: float, h: float) -> CylinderMesh:
@@ -575,6 +621,7 @@ func _process(delta: float) -> void:
 	if plane_active:
 		plane_t += delta / plane_dur
 		plane.global_position = plane_position()
+		for pr in plane_props: pr.rotate_object_local(Vector3.BACK, delta * 40.0)
 		if plane_t >= 1.0:
 			plane_active = false
 			plane.visible = false
@@ -745,6 +792,48 @@ func smoke_blocks(a: Vector3, b: Vector3) -> bool:
 		var k := clampf((c - a).dot(ab) / maxf(ab.length_squared(), 0.001), 0.0, 1.0)
 		if (a + ab * k).distance_to(c) < float(s.r): return true
 	return false
+
+# ---------- Parachutes ----------
+## When someone lands the canopy is released: it keeps flying a little,
+## collapses and sinks into the ground, then disappears.
+func drop_canopy(m: HumanModel, vel: Vector3) -> void:
+	var src: Node3D = m.canopy
+	var c: Node3D = src.duplicate()
+	add_child(c)
+	c.global_transform = src.global_transform
+	c.visible = true
+	var start := c.global_position
+	var end := start + Vector3(vel.x, 0, vel.z).normalized() * 6.0 + Vector3(0, -2.0, 0)
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(c, "global_position", end, 2.2).set_ease(Tween.EASE_IN)
+	tw.tween_property(c, "scale", Vector3(1.2, 0.05, 0.6), 2.2).set_ease(Tween.EASE_IN)
+	tw.tween_property(c, "rotation:x", c.rotation.x + 0.9, 2.2)
+	tw.chain().tween_callback(c.queue_free)
+
+var _wind_stream: AudioStreamWAV
+
+## Looping filtered noise used for the wind rush (and, pitched down, the plane drone).
+func wind_stream() -> AudioStreamWAV:
+	if _wind_stream: return _wind_stream
+	var rate := 22050
+	var n := rate * 2
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in n:
+		var t := float(i) / rate
+		lp = lp * 0.82 + (randf() * 2.0 - 1.0) * 0.18
+		lp2 = lp2 * 0.97 + lp * 0.03
+		var gust := 0.75 + 0.25 * sin(t * TAU * 0.5)       # whole periods over the 2 s loop
+		data.encode_s16(i * 2, int(clampf((lp * 0.6 + lp2 * 3.0) * gust, -1.0, 1.0) * 26000.0))
+	_wind_stream = AudioStreamWAV.new()
+	_wind_stream.format = AudioStreamWAV.FORMAT_16_BITS
+	_wind_stream.mix_rate = rate
+	_wind_stream.data = data
+	_wind_stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	_wind_stream.loop_end = n
+	return _wind_stream
 
 # ---------- Sound ----------
 func _make_shot_sound() -> AudioStreamWAV:

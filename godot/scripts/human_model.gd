@@ -16,7 +16,13 @@ var gun: Node3D               # procedural rifle held at chest height
 var gun_body: MeshInstance3D
 var gun_barrel: MeshInstance3D
 var gun_mag: MeshInstance3D
-var canopy: MeshInstance3D
+var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
+## Skydive / parachute controls, set by the owner each frame.
+var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
+var lean := 0.0               # roll while skydiving (-1..1)
+var steer := 0.0              # parachute toggles: -1 pull left .. 1 pull right
+var brake := 0.0              # parachute flare 0..1
+var chute_open := 1.0         # 0 = just pulled (bunched up) .. 1 = fully open
 var helmet: MeshInstance3D
 var pack: MeshInstance3D
 var _helmet_att: BoneAttachment3D
@@ -49,16 +55,19 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 				mi.material_override = t
 	_build_gun()
 	_build_gear()
-	canopy = MeshInstance3D.new()
-	canopy.mesh = SoldierModel._mesh("canopy")
-	var cm := StandardMaterial3D.new()
-	cm.albedo_color = chute_color
-	cm.roughness = 0.8
-	cm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	canopy.material_override = cm
-	canopy.position.y = 4.6
+	canopy = Node3D.new()
+	canopy.position.y = RISER_Y
 	canopy.visible = false
 	add_child(canopy)
+	var cmi := MeshInstance3D.new()
+	cmi.mesh = chute_mesh(chute_color)
+	cmi.position.y = -RISER_Y
+	canopy.add_child(cmi)
+	var lmi := MeshInstance3D.new()
+	lmi.mesh = _lines_mesh()
+	lmi.position.y = -RISER_Y
+	lmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	canopy.add_child(lmi)
 	_play("Idle", 1.0)
 	ap.advance(randf() * 1.5)
 
@@ -70,6 +79,96 @@ func _mat(key: String, c: Color, rough := 0.6, metal := 0.0) -> StandardMaterial
 		m.metallic = metal
 		_mats[key] = m
 	return _mats[key]
+
+# ---------------------------------------------------------------- parachute
+const RISER_Y := 1.5          # where the risers meet the harness (model space)
+const CANOPY_Y := 6.7         # top of the canopy arc
+const ARC_R := 7.5            # canopy arc radius (span about 7 m)
+const CELLS := 9
+const CHORD := 3.0
+
+static var _chute_cache := {}
+static var _lines: ArrayMesh
+
+## Point on the canopy: rib station i (0..CELLS), chord position u (0 = front),
+## h = height above the canopy's mid-surface (top > 0, bottom < 0).
+static func _canopy_pt(i: float, u: float, h: float) -> Vector3:
+	var phi := lerpf(-0.5, 0.5, i / CELLS)
+	var n := Vector3(sin(phi), cos(phi), 0.0)
+	var camber := 0.12 * sin(u * PI)
+	return Vector3(ARC_R * sin(phi), CANOPY_Y + ARC_R * (cos(phi) - 1.0), -CHORD * 0.5 + CHORD * u) + n * (h + camber)
+
+static func _top(u: float) -> float: return 1.15 * (sqrt(u) - u)
+static func _bottom(u: float) -> float: return -0.3 * (sqrt(u) - u) - 0.1 * (1.0 - u) * (1.0 - u)
+
+## Rectangular ram-air canopy with open cells and ribs, striped like PUBG chutes.
+static func chute_mesh(col: Color) -> ArrayMesh:
+	var key := col.to_html()
+	if _chute_cache.has(key): return _chute_cache[key]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var us := [0.03, 0.08, 0.16, 0.26, 0.38, 0.52, 0.68, 0.84, 1.0]
+	var stripe := col.lightened(0.55)
+	for c in CELLS:
+		var cc: Color = col if c % 2 == 0 else stripe
+		if c == CELLS / 2: cc = Color(0.95, 0.95, 0.92)
+		for k in us.size() - 1:
+			var u0: float = us[k]
+			var u1: float = us[k + 1]
+			# Top skin, bottom skin (darker).
+			for side in [[1.0, cc], [-1.0, cc.darkened(0.3)]]:
+				var f := func(i: float, u: float) -> Vector3: return _canopy_pt(i, u, _top(u) if side[0] > 0 else _bottom(u))
+				var a: Vector3 = f.call(c, u0)
+				var b: Vector3 = f.call(c + 1, u0)
+				var d: Vector3 = f.call(c + 1, u1)
+				var e: Vector3 = f.call(c, u1)
+				st.set_color(side[1])
+				for v in ([a, b, d, a, d, e] if side[0] > 0 else [a, d, b, a, e, d]):
+					st.add_vertex(v)
+		# Rib wall between cells.
+	for i in CELLS + 1:
+		for k in us.size() - 1:
+			var u0: float = us[k]
+			var u1: float = us[k + 1]
+			st.set_color(col.darkened(0.15))
+			var a := _canopy_pt(i, u0, _top(u0))
+			var b := _canopy_pt(i, u1, _top(u1))
+			var d := _canopy_pt(i, u1, _bottom(u1))
+			var e := _canopy_pt(i, u0, _bottom(u0))
+			for v in [a, b, d, a, d, e]:
+				st.add_vertex(v)
+	st.generate_normals()
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.roughness = 0.75
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.backlight_enabled = true
+	m.backlight = Color(0.35, 0.35, 0.35)
+	st.set_material(m)
+	var mesh := st.commit()
+	_chute_cache[key] = mesh
+	return mesh
+
+## Suspension lines from the canopy's underside down to the two risers.
+static func _lines_mesh() -> ArrayMesh:
+	if _lines: return _lines
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_LINES)
+	for i in CELLS + 1:
+		var riser := Vector3(-0.22 if i < (CELLS + 1) / 2 else 0.22, RISER_Y + 0.6, 0.0)
+		for u in [0.1, 0.4, 0.75]:
+			st.add_vertex(_canopy_pt(i, u, _bottom(u)))
+			st.add_vertex(riser)
+	for x in [-0.22, 0.22]:
+		st.add_vertex(Vector3(x, RISER_Y + 0.6, 0.0))
+		st.add_vertex(Vector3(x * 0.8, RISER_Y, 0.04))
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.12, 0.12, 0.12)
+	st.set_material(m)
+	_lines = st.commit()
+	return _lines
 
 func _build_gun() -> void:
 	gun = Node3D.new()
@@ -153,6 +252,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
 	canopy.visible = pose == "chute"
+	if canopy.visible:
+		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
+		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone"]
 	gun.position = Vector3(0.13, 1.33, -0.32)
 	gun.rotation = Vector3.ZERO
@@ -175,15 +277,26 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			_arm("Left", Vector3(-0.8, 1.5, 0.2), Vector3(0, 0, 1))
 			_arm("Right", Vector3(0.8, 1.5, 0.2), Vector3(0, 0, 1))
 		"fall":
-			body.rotation.x = -PI / 2 + 0.3
-			body.position = Vector3(0, 0.3, 0.8)
-			_arm("Left", Vector3(-0.85, 1.45, -0.1), Vector3(0, -1, 0))
-			_arm("Right", Vector3(0.85, 1.45, -0.1), Vector3(0, -1, 0))
-			_leg("Left", Vector3(-0.3, 0.1, 0.25), Vector3(0, 0, 1))
-			_leg("Right", Vector3(0.3, 0.1, 0.25), Vector3(0, 0, 1))
+			# Belly to earth (arms and legs spread) blending into a head-down
+			# dive (arms along the body, legs together). Turned about the hips.
+			var d := clampf(dive, 0.0, 1.0)
+			body.rotation = Vector3(lerpf(-PI / 2 + 0.25, -PI * 0.86, d), 0.0, -lean * 0.5)
+			var hip := Vector3(0, 1.0, 0)
+			body.position = hip - body.basis * hip
+			var flap := sin(t * 23.0) * 0.015 * (0.5 + d)
+			_arm("Left", Vector3(-0.85, 1.45, -0.1).lerp(Vector3(-0.3, 0.95, 0.12), d) + Vector3(0, flap, 0), Vector3(0, -1, 0).lerp(Vector3(0, 0, 1), d))
+			_arm("Right", Vector3(0.85, 1.45, -0.1).lerp(Vector3(0.3, 0.95, 0.12), d) - Vector3(0, flap, 0), Vector3(0, -1, 0).lerp(Vector3(0, 0, 1), d))
+			_leg("Left", Vector3(-0.32, 0.12, 0.3).lerp(Vector3(-0.1, 0.02, 0.06), d), Vector3(0, 0, 1))
+			_leg("Right", Vector3(0.32, 0.12, 0.3).lerp(Vector3(0.1, 0.02, 0.06), d), Vector3(0, 0, 1))
 		"chute":
-			_arm("Left", Vector3(-0.3, 2.15, -0.05), Vector3(-1, 0, 0))
-			_arm("Right", Vector3(0.3, 2.15, -0.05), Vector3(1, 0, 0))
+			# Hands on the toggles; pulling one down turns, both down flares.
+			var pl := 0.4 * maxf(-steer, 0.0) + 0.35 * brake
+			var pr := 0.4 * maxf(steer, 0.0) + 0.35 * brake
+			_arm("Left", Vector3(-0.27, 2.05 - pl, -0.02), Vector3(-1, 0, 0.3))
+			_arm("Right", Vector3(0.27, 2.05 - pr, -0.02), Vector3(1, 0, 0.3))
+			var sw := sin(t * 1.7) * 0.05
+			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
+			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
 	if armed and gun.visible:
 		_hold_gun()
 	elif pose in ["stand", "crouch"]:

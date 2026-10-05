@@ -29,6 +29,7 @@ var state := "plane"         # plane | fall | chute | ground | dead
 var dest := Vector3.ZERO     # landing spot
 var jump_at := 0.5           # fraction of the plane route where it jumps
 var chute_alt := 150.0
+var chute_t := 0.0
 
 var mode := "loot"           # loot | fight | zone | roam | flee
 var target: Node3D = null    # enemy being fought
@@ -145,6 +146,12 @@ func _air(delta: float) -> void:
 	var dist := to.length()
 	if state == "fall" and alt < chute_alt:
 		state = "chute"
+		chute_t = 0.0
+	if state == "chute":
+		chute_t += delta
+		model.chute_open = clampf(chute_t / 1.6, 0.0, 1.0)
+	else:
+		model.dive = 0.8
 	var hs := 30.0 if state == "fall" else 11.0
 	var vs := 45.0 if state == "fall" else 6.5
 	# Glide only as fast as needed to arrive about when touching down.
@@ -160,6 +167,8 @@ func _air(delta: float) -> void:
 		_land()
 
 func _land() -> void:
+	if state == "chute" and not far:
+		world.drop_canopy(model, Vector3(-sin(yaw), 0, -cos(yaw)) * 8.0)
 	global_position = world.safe_landing(global_position)
 	state = "ground"
 	shape.disabled = false

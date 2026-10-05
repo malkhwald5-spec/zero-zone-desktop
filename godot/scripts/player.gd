@@ -9,7 +9,12 @@ signal message(text: String)
 
 const GRAVITY := 18.0
 const PLANE_ALT := 600.0
-const CHUTE_AUTO := 120.0
+const CHUTE_AUTO := 140.0
+# Skydive speeds in m/s (PUBG-like: 126 km/h belly-down, up to 234 km/h diving).
+const FALL_V := 35.0
+const DIVE_V := 65.0
+const GLIDE_H := 30.0
+const CHUTE_OPEN_TIME := 1.6
 
 var world: Node
 var state := "plane"          # plane | fall | chute | ground | vehicle | dead
@@ -39,6 +44,13 @@ var sprinting := false
 var firing := false
 var jump_queued := false
 var air_speed := 0.0              # km/h shown on the HUD
+var dive := 0.0                   # smoothed 0..1 head-down amount while skydiving
+var chute_t := 0.0                # seconds since the parachute was pulled
+var chute_heading := 0.0          # direction the canopy flies
+var chute_bank := 0.0             # roll from turning (radians)
+var chute_swing := 0.0            # pitch swing under the canopy (radians)
+var land_t := 0.0                 # short landing crouch
+var _wind: AudioStreamPlayer
 
 # Weapons: two primaries + pistol. Each slot: {id, mag}
 var slots := [null, null, null]
@@ -199,12 +211,17 @@ func interact() -> void:
 
 func jump_from_plane() -> void:
 	state = "fall"
-	velocity = world.plane_velocity() * 0.25
-	message.emit("اسحب للأمام للغوص أسرع — افتح المظلة متى شئت")
+	velocity = world.plane_velocity() * 0.5
+	dive = 0.0
+	message.emit("W مع النظر لتحت = غوص أسرع (234 كم/س) — W مع النظر لقدام = طيران لبعيد")
 
 func open_chute() -> void:
 	if state == "fall" and global_position.y < PLANE_ALT - 40.0:
 		state = "chute"
+		chute_t = 0.0
+		chute_heading = model.rotation.y
+		chute_swing = 0.35          # the opening shock swings you forward
+		shake = maxf(shake, 0.6)
 
 func set_stance(s: String) -> void:
 	if state != "ground": return
@@ -266,28 +283,63 @@ func _wish_dir() -> Vector3:
 	return (fwd * move_input.y + right * move_input.x)
 
 func _air(delta: float) -> void:
-	var wish := _wish_dir()
-	var dive := maxf(0.0, move_input.y)
-	var h_speed: float
-	var v_speed: float
 	if state == "fall":
-		h_speed = 12.0 + 26.0 * dive
-		v_speed = 48.0 + 18.0 * dive
-		if global_position.y - world.ground_height(global_position) < CHUTE_AUTO:
-			open_chute()
+		_freefall(delta)
 	else:
-		h_speed = 11.0 + 4.0 * dive
-		v_speed = 7.5
-	var target := wish * h_speed
-	velocity.x = move_toward(velocity.x, target.x, 30.0 * delta)
-	velocity.z = move_toward(velocity.z, target.z, 30.0 * delta)
-	velocity.y = move_toward(velocity.y, -v_speed, 40.0 * delta)
-	air_speed = Vector3(velocity.x, velocity.y, velocity.z).length() * 3.6
+		_canopy_flight(delta)
+	air_speed = velocity.length() * 3.6
 	move_and_slide()
 	if is_on_floor() or global_position.y <= world.ground_height(global_position) + 0.05:
 		_land()
 
+## Freefall: W + looking down dives head-first, W + looking ahead glides far,
+## S spreads out to slow down, A/D slide sideways. Speeds change gradually.
+func _freefall(delta: float) -> void:
+	var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
+	var right := Vector3(cos(yaw), 0, -sin(yaw))
+	var push := maxf(move_input.y, 0.0)
+	var back := maxf(-move_input.y, 0.0)
+	var steep := clampf(inverse_lerp(-0.15, -1.0, pitch), 0.0, 1.0)
+	dive = move_toward(dive, push * lerpf(0.35, 1.0, steep), delta * 0.8)
+	var v_target := lerpf(FALL_V, DIVE_V, dive) - back * 5.0
+	var h_target := fwd * (push * lerpf(GLIDE_H, 7.0, steep) - back * 6.0) + right * move_input.x * 9.0
+	var h := Vector3(velocity.x, 0, velocity.z).move_toward(h_target, 9.0 * delta)
+	velocity = Vector3(h.x, move_toward(velocity.y, -v_target, (9.8 if velocity.y > -v_target else 6.0) * delta), h.z)
+	if global_position.y - world.ground_height(global_position) < CHUTE_AUTO:
+		open_chute()
+
+## Under the canopy: it always flies forward. Steering turns it at a limited
+## rate (banking into the turn), W speeds up and sinks faster, S flares.
+func _canopy_flight(delta: float) -> void:
+	chute_t += delta
+	var opening := clampf(chute_t / CHUTE_OPEN_TIME, 0.0, 1.0)
+	var brake := maxf(-move_input.y, 0.0) if absf(move_input.x) < 0.3 else 0.0
+	var push := maxf(move_input.y, 0.0)
+	var turn := 0.0
+	if move_input.length() > 0.1 and brake == 0.0:
+		var d := _wish_dir()
+		var want := atan2(-d.x, -d.z)
+		turn = clampf(wrapf(want - chute_heading, -PI, PI) * 2.0, -1.0, 1.0)
+	chute_heading = wrapf(chute_heading + turn * 1.1 * delta * opening, -PI, PI)
+	var h_speed := lerpf(9.0, 14.0, push) - brake * 5.0 - absf(turn) * 1.5
+	var v_speed := lerpf(5.5, 7.5, push) - brake * 1.8 + absf(turn) * 1.2
+	var dir := Vector3(-sin(chute_heading), 0, -cos(chute_heading))
+	var h_target := dir * h_speed * opening
+	# The opening shock: big deceleration while the canopy inflates.
+	var rate := lerpf(45.0, 6.0, opening)
+	var h := Vector3(velocity.x, 0, velocity.z).move_toward(h_target, rate * delta)
+	velocity = Vector3(h.x, move_toward(velocity.y, -v_speed, rate * delta), h.z)
+	chute_bank = lerpf(chute_bank, -turn * 0.42, minf(1.0, delta * 2.5))
+	# Pendulum swing: pushed by speed changes, damped, with a slow sway.
+	chute_swing = lerpf(chute_swing, (push - brake) * -0.12 + sin(chute_t * 1.4) * 0.03, minf(1.0, delta * 1.2))
+	model.steer = -turn
+	model.brake = brake
+	model.chute_open = opening
+
 func _land() -> void:
+	if state == "chute":
+		world.drop_canopy(model, velocity)
+		land_t = 0.45
 	state = "ground"
 	jump_queued = false
 	stance = "stand"
@@ -447,12 +499,12 @@ func _update_camera(delta: float) -> void:
 			length = 26.0
 			shoulder = 0.0
 		"fall":
-			length = 6.0
+			length = 6.5 + dive * 1.5
 			shoulder = 0.0
 		"chute":
-			length = 9.0
+			length = 10.0
 			shoulder = 0.0
-			head.y += 3.0
+			head.y += 2.6
 		"vehicle":
 			head = vehicle.global_position + Vector3(0, 2.2, 0)
 			length = 7.5
@@ -469,7 +521,12 @@ func _update_camera(delta: float) -> void:
 	if state == "ground" and head.y < Island.WATER + 1.5:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 	spring.position.x = lerpf(spring.position.x, shoulder, minf(1.0, delta * 12.0))
-	camera.fov = lerpf(camera.fov, 70.0 / zoom, minf(1.0, delta * 14.0))
+	var fov := 70.0 / zoom
+	if state == "fall":
+		fov += clampf((air_speed - 120.0) / 115.0, 0.0, 1.0) * 10.0      # speed rush
+		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
+	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
+	_update_wind()
 	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane" and state != "vehicle"
 
 func scoped() -> bool:
@@ -478,18 +535,52 @@ func scoped() -> bool:
 func _update_model(delta: float) -> void:
 	# Face where the camera looks (or the travel direction while skydiving).
 	var target_yaw := yaw
-	if state in ["fall", "chute"] and move_input.length() > 0.1:
-		var d := _wish_dir()
-		target_yaw = atan2(-d.x, -d.z)
-	model.rotation.y = lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * 12.0))
+	if state == "fall" and move_input.length() > 0.1 and move_input.y < 0.0:
+		target_yaw = yaw    # backing up: keep facing forward
+	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (4.0 if state == "fall" else 12.0)))
+	if state == "chute":
+		ry = chute_heading
+		# Swing and bank around the canopy, not the feet.
+		var b := Basis(Vector3.UP, ry) * Basis(Vector3.BACK, chute_bank) * Basis(Vector3.RIGHT, chute_swing)
+		var pivot := Vector3(0, HumanModel.CANOPY_Y - 0.4, 0)
+		model.transform = Transform3D(b, pivot - b * pivot)
+	else:
+		model.transform = Transform3D(Basis(Vector3.UP, ry), Vector3.ZERO)
+	model.dive = dive
+	model.lean = move_input.x if state == "fall" else 0.0
+	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
 	match state:
 		"fall": pose = "fall"
 		"chute": pose = "chute"
 		"dead": pose = "dead"
-		"ground": pose = stance
+		"ground": pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
 	var sp := Vector2(velocity.x, velocity.z).length()
 	model.set_pose(pose, sp, active >= 0, delta, Time.get_ticks_msec() / 1000.0)
+
+## Rushing wind while skydiving, softer flapping under the canopy, engine drone in the plane.
+func _update_wind() -> void:
+	if not Game.settings.sound or DisplayServer.get_name() == "headless": return
+	if _wind == null:
+		_wind = AudioStreamPlayer.new()
+		_wind.stream = world.wind_stream()
+		_wind.volume_db = -60.0
+		add_child(_wind)
+		_wind.play()
+	var vol := -60.0
+	var pitch_s := 1.0
+	match state:
+		"plane":
+			vol = -10.0
+			pitch_s = 0.45
+		"fall":
+			vol = lerpf(-14.0, -2.0, clampf((air_speed - 80.0) / 150.0, 0.0, 1.0))
+			pitch_s = lerpf(0.8, 1.4, clampf(air_speed / 234.0, 0.0, 1.0))
+		"chute":
+			vol = -20.0 + (1.0 - model.chute_open) * 14.0
+			pitch_s = 0.7
+	_wind.volume_db = lerpf(_wind.volume_db, vol, 0.08)
+	_wind.pitch_scale = lerpf(_wind.pitch_scale, pitch_s, 0.08)
 
 # ---------- Gear and meds ----------
 func capacity() -> float:
