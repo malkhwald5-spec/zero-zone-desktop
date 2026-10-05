@@ -58,8 +58,15 @@ var cursor_free := false
 func _ready() -> void:
 	load_data()
 
+## First launch: integrated graphics (Intel) start on medium, real cards on high.
+func _auto_quality() -> void:
+	var gpu := RenderingServer.get_video_adapter_name().to_lower()
+	if gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe"):
+		settings.quality = "medium"
+
 func load_data() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
+		_auto_quality()
 		return
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
