@@ -175,35 +175,68 @@ func _spawn_loot() -> void:
 		var at: String = Game.WEAPONS[id].ammo
 		_add_pickup({"kind": "ammo", "type": at, "amount": 30 if at != "12g" else 10}, Vector3(p.x + 0.6, y, p.y + 0.4))
 
+## Pickups are kept in a coarse grid so nearby lookups don't scan the whole map.
+const CELL := 16.0
+var _grid := {}                 # Vector2i -> Array[Node3D]
+var _pickup_res := {}           # shared meshes/materials per kind
+
+func _cell(p: Vector3) -> Vector2i:
+	return Vector2i(floori(p.x / CELL), floori(p.z / CELL))
+
+func _pickup_look(data: Dictionary) -> Array:
+	var key: String = (Game.WEAPONS[data.id].cls if data.kind == "weapon" else "ammo_" + data.type)
+	if not _pickup_res.has(key):
+		var mat := StandardMaterial3D.new()
+		var mesh: Mesh
+		if data.kind == "weapon":
+			var len := {"pistol": 0.3, "smg": 0.55, "shotgun": 0.85, "ar": 0.9, "sr": 1.15}.get(key, 0.8) as float
+			mesh = _box(Vector3(len, 0.1, 0.08))
+			mat.albedo_color = Color("2a2c30")
+			mat.metallic = 0.5
+			mat.roughness = 0.35
+		else:
+			mesh = _box(Vector3(0.28, 0.2, 0.2))
+			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a")}[data.type]
+		mat.emission_enabled = true
+		mat.emission = mat.albedo_color * 0.25
+		_pickup_res[key] = [mesh, mat]
+	return _pickup_res[key]
+
 func _add_pickup(data: Dictionary, pos: Vector3) -> Node3D:
 	var n := Node3D.new()
 	n.set_meta("data", data)
+	var look := _pickup_look(data)
 	var mi := MeshInstance3D.new()
-	var mat := StandardMaterial3D.new()
-	if data.kind == "weapon":
-		var len := {"pistol": 0.3, "smg": 0.55, "shotgun": 0.85, "ar": 0.9, "sr": 1.15}.get(Game.WEAPONS[data.id].cls, 0.8) as float
-		mi.mesh = _box(Vector3(len, 0.1, 0.08))
-		mat.albedo_color = Color("2a2c30")
-		mat.metallic = 0.5
-		mat.roughness = 0.35
-	else:
-		mi.mesh = _box(Vector3(0.28, 0.2, 0.2))
-		mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a")}[data.type]
-	mat.emission_enabled = true
-	mat.emission = mat.albedo_color * 0.25
-	mi.material_override = mat
+	mi.mesh = look[0]
+	mi.material_override = look[1]
 	mi.position.y = 0.12
+	mi.visibility_range_end = 120.0
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	n.add_child(mi)
 	add_child(n)
 	n.global_position = pos
 	n.rotation.y = randf() * TAU
 	pickups.append(n)
+	var c := _cell(pos)
+	if not _grid.has(c): _grid[c] = []
+	_grid[c].append(n)
 	return n
+
+## Pickups within r metres of p (r up to CELL).
+func pickups_near(p: Vector3, r: float) -> Array:
+	var res := []
+	var c := _cell(p)
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			for it in _grid.get(c + Vector2i(dx, dz), []):
+				if it.global_position.distance_to(p) < r:
+					res.append(it)
+	return res
 
 func nearest_pickup(p: Vector3, r: float) -> Node3D:
 	var best: Node3D = null
 	var bd := r
-	for it in pickups:
+	for it in pickups_near(p, r):
 		var d: float = it.global_position.distance_to(p)
 		if d < bd:
 			bd = d
@@ -217,6 +250,8 @@ func pickup(who: Player, it: Node3D) -> void:
 	else:
 		who.ammo[data.type] += data.amount
 	pickups.erase(it)
+	var c := _cell(it.global_position)
+	if _grid.has(c): _grid[c].erase(it)
 	it.queue_free()
 
 func drop_weapon(id: String, mag: int, pos: Vector3) -> void:
@@ -227,17 +262,28 @@ func _spawn_bots() -> void:
 	var names := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ليث", "Falcon_IQ", "Viper_SY", "نمر_EG", "Hunter_JO", "Storm_MA", "قناص_العرب", "Titan313", "Wolf_YT", "برق", "Cobra_007", "رعد"]
 	for i in BOT_COUNT:
 		var t: Dictionary = island.towns[i % island.towns.size()]
-		var p: Vector2 = t.pos + Vector2(randf_range(10.0, t.r), 0).rotated(randf() * TAU)
-		if not island.is_land(p.x, p.y): p = t.pos
+		var p: Vector2 = t.pos
+		for k in 20:
+			var c: Vector2 = t.pos + Vector2(randf_range(10.0, t.r), 0).rotated(randf() * TAU)
+			if island.is_land(c.x, c.y) and not island.is_deep(c.x, c.y) and not _in_building(c, 1.0):
+				p = c
+				break
 		var b := Bot.new()
 		b.world = self
 		b.display_name = names[i % names.size()]
 		b.skill = {"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15)
 		b.weapon_id = ["m416", "akm", "ump", "m416", "s1897"][i % 5]
 		b.mag = Game.WEAPONS[b.weapon_id].mag
+		# Position first: the bot remembers it as its home in _ready().
+		b.position = Vector3(p.x, island.height_at(p.x, p.y) + 0.5, p.y)
 		add_child(b)
-		b.global_position = Vector3(p.x, island.height_at(p.x, p.y) + 0.5, p.y)
 		bots.append(b)
+
+func _in_building(p: Vector2, pad: float) -> bool:
+	for bl in island.buildings:
+		if absf(p.x - bl.pos.x) < bl.size.x * 0.5 + pad and absf(p.y - bl.pos.y) < bl.size.y * 0.5 + pad:
+			return true
+	return false
 
 func alive_count() -> int:
 	var n := 1 if player and player.state != "dead" else 0
@@ -284,7 +330,7 @@ func _process(delta: float) -> void:
 	builder.update_grass(player.global_position)
 	# Auto-pickup ammo for guns the player carries.
 	if player.state == "ground":
-		for it in pickups.duplicate():
+		for it in pickups_near(player.global_position, 1.4):
 			var data: Dictionary = it.get_meta("data")
 			if data.kind != "ammo" or it.global_position.distance_to(player.global_position) > 1.4: continue
 			for s in player.slots:
@@ -339,8 +385,11 @@ func _capture_map() -> void:
 	add_child(vp)
 	cam.global_transform = Transform3D(Basis.looking_at(Vector3(0, -1, 0), Vector3(0, 0, -1)), Vector3(island.size * 0.5, 900.0, island.size * 0.5))
 	cam.current = true
+	var plane_was := plane.visible
+	plane.visible = false
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	map_texture = ImageTexture.create_from_image(vp.get_texture().get_image())
 	vp.queue_free()
+	plane.visible = plane_was and plane_active
 	player.camera.current = true

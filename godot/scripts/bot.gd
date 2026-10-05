@@ -23,6 +23,8 @@ var react_t := 0.0
 var yaw := 0.0
 var stuck_t := 0.0
 var last_pos := Vector3.ZERO
+var burst := 0                 # shots left in the current burst
+var engage_t := 0.0            # seconds since the bot spotted the player (aim settles)
 
 func _ready() -> void:
 	var cap := CapsuleShape3D.new()
@@ -96,6 +98,7 @@ func _physics_process(delta: float) -> void:
 		stuck_t = 0.0
 	if sees_player:
 		react_t -= delta
+		engage_t += delta
 		var to_p := player.global_position - global_position
 		var want := atan2(-to_p.x, -to_p.z)
 		yaw = lerp_angle(yaw, want, minf(1.0, delta * (3.0 + skill * 6.0)))
@@ -127,6 +130,7 @@ func _think(player: Player) -> void:
 			target_pos = player.global_position
 	if sees_player and not was:
 		react_t = randf_range(0.5, 1.1) - skill * 0.3
+		engage_t = 0.0
 	if not sees_player and global_position.distance_to(target_pos) < 2.0:
 		_new_patrol()
 
@@ -134,7 +138,8 @@ func _eye() -> Vector3:
 	return global_position + Vector3(0, 1.5, 0)
 
 func _clear_line(player: Player) -> bool:
-	var q := PhysicsRayQueryParameters3D.create(_eye(), player.global_position + Vector3(0, 1.2, 0), 1)
+	var top: float = player.capsule.height if player.capsule else 1.8
+	var q := PhysicsRayQueryParameters3D.create(_eye(), player.global_position + Vector3(0, top * 0.7, 0), 1)
 	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
 func _shoot(player: Player) -> void:
@@ -144,11 +149,21 @@ func _shoot(player: Player) -> void:
 		return
 	var w: Dictionary = Game.WEAPONS[weapon_id]
 	mag -= 1
-	fire_cd = w.rate * randf_range(1.0, 2.2)
+	# Short bursts with pauses, like a person, instead of a laser beam.
+	if burst <= 0:
+		burst = randi_range(3, 6) if w.auto else 1
+	burst -= 1
+	fire_cd = w.rate * randf_range(1.0, 1.6) if burst > 0 else randf_range(0.9, 1.8)
 	var origin := _eye()
-	var aim := player.global_position + Vector3(0, randf_range(0.6, 1.6), 0)
-	var err := (1.2 - skill) * 0.07 * origin.distance_to(aim) * 0.1
-	aim += Vector3(randf_range(-1, 1), randf_range(-0.5, 0.5), randf_range(-1, 1)) * (0.4 + err)
+	var top: float = player.capsule.height if player.capsule else 1.8
+	var aim := player.global_position + Vector3(0, randf_range(0.35, 0.9) * top, 0)
+	# Miss distance grows with range, drops with skill, and the first shots after
+	# spotting you are the least accurate; moving targets are harder to hit.
+	var dist := origin.distance_to(aim)
+	var settle := clampf(1.6 - engage_t * 0.35, 1.0, 1.6)
+	var moving := Vector2(player.velocity.x, player.velocity.z).length() > 2.0
+	var err := (0.3 + dist * (0.03 + (1.0 - skill) * 0.04)) * settle * (1.4 if moving else 1.0)
+	aim += Vector3(randf_range(-1, 1), randf_range(-0.6, 0.6), randf_range(-1, 1)) * err
 	var q := PhysicsRayQueryParameters3D.create(origin, origin + (aim - origin).normalized() * float(w.range), 1 | 2)
 	q.exclude = [get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
@@ -156,6 +171,6 @@ func _shoot(player: Player) -> void:
 	world.effects.tracer(origin + Vector3(0, -0.15, 0), end)
 	world.sound_shot(w.cls, global_position, false)
 	if hit and hit.collider == player:
-		player.take_damage(float(w.dmg) * 0.6, self)
+		player.take_damage(float(w.dmg) * 0.5, self)
 	elif hit:
 		world.effects.impact(end, hit.normal, false)

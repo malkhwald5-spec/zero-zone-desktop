@@ -4,7 +4,7 @@ extends Node
 const MAP_SIZE := 3072.0          # metres; shown on the map as an 8×8 grid
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
-const VERSION := "v0.7.1"
+const VERSION := "v0.7.2"
 const STUDIO := "Jordan Dan"
 const SEASON_NAME := "ليلة القمر الأحمر"
 const PASS_XP := 300               # season-pass XP per level

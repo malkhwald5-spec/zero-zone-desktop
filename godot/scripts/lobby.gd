@@ -610,7 +610,7 @@ func _toast(text: String) -> void:
 	toast_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	toast_box.position.y = 90
 	var box := toast_box
-	get_tree().create_timer(2.4).timeout.connect(func(): if is_instance_valid(box): box.queue_free())
+	box.create_tween().tween_callback(box.queue_free).set_delay(2.4)
 
 func _show_reward(r: Dictionary) -> void:
 	var title := "🏆 فوز! أنت الناجي الأخير" if r.won else "انتهت المباراة — الترتيب #%d" % r.rank

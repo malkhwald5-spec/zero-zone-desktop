@@ -20,6 +20,8 @@ var _banner_t := 0.0
 
 func _ready() -> void:
 	layer = 5
+	# Keep reading keys while the game is paused (Esc resumes).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	font = load("res://assets/fonts/Cairo.ttf")
 	bold = FontVariation.new()
 	bold.base_font = font
@@ -59,7 +61,8 @@ func _ready() -> void:
 	Game.cursor_free = false
 	if Game.settings.controls == "kbm":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		get_tree().create_timer(3.2).timeout.connect(func(): show_banner("اضغط Ctrl لإظهار الماوس أو إخفائه"))
+		# Tweens die with their node, so nothing fires after leaving the match.
+		create_tween().tween_callback(show_banner.bind("اضغط Ctrl لإظهار الماوس أو إخفائه")).set_delay(3.2)
 
 func show_banner(text: String) -> void:
 	banner.text = text
@@ -76,7 +79,7 @@ func kill_feed(killer: String, victim: String, mine: bool) -> void:
 	feed.add_child(l)
 	if feed.get_child_count() > 5:
 		feed.get_child(0).queue_free()
-	get_tree().create_timer(6.0).timeout.connect(func(): if is_instance_valid(l): l.queue_free())
+	l.create_tween().tween_callback(l.queue_free).set_delay(6.0)
 
 func _process(delta: float) -> void:
 	hit_t = maxf(0.0, hit_t - delta)
@@ -91,8 +94,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_M or event.physical_keycode == KEY_TAB:
 			toggle_map()
+		elif event.physical_keycode == KEY_B or event.physical_keycode == KEY_I:
+			toggle_bag()
+		elif event.keycode == KEY_CTRL or event.physical_keycode == KEY_CTRL:
+			toggle_cursor()
 		elif event.physical_keycode == KEY_ESCAPE:
-			toggle_pause()
+			if results:
+				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			else:
+				toggle_pause()
 
 func toggle_map() -> void:
 	map_open = not map_open

@@ -303,6 +303,7 @@ func _buildings() -> void:
 				_add_box(st, Vector3(0, WALL_H + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
 		else:
 			_gable(rf, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, 2.2 if sx > sz else 2.0, sx >= sz, roofs[b.roof])
+			_roof_shape(body, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, 2.2 if sx > sz else 2.0, sx >= sz)
 			rf.generate_normals()
 		# One mesh per material (a SurfaceTool with no vertices cannot be committed).
 		for pair in [[st, wall_mat], [gl, glass_mat], [rf, roof_mat]]:
@@ -313,6 +314,22 @@ func _buildings() -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			node.add_child(mi)
+
+## Collision for a gable roof, so you can land on it instead of inside it.
+func _roof_shape(body: StaticBody3D, base: Vector3, w: float, d: float, h: float, along_x: bool) -> void:
+	var hw := w * 0.5
+	var hd := d * 0.5
+	var pts := PackedVector3Array([Vector3(-hw, 0, -hd), Vector3(hw, 0, -hd), Vector3(-hw, 0, hd), Vector3(hw, 0, hd)])
+	if along_x:
+		pts.append_array([Vector3(-hw, h, 0), Vector3(hw, h, 0)])
+	else:
+		pts.append_array([Vector3(0, h, -hd), Vector3(0, h, hd)])
+	for i in pts.size(): pts[i] += base
+	var cps := ConvexPolygonShape3D.new()
+	cps.points = pts
+	var cs := CollisionShape3D.new()
+	cs.shape = cps
+	body.add_child(cs)
 
 func _gable(st: SurfaceTool, base: Vector3, w: float, d: float, h: float, along_x: bool, col: Color) -> void:
 	st.set_color(col)

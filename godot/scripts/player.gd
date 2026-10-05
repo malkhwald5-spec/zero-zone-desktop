@@ -103,7 +103,7 @@ func action(act: String, pressed: bool) -> void:
 		"slot3": if pressed: switch_slot(2)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if Game.settings.controls != "kbm" or state == "dead":
+	if Game.settings.controls != "kbm" or state == "dead" or world.match_over:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		add_look(event.relative.x, event.relative.y)
@@ -243,6 +243,7 @@ func _air(delta: float) -> void:
 
 func _land() -> void:
 	state = "ground"
+	jump_queued = false
 	stance = "stand"
 	velocity = Vector3.ZERO
 	var p: Vector3 = world.safe_landing(global_position)
@@ -290,8 +291,8 @@ func _ground(delta: float) -> void:
 	jump_queued = false
 	var before := global_position
 	move_and_slide()
-	# Deep water: you cannot swim out to sea.
-	if world.is_deep(global_position):
+	# Deep water: you cannot swim out to sea (bridges and piers are fine).
+	if global_position.y < Island.WATER - 0.3 and world.is_deep(global_position):
 		global_position = Vector3(before.x, global_position.y, before.z)
 		velocity.x = 0
 		velocity.z = 0
@@ -328,6 +329,10 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 	var origin := camera.global_position
 	var dir := -camera.global_basis.z
 	dir = dir.rotated(camera.global_basis.x, randf_range(-spread, spread)).rotated(camera.global_basis.y, randf_range(-spread, spread))
+	# The third-person camera sits behind the character: start the ray level with
+	# the player so enemies or cover behind us are never hit.
+	var muzzle0 := model.gun.global_position
+	origin += dir * maxf(0.0, dir.dot(muzzle0 - origin))
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * float(w.range), 1 | 4)
 	q.exclude = [get_rid()]

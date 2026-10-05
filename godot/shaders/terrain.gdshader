@@ -12,7 +12,8 @@ uniform float texel = 0.001953125; // 1 / (N - 1)
 varying vec3 wpos;
 varying float hgt;
 
-float H(vec2 uv) { return textureLod(heightmap, uv, 0.0).r; }
+// Sample i of the heightmap sits at x = i * step, i.e. at the centre of texel i.
+float H(vec2 uv) { return textureLod(heightmap, (uv * 512.0 + 0.5) / 513.0, 0.0).r; }
 
 void vertex() {
 	vec2 uv = (VERTEX.xz + map_size * 0.5) / map_size;
