@@ -4,7 +4,7 @@ extends Node
 const MAP_SIZE := 3072.0          # metres; shown on the map as an 8×8 grid
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
-const VERSION := "v0.7.0"
+const VERSION := "v0.7.1"
 const STUDIO := "Jordan Dan"
 const SEASON_NAME := "ليلة القمر الأحمر"
 const PASS_XP := 300               # season-pass XP per level
@@ -34,7 +34,7 @@ const WARDROBE := [
 ]
 
 var settings := {
-	"controls": "touch",      # "touch" (on-screen buttons) or "kbm" (keyboard + mouse)
+	"controls": "kbm",        # "kbm" (keyboard + mouse, PC default) or "touch" (on-screen buttons)
 	"quality": "high",        # "low" | "medium" | "high"
 	"sensitivity": 1.0,
 	"sound": true,
@@ -48,6 +48,8 @@ var wallet := {"gold": 0, "zc": 0, "xp": 0, "claimed": [], "mail_read": false}
 var key_art: Texture2D
 ## Last match summary shown in the lobby.
 var last_reward := {}
+## In a match with keyboard+mouse: true while the player freed the cursor with Ctrl.
+var cursor_free := false
 
 func _ready() -> void:
 	load_data()
@@ -61,6 +63,9 @@ func load_data() -> void:
 	var data = JSON.parse_string(f.get_as_text())
 	if typeof(data) != TYPE_DICTIONARY:
 		return
+	# Saves from before v0.7.1 defaulted to touch buttons; the game is now PC-first.
+	if int(data.get("save_version", 1)) < 2 and data.has("settings") and typeof(data.settings) == TYPE_DICTIONARY:
+		data.settings.controls = "kbm"
 	for key in ["settings", "profile", "stats", "wallet"]:
 		if data.has(key) and typeof(data[key]) == TYPE_DICTIONARY:
 			var target: Dictionary = get(key)
@@ -70,7 +75,7 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 2, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]

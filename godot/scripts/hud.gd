@@ -56,8 +56,10 @@ func _ready() -> void:
 	p.damaged.connect(func(dir): dmg_dirs.append({"dir": dir, "t": 1.2}))
 	p.message.connect(show_banner)
 	show_banner("مرحباً في منطقة الصفر — اقفز من الطائرة فوق الجزيرة")
+	Game.cursor_free = false
 	if Game.settings.controls == "kbm":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		get_tree().create_timer(3.2).timeout.connect(func(): show_banner("اضغط Ctrl لإظهار الماوس أو إخفائه"))
 
 func show_banner(text: String) -> void:
 	banner.text = text
@@ -95,6 +97,23 @@ func _unhandled_input(event: InputEvent) -> void:
 func toggle_map() -> void:
 	map_open = not map_open
 
+## Ctrl: show the cursor (camera and shooting stop) or hide it again.
+func toggle_cursor() -> void:
+	if pause_panel or results: return
+	if Game.settings.controls != "kbm":
+		# Ctrl on a PC switches from on-screen buttons to keyboard + mouse.
+		Game.settings.controls = "kbm"
+		Game.save_data()
+		touch.visible = false
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		Game.cursor_free = true
+		world.player.firing = false
+		world.player.aiming = false
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		Game.cursor_free = false
+
 func toggle_bag() -> void:
 	bag_open = not bag_open
 
@@ -104,7 +123,9 @@ func toggle_pause() -> void:
 		pause_panel.queue_free()
 		pause_panel = null
 		get_tree().paused = false
-		if Game.settings.controls == "kbm": Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if Game.settings.controls == "kbm":
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			Game.cursor_free = false
 		return
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
