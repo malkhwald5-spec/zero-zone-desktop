@@ -4,7 +4,7 @@ extends Node3D
 ## currencies, season pass, events, mode card, big start button and the
 ## bottom menu bar). Solo only: no squads.
 
-var soldier: SoldierModel
+var soldier: HumanModel
 var holder: Node3D
 var cam: Camera3D
 var ui: CanvasLayer
@@ -15,7 +15,6 @@ var labels := {}
 var t := 0.0
 var drag_rot := 0.0
 var _dragging := false
-var wave_t := 0.0
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -303,7 +302,7 @@ func _car(pos: Vector3, yaw: float) -> void:
 
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
-	soldier = SoldierModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
+	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
 	soldier.set_gear(0, 0, 0)
 	soldier.rotation.y = PI    # face the camera
 	holder.add_child(soldier)
@@ -312,17 +311,6 @@ func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
 	soldier.set_pose("stand", 0.0, false, delta, t)
-	# Relaxed idle: breathing, weight on one leg, arms loose.
-	soldier.spine.rotation.x = sin(t * 1.6) * 0.015
-	soldier.hip.rotation.z = 0.03
-	soldier.arms[0].shoulder.rotation.z = -0.14
-	soldier.arms[1].shoulder.rotation.z = 0.12
-	soldier.arms[0].elbow.rotation.x = 0.18
-	soldier.arms[1].elbow.rotation.x = 0.22
-	if wave_t > 0.0:
-		wave_t -= delta
-		soldier.arms[1].shoulder.rotation = Vector3(0.2, 0, 2.6)
-		soldier.arms[1].elbow.rotation.x = 0.5 + sin(t * 12.0) * 0.45
 	_tick_ui(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -558,7 +546,7 @@ func _bottom_bar() -> void:
 	var icons := HBoxContainer.new()
 	icons.add_theme_constant_override("separation", 10)
 	_anchor(icons, Control.PRESET_BOTTOM_RIGHT, Vector2(-20, -80))
-	for ic in [["؟", func(): _open("help")], ["👋", func(): wave_t = 2.2], ["⛶", func(): _toggle_fullscreen()]]:
+	for ic in [["؟", func(): _open("help")], ["👋", func(): soldier.wave(2.2)], ["⛶", func(): _toggle_fullscreen()]]:
 		icons.add_child(UiKit.button(ic[0], ic[1], Vector2(38, 34), UiKit.style(Color(0, 0, 0, 0.35), 17, Color(1, 1, 1, 0.2), 1, 2), 16))
 	# Darkened strip behind the bar.
 	var strip := TextureRect.new()
@@ -610,7 +598,7 @@ func _toast(text: String) -> void:
 	toast_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	toast_box.position.y = 90
 	var box := toast_box
-	get_tree().create_timer(2.4).timeout.connect(func(): if is_instance_valid(box): box.queue_free())
+	box.create_tween().tween_callback(box.queue_free).set_delay(2.4)
 
 func _show_reward(r: Dictionary) -> void:
 	var title := "🏆 فوز! أنت الناجي الأخير" if r.won else "انتهت المباراة — الترتيب #%d" % r.rank
@@ -826,7 +814,7 @@ func _bar(v: float, col: Color) -> ProgressBar:
 	return b
 
 func _page_workshop(body: VBoxContainer) -> void:
-	var cls_names := {"pistol": "مسدس", "smg": "رشاش خفيف", "shotgun": "شوزن", "ar": "رشاش هجومي", "sr": "قناصة"}
+	var cls_names := {"pistol": "مسدس", "smg": "رشاش خفيف", "shotgun": "شوزن", "ar": "رشاش هجومي", "sr": "قناصة", "lmg": "رشاش ثقيل"}
 	for id in Game.WEAPONS:
 		var w: Dictionary = Game.WEAPONS[id]
 		var c := _box_panel()
@@ -836,7 +824,7 @@ func _page_workshop(body: VBoxContainer) -> void:
 		var v := VBoxContainer.new()
 		v.custom_minimum_size = Vector2(170, 0)
 		v.add_child(UiKit.label(w.name, 22, Color.WHITE, UiKit.bold(), 0))
-		v.add_child(UiKit.label("%s • %s" % [cls_names.get(w.cls, ""), Game.AMMO_NAMES[w.ammo]], 13, Color(1, 1, 1, 0.65), null, 0))
+		v.add_child(UiKit.label("%s • %s%s" % [cls_names.get(w.cls, ""), Game.AMMO_NAMES[w.ammo], "  • إنزال جوي فقط" if w.get("crate", false) else ""], 13, Color("ff8a8a") if w.get("crate", false) else Color(1, 1, 1, 0.65), null, 0))
 		hb.add_child(v)
 		var dps := float(w.dmg) * float(w.get("pellets", 1)) / float(w.rate)
 		var stats := GridContainer.new()
@@ -1029,4 +1017,4 @@ func _page_mode(body: VBoxContainer) -> void:
 	body.add_child(_row("", _small_btn("تأكيد", func(): _close_panel())))
 
 func _page_help(body: VBoxContainer) -> void:
-	body.add_child(UiKit.label("• اقفز من الطائرة فوق الجزيرة، وافتح المظلة.\n• اجمع الأسلحة والذخيرة (F أو زر «التقاط»).\n• عصا الحركة يسار — اسحبها لفوق لتثبيت الركض.\n• اسحب يمين الشاشة للنظر، وأزرار الإطلاق بتدوّر الكاميرا كمان.\n• كيبورد: WASD حركة، Shift ركض، C انحناء، Z انبطاح،\n   Space قفز، R تلقيم، زر الماوس اليمين منظار، M الخريطة، B الحقيبة،\n   Ctrl لإظهار الماوس أو إخفائه.\n• العب مباريات لتجمع ذهب وخبرة الموسم، واشتري ملابس من المخزون.", 17, Color.WHITE, null, 0))
+	body.add_child(UiKit.label("• اقفز من الطائرة فوق الجزيرة، وافتح المظلة.\n• اجمع الأسلحة والذخيرة (F أو زر «التقاط»).\n• عصا الحركة يسار — اسحبها لفوق لتثبيت الركض.\n• اسحب يمين الشاشة للنظر، وأزرار الإطلاق بتدوّر الكاميرا كمان.\n• كيبورد: WASD حركة، Shift ركض، C انحناء، Z انبطاح،\n   Space قفز، R تلقيم، زر الماوس اليمين منظار، M الخريطة، B الحقيبة،\n   Ctrl لإظهار الماوس أو إخفائه.\n• H علاج، Y منشّط، G قنبلة (اترك الزر للرمي)، T نوع القنبلة.\n• العب مباريات لتجمع ذهب وخبرة الموسم، واشتري ملابس من المخزون.", 17, Color.WHITE, null, 0))

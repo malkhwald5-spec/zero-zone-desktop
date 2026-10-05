@@ -16,7 +16,7 @@ varying float tint;
 void vertex() {
 	vec3 base = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	vec2 uv = base.xz / map_size;
-	float h = textureLod(heightmap, uv, 0.0).r;
+	float h = textureLod(heightmap, (uv * 512.0 + 0.5) / 513.0, 0.0).r;
 	vec4 m = textureLod(maskmap, uv, 0.0);
 	float d = distance(base.xz, center.xz);
 	float keep = (1.0 - smoothstep(radius * 0.7, radius, d)) * step(2.2, h) * (1.0 - step(0.25, m.r)) * (1.0 - step(0.5, m.b));

@@ -1,10 +1,10 @@
 extends Node
 ## Global state (autoload "Game"): settings, player profile, career stats and shared data.
 
-const MAP_SIZE := 3072.0          # metres; shown on the map as an 8×8 grid
+const MAP_SIZE := 4096.0          # metres; shown on the map as an 8×8 grid (512 m squares)
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
-const VERSION := "v0.7.1"
+const VERSION := "v0.8.0"
 const STUDIO := "Jordan Dan"
 const SEASON_NAME := "ليلة القمر الأحمر"
 const PASS_XP := 300               # season-pass XP per level
@@ -18,8 +18,12 @@ const WEAPONS := {
 	"m416":   {"name": "M416",   "cls": "ar",      "ammo": "556", "dmg": 22, "rate": 0.086, "mag": 30, "reload": 2.1, "spread": 1.4, "range": 400, "auto": true,  "zoom": 1.5, "recoil": 0.9},
 	"akm":    {"name": "AKM",    "cls": "ar",      "ammo": "762", "dmg": 27, "rate": 0.1,   "mag": 30, "reload": 2.3, "spread": 2.0, "range": 400, "auto": true,  "zoom": 1.5, "recoil": 1.4},
 	"kar98":  {"name": "Kar98k", "cls": "sr",      "ammo": "762", "dmg": 85, "rate": 1.5,   "mag": 5,  "reload": 3.2, "spread": 0.1, "range": 800, "auto": false, "zoom": 4.0, "recoil": 5.0},
+	# Airdrop-only weapons
+	"awm":    {"name": "AWM",    "cls": "sr",      "ammo": "300", "dmg": 120, "rate": 1.8,  "mag": 5,  "reload": 3.6, "spread": 0.05, "range": 1000, "auto": false, "zoom": 6.0, "recoil": 6.0, "crate": true},
+	"m249":   {"name": "M249",   "cls": "lmg",     "ammo": "556", "dmg": 22, "rate": 0.075, "mag": 100, "reload": 5.5, "spread": 2.2, "range": 450, "auto": true,  "zoom": 1.5, "recoil": 0.8, "crate": true},
+	"groza":  {"name": "Groza",  "cls": "ar",      "ammo": "762", "dmg": 28, "rate": 0.08,  "mag": 30, "reload": 2.4, "spread": 1.5, "range": 420, "auto": true,  "zoom": 1.5, "recoil": 1.1, "crate": true},
 }
-const AMMO_NAMES := {"9mm": "9 ملم", "556": "5.56 ملم", "762": "7.62 ملم", "12g": "خرطوش 12"}
+const AMMO_NAMES := {"9mm": "9 ملم", "556": "5.56 ملم", "762": "7.62 ملم", "12g": "خرطوش 12", "300": ".300 ماغنوم"}
 
 ## Wardrobe items: [name, shirt colour, pants colour, price in gold (0 = owned from start)].
 const WARDROBE := [

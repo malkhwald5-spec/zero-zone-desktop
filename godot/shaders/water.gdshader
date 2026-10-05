@@ -20,7 +20,7 @@ void vertex() {
 void fragment() {
 	vec2 uv = wpos.xz / map_size;
 	float ground = -30.0;
-	if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ground = textureLod(heightmap, uv, 0.0).r;
+	if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ground = textureLod(heightmap, (uv * 512.0 + 0.5) / 513.0, 0.0).r;
 	float depth = clamp(-ground / 12.0, 0.0, 1.0);
 	vec2 t = vec2(TIME * 0.02, TIME * 0.015);
 	float n = texture(noise_a, wpos.xz / 23.0 + t).r * 0.5 + texture(noise_b, wpos.xz / 9.0 - t * 1.7).r * 0.5;

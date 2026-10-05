@@ -189,11 +189,27 @@ func _water() -> void:
 func _wall_material() -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
-	m.albedo_texture = noise_b
+	m.albedo_texture = _plaster_tex()
 	m.uv1_triplanar = true
-	m.uv1_scale = Vector3(0.15, 0.15, 0.15)
+	m.uv1_scale = Vector3(0.5, 0.5, 0.5)     # one tile = 2 m
 	m.roughness = 0.92
 	return m
+
+## Light plaster with faint stains and panel joints (multiplied by the house colour).
+func _plaster_tex() -> ImageTexture:
+	var n := FastNoiseLite.new()
+	n.seed = 21
+	n.frequency = 0.05
+	n.fractal_octaves = 3
+	var img := Image.create(128, 128, true, Image.FORMAT_RGB8)
+	for y in 128:
+		for x in 128:
+			var v := 0.9 + n.get_noise_2d(x, y) * 0.08
+			if y % 64 < 2: v *= 0.8                  # horizontal joint every metre
+			elif (x + (32 if y >= 64 else 0)) % 128 < 2: v *= 0.86
+			img.set_pixel(x, y, Color(v, v, v))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
 
 func _add_box(st: SurfaceTool, c: Vector3, sz: Vector3, col: Color) -> void:
 	var h := sz * 0.5
@@ -303,6 +319,7 @@ func _buildings() -> void:
 				_add_box(st, Vector3(0, WALL_H + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
 		else:
 			_gable(rf, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, 2.2 if sx > sz else 2.0, sx >= sz, roofs[b.roof])
+			_roof_shape(body, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, 2.2 if sx > sz else 2.0, sx >= sz)
 			rf.generate_normals()
 		# One mesh per material (a SurfaceTool with no vertices cannot be committed).
 		for pair in [[st, wall_mat], [gl, glass_mat], [rf, roof_mat]]:
@@ -313,6 +330,22 @@ func _buildings() -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			node.add_child(mi)
+
+## Collision for a gable roof, so you can land on it instead of inside it.
+func _roof_shape(body: StaticBody3D, base: Vector3, w: float, d: float, h: float, along_x: bool) -> void:
+	var hw := w * 0.5
+	var hd := d * 0.5
+	var pts := PackedVector3Array([Vector3(-hw, 0, -hd), Vector3(hw, 0, -hd), Vector3(-hw, 0, hd), Vector3(hw, 0, hd)])
+	if along_x:
+		pts.append_array([Vector3(-hw, h, 0), Vector3(hw, h, 0)])
+	else:
+		pts.append_array([Vector3(0, h, -hd), Vector3(0, h, hd)])
+	for i in pts.size(): pts[i] += base
+	var cps := ConvexPolygonShape3D.new()
+	cps.points = pts
+	var cs := CollisionShape3D.new()
+	cs.shape = cps
+	body.add_child(cs)
 
 func _gable(st: SurfaceTool, base: Vector3, w: float, d: float, h: float, along_x: bool, col: Color) -> void:
 	st.set_color(col)

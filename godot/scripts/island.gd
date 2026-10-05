@@ -147,7 +147,8 @@ func _towns() -> void:
 			break
 	towns.append(mil)
 	var tries := 0
-	while towns.size() < 12 and tries < 4000:
+	var want := mini(16, int(12.0 * size / 3072.0))
+	while towns.size() < want and tries < 4000:
 		tries += 1
 		var r := rng.randf_range(75.0, 125.0)
 		var p := Vector2(rng.randf_range(180, size - 180), rng.randf_range(180, channel_z(size * 0.5) - 90))
@@ -240,7 +241,8 @@ func _buildings() -> void:
 	# Lone houses in the countryside.
 	var lone := 0
 	var tries := 0
-	while lone < 26 and tries < 4000:
+	var lone_want := int(26.0 * _area())
+	while lone < lone_want and tries < 6000:
 		tries += 1
 		var sz := Vector2(rng.randf_range(8, 11), rng.randf_range(7, 10))
 		var c := Vector2(rng.randf_range(100, size - 100), rng.randf_range(100, size - 100))
@@ -261,22 +263,27 @@ func _blocked(p: Vector2, r: float) -> bool:
 	if near_road(p, r + 1.0): return true
 	return false
 
+## Map area relative to the original 3 km island (props scale with it).
+func _area() -> float:
+	return pow(size / 3072.0, 2.0)
+
 func _props() -> void:
+	var k_area := _area()
 	# Forests and scattered trees.
-	for f in 70:
+	for f in int(70 * k_area):
 		var c := Vector2(rng.randf_range(80, size - 80), rng.randf_range(80, size - 80))
 		var pine := rng.randf() < 0.55
 		for k in rng.randi_range(15, 40):
 			var p := c + Vector2(absf(rng.randfn(0.0, 1.0)) * 55.0, 0).rotated(rng.randf() * TAU)
 			_add_tree(p, pine if rng.randf() < 0.85 else not pine)
-	for k in 900:
+	for k in int(900 * k_area):
 		_add_tree(Vector2(rng.randf_range(40, size - 40), rng.randf_range(40, size - 40)), rng.randf() < 0.4)
-	for k in 260:
+	for k in int(260 * k_area):
 		var p := Vector2(rng.randf_range(60, size - 60), rng.randf_range(60, size - 60))
 		var r := rng.randf_range(0.8, 2.6)
 		if _blocked(p, r + 1.0): continue
 		rocks.append({"pos": p, "r": r})
-	for k in 90:
+	for k in int(90 * k_area):
 		var p := Vector2(rng.randf_range(80, size - 80), rng.randf_range(80, size - 80))
 		if _blocked(p, 3.0): continue
 		loot_spots.append({"pos": p, "military": false})

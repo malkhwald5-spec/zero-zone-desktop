@@ -29,12 +29,15 @@ func _layout() -> void:
 		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(s.x - 130, s.y - 150), "r": 58.0},
 		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(100, s.y * 0.42), "r": 38.0},
 		{"act": "bag", "icon": "", "label": "الحقيبة", "pos": Vector2(40, s.y - 64), "r": 24.0},
+		{"act": "heal", "icon": "", "label": "علاج", "pos": Vector2(Hud.slot_rect(2, s).end.x + 38, s.y - 82), "r": 24.0},
+		{"act": "throw", "icon": "", "label": "قنبلة", "pos": Vector2(s.x - 335, s.y - 160), "r": 26.0},
+		{"act": "boost", "icon": "", "label": "منشّط", "pos": Vector2(Hud.slot_rect(2, s).end.x + 96, s.y - 82), "r": 24.0},
 		{"act": "aim", "icon": "⌖", "label": "منظار", "pos": Vector2(s.x - 245, s.y - 250), "r": 32.0},
 		{"act": "reload", "icon": "⟳", "label": "تلقيم", "pos": Vector2(s.x - 250, s.y - 140), "r": 30.0},
 		{"act": "jump", "icon": "⤒", "label": "قفز", "pos": Vector2(s.x - 70, s.y - 285), "r": 30.0},
 		{"act": "crouch", "icon": "⤓", "label": "انحناء", "pos": Vector2(s.x - 205, s.y - 62), "r": 26.0},
 		{"act": "prone", "icon": "▁", "label": "انبطاح", "pos": Vector2(s.x - 135, s.y - 62), "r": 26.0},
-		{"act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 280), "r": 24.0},
+		{"act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 330), "r": 24.0},
 		{"act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
 		{"act": "slot1", "icon": "", "label": "", "pos": Hud.slot_rect(0, s).get_center(), "r": 0.0},
 		{"act": "slot2", "icon": "", "label": "", "pos": Hud.slot_rect(1, s).get_center(), "r": 0.0},
@@ -49,7 +52,9 @@ func _interact_label() -> String:
 		"fall": return "افتح المظلة" if p.global_position.y < Player.PLANE_ALT - 40.0 else ""
 		"ground":
 			var it = hud.world.nearest_pickup(p.global_position, 2.4)
-			return "التقاط" if it else ""
+			if it: return "التقاط"
+			return "ركوب" if hud.world.nearest_vehicle(p.global_position, 3.5) else ""
+		"vehicle": return "نزول"
 	return ""
 
 func _hit_button(pos: Vector2) -> Dictionary:
@@ -190,6 +195,15 @@ func _icon(act: String, c: Vector2, r: float) -> void:
 				var a := i * TAU / 8.0
 				draw_line(c + Vector2(cos(a), sin(a)) * 8 * k, c + Vector2(cos(a), sin(a)) * 14 * k, w, 4.0 * k)
 			draw_arc(c, 9 * k, 0, TAU, 24, w, 3.0 * k)
+		"throw":
+			draw_circle(c + Vector2(0, 3) * k, 9.0 * k, w)
+			draw_rect(Rect2(c + Vector2(-3, -11) * k, Vector2(6, 6) * k), w)
+			draw_arc(c + Vector2(6, -10) * k, 4.0 * k, PI, TAU * 0.9, 8, w, 2.0)
+		"heal":
+			draw_rect(Rect2(c + Vector2(-3, -11) * k, Vector2(6, 22) * k), Color("7dff8a"))
+			draw_rect(Rect2(c + Vector2(-11, -3) * k, Vector2(22, 6) * k), Color("7dff8a"))
+		"boost":
+			draw_colored_polygon(PackedVector2Array([c + Vector2(3, -13) * k, c + Vector2(-8, 2) * k, c + Vector2(-1, 2) * k, c + Vector2(-4, 13) * k, c + Vector2(8, -3) * k, c + Vector2(1, -3) * k]), Color("ffae2b"))
 		"bag":
 			draw_rect(Rect2(c + Vector2(-11, -8) * k, Vector2(22, 20) * k), w)
 			draw_arc(c + Vector2(0, -8) * k, 6 * k, PI, TAU, 12, w, 2.5 * k)

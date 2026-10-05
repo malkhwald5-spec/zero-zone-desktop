@@ -20,6 +20,8 @@ var _banner_t := 0.0
 
 func _ready() -> void:
 	layer = 5
+	# Keep reading keys while the game is paused (Esc resumes).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	font = load("res://assets/fonts/Cairo.ttf")
 	bold = FontVariation.new()
 	bold.base_font = font
@@ -59,16 +61,22 @@ func _ready() -> void:
 	Game.cursor_free = false
 	if Game.settings.controls == "kbm":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		get_tree().create_timer(3.2).timeout.connect(func(): show_banner("اضغط Ctrl لإظهار الماوس أو إخفائه"))
+		# Tweens die with their node, so nothing fires after leaving the match.
+		create_tween().tween_callback(show_banner.bind("اضغط Ctrl لإظهار الماوس أو إخفائه")).set_delay(3.2)
 
 func show_banner(text: String) -> void:
 	banner.text = text
 	banner.modulate.a = 1.0
 	_banner_t = 3.0
 
-func kill_feed(killer: String, victim: String, mine: bool) -> void:
+func kill_feed(killer: String, victim: String, mine: bool, by_zone := false) -> void:
 	var l := Label.new()
-	l.text = ("%s ⟵ %s" % [victim, killer]) if killer != "" else ("%s سقط" % victim)
+	if by_zone:
+		l.text = "%s مات بالمنطقة الزرقاء" % victim
+	elif killer != "":
+		l.text = "%s ⟵ %s" % [victim, killer]
+	else:
+		l.text = "%s سقط" % victim
 	l.add_theme_font_size_override("font_size", 15)
 	l.add_theme_color_override("font_color", Color("ffd34d") if mine else Color.WHITE)
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
@@ -76,7 +84,7 @@ func kill_feed(killer: String, victim: String, mine: bool) -> void:
 	feed.add_child(l)
 	if feed.get_child_count() > 5:
 		feed.get_child(0).queue_free()
-	get_tree().create_timer(6.0).timeout.connect(func(): if is_instance_valid(l): l.queue_free())
+	l.create_tween().tween_callback(l.queue_free).set_delay(6.0)
 
 func _process(delta: float) -> void:
 	hit_t = maxf(0.0, hit_t - delta)
@@ -91,8 +99,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_M or event.physical_keycode == KEY_TAB:
 			toggle_map()
+		elif event.physical_keycode == KEY_B or event.physical_keycode == KEY_I:
+			toggle_bag()
+		elif event.keycode == KEY_CTRL or event.physical_keycode == KEY_CTRL:
+			toggle_cursor()
 		elif event.physical_keycode == KEY_ESCAPE:
-			toggle_pause()
+			if results:
+				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			else:
+				toggle_pause()
 
 func toggle_map() -> void:
 	map_open = not map_open
@@ -202,6 +217,10 @@ func _draw_hud() -> void:
 			_draw_scope(c, sz)
 		_draw_crosshair(c, sz, p)
 		_draw_prompt(c, sz, p)
+		if p.throw_ready: _draw_throw_arc(c, p)
+		_draw_throw_card(c, sz, p)
+	elif p.state == "vehicle":
+		_draw_vehicle(c, sz, p)
 	elif p.state in ["fall", "chute"]:
 		_draw_gauges(c, sz, p)
 	elif p.state == "plane":
@@ -211,6 +230,9 @@ func _draw_hud() -> void:
 		var center := sz * 0.5
 		var a := -rel - PI / 2.0
 		c.draw_arc(center, 120.0, a - 0.3, a + 0.3, 12, Color(1, 0.2, 0.2, minf(1.0, d.t)), 6.0)
+	if p.state == "ground" and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
+		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.1, 0.3, 1.0, 0.13))
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت خارج المنطقة الآمنة!", 22, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
 	if bag_open and not map_open:
@@ -266,6 +288,10 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 		var gy := r.position.y + size * 0.5 + (i * cell - pos.z) * s
 		if gx > r.position.x and gx < r.end.x: c.draw_line(Vector2(gx, r.position.y), Vector2(gx, r.end.y), Color(1, 1, 1, 0.25))
 		if gy > r.position.y and gy < r.end.y: c.draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), Color(1, 1, 1, 0.25))
+	_draw_zone(c, r, pos, s)
+	for ad in world.airdrops:
+		var q: Vector2 = r.get_center() + (Vector2(ad.global_position.x, ad.global_position.z) - Vector2(pos.x, pos.z)) * s
+		if r.has_point(q): _crate_icon(c, q, ad.landed)
 	_arrow(c, r.get_center(), -p.yaw, Color("ffd34d"), 9.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.4), false, 1.5)
 	# Match clock and connection, under the minimap.
@@ -273,6 +299,13 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	var y := r.end.y + 4
 	c.draw_rect(Rect2(r.position.x, y, size, 22), Color(0, 0, 0, 0.4))
 	_text(c, Vector2(r.position.x + 8, y + 17), "⏱ %02d:%02d" % [tm / 60, tm % 60], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, null, 90)
+	# Zone timer and distance to safety.
+	var zy := y + 26
+	c.draw_rect(Rect2(r.position.x, zy, size, 22), Color(0.05, 0.2, 0.55, 0.55))
+	_text(c, Vector2(r.position.x + size * 0.5, zy + 17), world.zone.label(), 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, size)
+	var dist: float = world.zone.distance_to_safe(p.global_position)
+	if dist > 0.0 and world.zone.state != "idle":
+		_text(c, Vector2(r.position.x + size * 0.5, zy + 40), "🏃 %d م للمنطقة الآمنة" % int(dist), 13, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, null, size)
 	_text(c, Vector2(r.end.x - 8, y + 17), "%d ms 📶" % (18 + int(world.time * 3.7) % 9), 12, Color("8ef08e"), HORIZONTAL_ALIGNMENT_RIGHT, null, 90)
 
 func _arrow(c: Control, at: Vector2, ang: float, col: Color, s: float) -> void:
@@ -295,6 +328,24 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 	var hp := clampf(p.health / 100.0, 0.0, 1.0)
 	c.draw_rect(Rect2(x0, y, w * hp, 8), Color.WHITE if hp > 0.6 else (Color("ffcf5a") if hp > 0.3 else Color("ff3d4a")))
 	c.draw_rect(Rect2(x0, y, w, 8), Color(1, 1, 1, 0.35), false, 1.0)
+	# Boost: four segments above the health bar.
+	if p.boost > 0.0:
+		var seg := (w - 6.0) / 4.0
+		for i in 4:
+			var fill := clampf((p.boost - i * 25.0) / 25.0, 0.0, 1.0)
+			c.draw_rect(Rect2(x0 + i * (seg + 2.0), y - 6, seg, 3), Color(0, 0, 0, 0.4))
+			c.draw_rect(Rect2(x0 + i * (seg + 2.0), y - 6, seg * fill, 3), Color("ffae2b"))
+	# Vest, helmet and backpack levels on the left of the health bar.
+	var gx := x0 - 34.0
+	for g in [["helmet", Items.HELMET], ["vest", Items.VEST], ["pack", null]]:
+		var lvl: int = p.gear[g[0]]
+		if lvl <= 0: continue
+		var col := Color.WHITE
+		if g[1] != null:
+			var f: float = float(p.gear[g[0] + "_dur"]) / float(g[1][lvl].dur)
+			col = Color.WHITE if f > 0.6 else (Color("ffcf5a") if f > 0.3 else Color("ff5a5a"))
+		_gear_icon(c, Vector2(gx, y - 8), g[0], lvl, col)
+		gx -= 34.0
 	# Weapon cards with silhouettes and ammo.
 	for i in 3:
 		var rr := slot_rect(i, sz)
@@ -314,6 +365,18 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 			c.draw_colored_polygon(PackedVector2Array([Vector2(rr.get_center().x - 6, rr.position.y - 8), Vector2(rr.get_center().x + 6, rr.position.y - 8), Vector2(rr.get_center().x, rr.position.y - 2)]), Color("ffd34d"))
 	if p.reload_t > 0.0:
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.62), "إعادة تلقيم…", 18, Color("ffcf5a"))
+
+## Small icon for worn gear with its level number.
+func _gear_icon(c: Control, at: Vector2, kind: String, lvl: int, col: Color) -> void:
+	c.draw_rect(Rect2(at - Vector2(14, 14), Vector2(28, 28)), Color(0, 0, 0, 0.45))
+	match kind:
+		"helmet": c.draw_arc(at + Vector2(0, 4), 9.0, PI, TAU, 12, col, 4.0)
+		"vest":
+			c.draw_colored_polygon(PackedVector2Array([at + Vector2(-8, -8), at + Vector2(-3, -8), at + Vector2(0, -4), at + Vector2(3, -8), at + Vector2(8, -8), at + Vector2(8, 9), at + Vector2(-8, 9)]), col)
+		_:
+			c.draw_rect(Rect2(at - Vector2(7, 6), Vector2(14, 15)), col)
+			c.draw_arc(at + Vector2(0, -6), 4.0, PI, TAU, 8, col, 2.0)
+	_text(c, at + Vector2(9, 14), str(lvl), 11, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 14)
 
 ## Side-view gun silhouette for the weapon cards.
 func _gun_icon(c: Control, r: Rect2, cls: String, col: Color) -> void:
@@ -362,12 +425,26 @@ func _draw_scope(c: Control, sz: Vector2) -> void:
 	c.draw_line(Vector2(ctr.x, ctr.y - r), Vector2(ctr.x, ctr.y + r), Color(0, 0, 0, 0.85), 1.5)
 
 func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
+	if p.heal_id != "":
+		_draw_heal(c, sz, p)
+		return
 	var it = world.nearest_pickup(p.global_position, 2.4)
-	if it == null: return
-	var data: Dictionary = it.get_meta("data")
-	var label: String = Game.WEAPONS[data.id].name if data.kind == "weapon" else Game.AMMO_NAMES[data.type]
 	var key := "[F] " if Game.settings.controls == "kbm" else ""
+	if it == null:
+		if world.nearest_vehicle(p.global_position, 3.5):
+			_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "ركوب السيارة", 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		return
+	var label: String = world.pickup_name(it.get_meta("data"))
 	_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "التقاط: " + label, 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+
+func _draw_heal(c: Control, sz: Vector2, p: Player) -> void:
+	var h: Dictionary = Items.HEALS[p.heal_id]
+	var ctr := Vector2(sz.x * 0.5, sz.y * 0.62)
+	var k := 1.0 - p.heal_t / float(h.time)
+	c.draw_arc(ctr, 26.0, 0, TAU, 40, Color(0, 0, 0, 0.5), 6.0)
+	c.draw_arc(ctr, 26.0, -PI / 2, -PI / 2 + TAU * k, 40, Color("7dff8a"), 6.0)
+	_text(c, ctr + Vector2(0, 7), "%.1f" % p.heal_t, 16, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)
+	_text(c, ctr + Vector2(0, 52), "جاري استخدام " + h.name + " — الإطلاق يلغيه", 15, Color.WHITE)
 
 func _draw_gauges(c: Control, sz: Vector2, p: Player) -> void:
 	var h := minf(360.0, sz.y * 0.48)
@@ -419,24 +496,128 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 		_text(c, r.position + t.pos * k, t.name, 14, Color("ffe08a") if t.military else Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if world.plane_active:
 		c.draw_dashed_line(r.position + Vector2(world.plane_from.x, world.plane_from.z) * k, r.position + Vector2(world.plane_to.x, world.plane_to.z) * k, Color(1, 1, 1, 0.7), 2.0, 8.0)
+	var z: Zone = world.zone
+	if z.state != "idle":
+		_clipped_circle(c, r, r.position + z.center * k, z.radius * k, Color(0.25, 0.5, 1.0, 0.95), 2.5)
+		_clipped_circle(c, r, r.position + z.next_center * k, z.next_radius * k, Color.WHITE, 2.0)
+	for ad in world.airdrops:
+		_crate_icon(c, r.position + Vector2(ad.global_position.x, ad.global_position.z) * k, ad.landed)
+	for f in world._drop_flights:
+		var fp: Vector3 = f.node.global_position
+		c.draw_circle(r.position + Vector2(fp.x, fp.z) * k, 4.0, Color(1, 1, 1, 0.9))
 	_arrow(c, r.position + Vector2(p.global_position.x, p.global_position.z) * k, -p.yaw, Color("ffd34d"), 10.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
 	_text(c, Vector2(sz.x * 0.5, r.end.y + 26), "كل مربع = %d م — اضغط M للإغلاق" % int(S / Game.GRID), 14)
 
 func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
-	var r := Rect2(16, 70, 300, 64 + 30 * 7)
-	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.82))
-	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
-	_text(c, Vector2(r.position.x + 14, r.position.y + 32), "الحقيبة", 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_LEFT, bold, 200)
-	var y := r.position.y + 64
+	var rows := []
 	for i in 3:
-		var s = p.slots[i]
-		var name: String = ["السلاح 1", "السلاح 2", "المسدس"][i]
-		var val: String = "—" if s == null else Game.WEAPONS[s.id].name
-		_text(c, Vector2(r.position.x + 14, y), name, 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 140)
-		_text(c, Vector2(r.end.x - 14, y), val, 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
-		y += 30
+		var sl = p.slots[i]
+		rows.append([["السلاح 1", "السلاح 2", "المسدس"][i], "—" if sl == null else Game.WEAPONS[sl.id].name])
+	for g in ["helmet", "vest", "pack"]:
+		var lvl: int = p.gear[g]
+		var label := {"helmet": "الخوذة", "vest": "السترة", "pack": "الحقيبة"}[g] as String
+		var val := "—" if lvl == 0 else ("مستوى %d" % lvl + ("" if g == "pack" else "  (%d%%)" % int(100.0 * float(p.gear[g + "_dur"]) / float((Items.HELMET if g == "helmet" else Items.VEST)[lvl].dur))))
+		rows.append([label, val])
 	for at in p.ammo:
-		_text(c, Vector2(r.position.x + 14, y), "ذخيرة " + Game.AMMO_NAMES[at], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 180)
-		_text(c, Vector2(r.end.x - 14, y), str(p.ammo[at]), 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 80)
-		y += 30
+		if p.ammo[at] > 0: rows.append(["ذخيرة " + Game.AMMO_NAMES[at], str(p.ammo[at])])
+	for hid in Items.HEAL_ORDER:
+		if p.heals[hid] > 0: rows.append([Items.HEALS[hid].name, "×%d" % p.heals[hid]])
+	for tid in p.throwables:
+		if p.throwables[tid] > 0: rows.append([Items.THROWS[tid], "×%d" % p.throwables[tid]])
+	var r := Rect2(16, 70, 320, 84 + 26 * rows.size())
+	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.84))
+	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
+	_text(c, Vector2(r.position.x + 14, r.position.y + 30), "الحقيبة", 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_LEFT, bold, 200)
+	_text(c, Vector2(r.end.x - 14, r.position.y + 30), "السعة %d / %d" % [int(p.used_space()), int(p.capacity())], 14, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_RIGHT, null, 160)
+	var y := r.position.y + 60
+	for row in rows:
+		_text(c, Vector2(r.position.x + 14, y), row[0], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 170)
+		_text(c, Vector2(r.end.x - 14, y), row[1], 15, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
+		y += 26
+	if Game.settings.controls == "kbm":
+		_text(c, Vector2(r.position.x + 14, r.end.y - 8), "H علاج • Y منشّط • G قنبلة • T نوعها", 12, Color(1, 1, 1, 0.6), HORIZONTAL_ALIGNMENT_LEFT, null, 300)
+
+## Blue zone and next safe circle on the minimap (world -> minimap: centre + (q - pos) * s).
+func _draw_zone(c: Control, r: Rect2, pos: Vector3, s: float) -> void:
+	var z: Zone = world.zone
+	if z.state == "idle": return
+	var me := Vector2(pos.x, pos.z)
+	var ctr := r.get_center()
+	var cur := ctr + (z.center - me) * s
+	var nxt := ctr + (z.next_center - me) * s
+	_clipped_circle(c, r, cur, z.radius * s, Color(0.25, 0.5, 1.0, 0.95), 2.5)
+	_clipped_circle(c, r, nxt, z.next_radius * s, Color.WHITE, 1.8)
+	# Line to the safe zone when outside it.
+	if z.distance_to_safe(pos) > 0.0:
+		var dir := (z.next_center - me).normalized()
+		c.draw_line(ctr, ctr + dir * (r.size.x * 0.48), Color(1, 1, 1, 0.8), 1.5)
+
+## Draws only the part of a circle that lies inside rect r.
+func _clipped_circle(c: Control, r: Rect2, at: Vector2, radius: float, col: Color, width: float) -> void:
+	var pts := PackedVector2Array()
+	var segs := 192
+	for i in segs + 1:
+		var q: Vector2 = at + Vector2(radius, 0).rotated(i * TAU / segs)
+		if r.has_point(q):
+			pts.append(q)
+		else:
+			if pts.size() > 1: c.draw_polyline(pts, col, width)
+			pts = PackedVector2Array()
+	if pts.size() > 1: c.draw_polyline(pts, col, width)
+
+## Dotted arc where a grenade would fly, with a ring where it lands.
+func _draw_throw_arc(c: Control, p: Player) -> void:
+	var cam := p.camera
+	var pts := p.throw_arc()
+	var prev := Vector2.INF
+	for i in pts.size():
+		if cam.is_position_behind(pts[i]): continue
+		var sp := cam.unproject_position(pts[i])
+		if prev != Vector2.INF and i % 2 == 0:
+			c.draw_line(prev, sp, Color(1, 1, 1, 0.85), 2.0)
+		prev = sp
+	if pts.size() > 1 and not cam.is_position_behind(pts[-1]):
+		var land := cam.unproject_position(pts[-1])
+		c.draw_arc(land, 10.0, 0, TAU, 20, Color("ff5a3c") if p.throw_kind == "frag" else Color.WHITE, 2.0)
+	_text(c, Vector2(c.size.x * 0.5, c.size.y * 0.7), "اترك G أو اضغط إطلاق للرمي", 15)
+
+## Small card next to the weapons with the selected grenade and how many.
+func _draw_throw_card(c: Control, sz: Vector2, p: Player) -> void:
+	var n: int = p.throwables.frag + p.throwables.smoke
+	if n == 0: return
+	var r := Rect2(Hud.slot_rect(0, sz).position.x - 74, sz.y - 98, 66, 62)
+	c.draw_rect(r, Color(0, 0, 0, 0.5) if p.throw_ready else Color(0, 0, 0, 0.3))
+	c.draw_rect(r, Color("ffd34d") if p.throw_ready else Color(1, 1, 1, 0.18), false, 1.2)
+	var col := Color("9fb07a") if p.throw_kind == "frag" else Color("c9cdd2")
+	c.draw_circle(r.get_center() + Vector2(0, -6), 11.0, col)
+	c.draw_rect(Rect2(r.get_center() + Vector2(-3, -21), Vector2(6, 5)), col)
+	_text(c, Vector2(r.get_center().x, r.end.y - 6), "×%d" % p.throwables[p.throw_kind], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)
+
+## Supply crate marker: red box, with a parachute while still falling.
+func _crate_icon(c: Control, at: Vector2, landed: bool) -> void:
+	c.draw_rect(Rect2(at - Vector2(6, 5), Vector2(12, 10)), Color("d93030"))
+	c.draw_rect(Rect2(at - Vector2(6, 5), Vector2(12, 10)), Color.WHITE, false, 1.5)
+	if not landed:
+		c.draw_arc(at + Vector2(0, -10), 8.0, PI, TAU, 10, Color.WHITE, 2.0)
+
+## Speedometer and car health while driving.
+func _draw_vehicle(c: Control, sz: Vector2, p: Player) -> void:
+	var v: Vehicle = p.vehicle
+	if v == null: return
+	var ctr := Vector2(sz.x * 0.5, sz.y - 70.0)
+	var kmh := absf(v.speed()) * 3.6
+	c.draw_arc(ctr, 46.0, PI * 0.75, PI * 2.25, 40, Color(0, 0, 0, 0.45), 8.0)
+	c.draw_arc(ctr, 46.0, PI * 0.75, PI * 0.75 + PI * 1.5 * clampf(kmh / 130.0, 0.0, 1.0), 40, Color.WHITE, 8.0)
+	_text(c, ctr + Vector2(0, 8), str(int(kmh)), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 90)
+	_text(c, ctr + Vector2(0, 26), "كم/س", 12, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_CENTER, null, 90)
+	var w := 160.0
+	var hp := clampf(v.health / Vehicle.MAX_HEALTH, 0.0, 1.0)
+	var r := Rect2(ctr.x - w * 0.5, ctr.y + 40.0, w, 7.0)
+	c.draw_rect(r, Color(0, 0, 0, 0.5))
+	c.draw_rect(Rect2(r.position, Vector2(w * hp, 7.0)), Color("ffcf5a") if hp > 0.3 else Color("ff4a3a"))
+	_text(c, Vector2(ctr.x, r.end.y + 16), "حالة السيارة", 12, Color(1, 1, 1, 0.75), HORIZONTAL_ALIGNMENT_CENTER, null, 160)
+	# Player health stays visible too.
+	var hw := 260.0
+	c.draw_rect(Rect2(sz.x * 0.5 - hw * 0.5, sz.y - 14.0, hw, 6.0), Color(0, 0, 0, 0.5))
+	c.draw_rect(Rect2(sz.x * 0.5 - hw * 0.5, sz.y - 14.0, hw * clampf(p.health / 100.0, 0.0, 1.0), 6.0), Color.WHITE)
