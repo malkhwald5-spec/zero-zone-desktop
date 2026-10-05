@@ -13,6 +13,9 @@ var zone: Zone
 var _zone_tick := 0.0
 var zone_deaths := 0
 var smokes: Array = []          # {pos: Vector3, r, t}
+var airdrops: Array = []        # Airdrop nodes (falling or landed)
+var _drop_flights: Array = []   # {node, from, to, t, dur, drop: Vector3, dropped}
+var _drop_phase := 0
 var _boom_stream: AudioStreamWAV
 var bots: Array = []
 var pickups: Array = []
@@ -123,7 +126,12 @@ func _make_plane() -> void:
 	plane_from = Vector3(c.x - d.x, Player.PLANE_ALT, c.y - d.y)
 	plane_to = Vector3(c.x + d.x, Player.PLANE_ALT, c.y + d.y)
 	plane_dur = plane_from.distance_to(plane_to) / 70.0
-	plane = Node3D.new()
+	plane = _plane_model()
+	add_child(plane)
+	plane.look_at_from_position(plane_from, plane_to, Vector3.UP)
+
+func _plane_model() -> Node3D:
+	var plane := Node3D.new()
 	var body_mat := StandardMaterial3D.new()
 	body_mat.albedo_color = Color("c9cdd2")
 	body_mat.metallic = 0.4
@@ -145,8 +153,7 @@ func _make_plane() -> void:
 		mi.rotation = p[2]
 		mi.material_override = p[3]
 		plane.add_child(mi)
-	add_child(plane)
-	plane.look_at_from_position(plane_from, plane_to, Vector3.UP)
+	return plane
 
 func _cyl(r1: float, r2: float, h: float) -> CylinderMesh:
 	var m := CylinderMesh.new()
@@ -236,7 +243,7 @@ func _pickup_look(data: Dictionary) -> Array:
 			mat.roughness = 0.35
 		elif data.kind == "ammo":
 			mesh = _box(Vector3(0.28, 0.2, 0.2))
-			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a")}[data.type]
+			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a"), "300": Color("6a4fa8")}[data.type]
 		elif data.kind == "gear":
 			var tint: Color = [Color.WHITE, Color("8d9a6b"), Color("4e6fa8"), Color("2b2b2b")][data.lvl]
 			match data.gear:
@@ -575,6 +582,7 @@ func _process(delta: float) -> void:
 		elif plane_t >= 0.995 and player.state == "plane":
 			player.jump_from_plane()
 	builder.update_grass(player.global_position)
+	_update_airdrops(delta)
 	for s in smokes: s.t -= delta
 	smokes = smokes.filter(func(s): return s.t > 0.0)
 	# Blue zone damage, once a second.
@@ -596,6 +604,64 @@ func _process(delta: float) -> void:
 					if s != null and Game.WEAPONS[s.id].ammo == data.type:
 						pickup(player, it, true)
 						break
+
+# ---------- Airdrops ----------
+## One supply drop each time a new safe zone is announced (phases 2 to 5).
+func _update_airdrops(delta: float) -> void:
+	if zone.phase >= 1 and zone.phase <= 4 and zone.phase != _drop_phase:
+		_drop_phase = zone.phase
+		call_drop()
+	for f in _drop_flights.duplicate():
+		f.t += delta / f.dur
+		var pos: Vector3 = f.from.lerp(f.to, f.t)
+		f.node.global_position = pos
+		if not f.dropped and Vector2(pos.x, pos.z).distance_to(Vector2(f.drop.x, f.drop.z)) < 40.0:
+			f.dropped = true
+			var ad := Airdrop.new()
+			ad.world = self
+			ad.target = f.drop
+			add_child(ad)
+			ad.global_position = Vector3(f.drop.x, pos.y - 6.0, f.drop.z)
+			airdrops.append(ad)
+		if f.t >= 1.0:
+			f.node.queue_free()
+			_drop_flights.erase(f)
+
+## Sends a cargo plane over a spot inside the next safe circle.
+func call_drop() -> void:
+	var c: Vector2 = zone.next_center
+	var spot := Vector3.ZERO
+	for k in 40:
+		var q: Vector2 = c + Vector2(randf() * zone.next_radius * 0.7, 0).rotated(randf() * TAU)
+		if island.is_land(q.x, q.y) and not island.is_deep(q.x, q.y) and not _in_building(q, 3.0):
+			spot = Vector3(q.x, island.height_at(q.x, q.y), q.y)
+			break
+	if spot == Vector3.ZERO: return
+	var a := randf() * TAU
+	var d := Vector3(cos(a), 0, sin(a)) * 2200.0
+	var from := spot - d + Vector3(0, 380.0, 0)
+	var to := spot + d + Vector3(0, 380.0 - spot.y, 0)
+	from.y = 380.0
+	var node := _plane_model()
+	add_child(node)
+	node.look_at_from_position(from, to, Vector3.UP)
+	_drop_flights.append({"node": node, "from": from, "to": to, "t": 0.0, "dur": from.distance_to(to) / 90.0, "drop": spot, "dropped": false})
+	if hud: hud.show_banner("طائرة إنزال جوي في الطريق!")
+
+## Nearest landed crate within r that still holds something ok(item) accepts.
+func nearest_airdrop(p: Vector3, r: float, ok: Callable) -> Node3D:
+	var best: Node3D = null
+	var bd := r
+	for ad in airdrops:
+		if not ad.landed: continue
+		var d: float = p.distance_to(ad.global_position)
+		if d >= bd: continue
+		for it in pickups_near(ad.global_position + Vector3(0, 0.95, 0), 1.5):
+			if ok.call(it):
+				bd = d
+				best = ad
+				break
+	return best
 
 # ---------- Grenades ----------
 ## Frag explosion: damage falls off with distance; walls and terrain protect.

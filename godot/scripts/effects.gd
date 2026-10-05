@@ -160,7 +160,7 @@ func explosion(pos: Vector3) -> void:
 		n.create_tween().tween_callback(n.queue_free).set_delay(2.5)
 
 ## A thick grey smoke cloud that lasts `duration` seconds.
-func smoke_cloud(pos: Vector3, duration: float) -> void:
+func smoke_cloud(pos: Vector3, duration: float, tint := Color(0.8, 0.82, 0.84)) -> void:
 	var p := CPUParticles3D.new()
 	p.amount = 60
 	p.lifetime = 5.0
@@ -176,7 +176,7 @@ func smoke_cloud(pos: Vector3, duration: float) -> void:
 	p.scale_amount_max = 5.0
 	var ramp := Gradient.new()
 	ramp.offsets = PackedFloat32Array([0.0, 0.2, 1.0])
-	ramp.colors = PackedColorArray([Color(0.85, 0.86, 0.88, 0.0), Color(0.8, 0.82, 0.84, 0.85), Color(0.75, 0.76, 0.78, 0.0)])
+	ramp.colors = PackedColorArray([Color(tint, 0.0), Color(tint, 0.85), Color(tint.darkened(0.05), 0.0)])
 	p.color_ramp = ramp
 	p.mesh = _ball(Color.WHITE, 0.0)
 	add_child(p)

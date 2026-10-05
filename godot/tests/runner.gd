@@ -132,6 +132,20 @@ func _run() -> void:
 	world.add_smoke(Vector3(sp.x, world.ground_height(sp), sp.z))
 	await wait(2.0)
 	await shot("smoke")
+	var ad := Airdrop.new()
+	ad.world = world
+	var dp: Vector3 = world.player.global_position + Vector3(-sin(world.player.yaw), 0, -cos(world.player.yaw)) * 18.0 + Vector3(6, 0, 0)
+	ad.target = Vector3(dp.x, world.ground_height(dp), dp.z)
+	world.add_child(ad)
+	ad.global_position = ad.target + Vector3(0, 9, 0)
+	world.airdrops.append(ad)
+	world.player.pitch = 0.12
+	await wait(0.4)
+	await shot("airdrop_falling")
+	ad.global_position.y = ad.target.y + 0.3
+	await wait(2.5)
+	world.player.pitch = -0.05
+	await shot("airdrop_landed")
 	world.hud.toggle_bag()
 	world.hud.toggle_map()
 	await wait(0.4)

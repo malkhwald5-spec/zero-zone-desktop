@@ -165,5 +165,43 @@ func _run() -> void:
 		b3._maybe_throw()
 		if b3.frags == 0: break
 	check("bot throws frags in a fight", b3.frags == 0, "d=%.1f clear=%s v=%s" % [dd, clr, vv])
+	# Airdrops.
+	world.zone.start()
+	world.call_drop()
+	check("cargo plane on its way", world._drop_flights.size() == 1)
+	var f: Dictionary = world._drop_flights[0]
+	f.t = 0.45
+	for i in 200:
+		if not world.airdrops.is_empty(): break
+		await wait(0.05)
+	check("crate dropped near the spot", world.airdrops.size() == 1)
+	var ad: Airdrop = world.airdrops[0]
+	ad.global_position.y = ad.target.y + 2.0
+	await wait(0.6)
+	check("crate landed", ad.landed)
+	var crate_items: Array = world.pickups_near(ad.global_position + Vector3(0, 0.95, 0), 1.5)
+	var has_crate_gun := false
+	for it in crate_items:
+		var cd: Dictionary = it.get_meta("data")
+		if cd.kind == "weapon" and Game.WEAPONS[cd.id].get("crate", false): has_crate_gun = true
+	check("crate holds a crate-only weapon and gear", has_crate_gun and crate_items.size() >= 4, "items=%d" % crate_items.size())
+	var inside: bool = world.zone.distance_to_safe(ad.global_position) == 0.0
+	check("drop is inside the next safe zone", inside)
+	# A bot nearby goes for it.
+	var b4: Bot = world.bots[3]
+	b4.state = "ground"
+	b4.weapon_id = "ump"
+	b4.reserve = 100
+	b4.target = null
+	var start := ad.global_position + Vector3(25, 0, 0)
+	b4.global_position = Vector3(start.x, world.ground_height(start) + 0.3, start.z)
+	b4.visible = true
+	b4._land()
+	b4.set_physics_process(true)
+	p.global_position = ad.global_position + Vector3(0, 200, 0)
+	for i in 120:
+		await wait(0.25)
+		if Game.WEAPONS[b4.weapon_id].get("crate", false): break
+	check("bot loots the crate", Game.WEAPONS[b4.weapon_id].get("crate", false), "bot weapon=%s mode=%s d=%.1f" % [b4.weapon_id, b4.mode, b4.global_position.distance_to(ad.global_position)])
 	print("GEAR TEST %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 	tree.quit()

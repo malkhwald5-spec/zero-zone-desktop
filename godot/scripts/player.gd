@@ -42,7 +42,7 @@ var air_speed := 0.0              # km/h shown on the HUD
 # Weapons: two primaries + pistol. Each slot: {id, mag}
 var slots := [null, null, null]
 var active := -1
-var ammo := {"9mm": 0, "556": 0, "762": 0, "12g": 0}
+var ammo := {"9mm": 0, "556": 0, "762": 0, "12g": 0, "300": 0}
 var fire_cd := 0.0
 var reload_t := 0.0
 var recoil_kick := 0.0

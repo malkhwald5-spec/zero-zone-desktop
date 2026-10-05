@@ -5,7 +5,7 @@ extends CharacterBody3D
 ## moves into the safe zone in time. Far from the player it thinks less often.
 
 const GRAVITY := 18.0
-const TIER := {"p92": 1, "ump": 2, "s1897": 2, "m416": 3, "akm": 3, "kar98": 3}
+const TIER := {"p92": 1, "ump": 2, "s1897": 2, "m416": 3, "akm": 3, "kar98": 3, "awm": 4, "m249": 4, "groza": 4}
 
 var world: Node
 var display_name := "خصم"
@@ -246,6 +246,16 @@ func _think() -> void:
 				world.bot_take(self, loot_item)
 				loot_item = null
 			return
+	# A supply crate nearby: go and take its loot.
+	var ad: Node3D = world.nearest_airdrop(global_position, 260.0 if armed() else 0.0, _useful)
+	if ad:
+		if mode != "crate" or goal.distance_to(ad.global_position) > 2.0:
+			mode = "crate"
+			_go(ad.global_position + Vector3(1.2, 0, 0))
+		if global_position.distance_to(ad.global_position) < 2.5:
+			for it in world.pickups_near(ad.global_position + Vector3(0, 0.95, 0), 1.5):
+				if _useful(it): world.bot_take(self, it)
+		return
 	if mode != "roam" or global_position.distance_to(goal) < 3.0:
 		mode = "roam"
 		var a := randf() * TAU

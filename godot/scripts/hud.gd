@@ -287,6 +287,9 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 		if gx > r.position.x and gx < r.end.x: c.draw_line(Vector2(gx, r.position.y), Vector2(gx, r.end.y), Color(1, 1, 1, 0.25))
 		if gy > r.position.y and gy < r.end.y: c.draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), Color(1, 1, 1, 0.25))
 	_draw_zone(c, r, pos, s)
+	for ad in world.airdrops:
+		var q: Vector2 = r.get_center() + (Vector2(ad.global_position.x, ad.global_position.z) - Vector2(pos.x, pos.z)) * s
+		if r.has_point(q): _crate_icon(c, q, ad.landed)
 	_arrow(c, r.get_center(), -p.yaw, Color("ffd34d"), 9.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.4), false, 1.5)
 	# Match clock and connection, under the minimap.
@@ -492,6 +495,11 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	if z.state != "idle":
 		_clipped_circle(c, r, r.position + z.center * k, z.radius * k, Color(0.25, 0.5, 1.0, 0.95), 2.5)
 		_clipped_circle(c, r, r.position + z.next_center * k, z.next_radius * k, Color.WHITE, 2.0)
+	for ad in world.airdrops:
+		_crate_icon(c, r.position + Vector2(ad.global_position.x, ad.global_position.z) * k, ad.landed)
+	for f in world._drop_flights:
+		var fp: Vector3 = f.node.global_position
+		c.draw_circle(r.position + Vector2(fp.x, fp.z) * k, 4.0, Color(1, 1, 1, 0.9))
 	_arrow(c, r.position + Vector2(p.global_position.x, p.global_position.z) * k, -p.yaw, Color("ffd34d"), 10.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
 	_text(c, Vector2(sz.x * 0.5, r.end.y + 26), "كل مربع = %d م — اضغط M للإغلاق" % int(S / Game.GRID), 14)
@@ -580,3 +588,10 @@ func _draw_throw_card(c: Control, sz: Vector2, p: Player) -> void:
 	c.draw_circle(r.get_center() + Vector2(0, -6), 11.0, col)
 	c.draw_rect(Rect2(r.get_center() + Vector2(-3, -21), Vector2(6, 5)), col)
 	_text(c, Vector2(r.get_center().x, r.end.y - 6), "×%d" % p.throwables[p.throw_kind], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)
+
+## Supply crate marker: red box, with a parachute while still falling.
+func _crate_icon(c: Control, at: Vector2, landed: bool) -> void:
+	c.draw_rect(Rect2(at - Vector2(6, 5), Vector2(12, 10)), Color("d93030"))
+	c.draw_rect(Rect2(at - Vector2(6, 5), Vector2(12, 10)), Color.WHITE, false, 1.5)
+	if not landed:
+		c.draw_arc(at + Vector2(0, -10), 8.0, PI, TAU, 10, Color.WHITE, 2.0)
