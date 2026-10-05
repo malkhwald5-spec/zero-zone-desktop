@@ -26,12 +26,35 @@ func _run() -> void:
 	var tree := get_tree()
 	reparent(tree.root)
 	tree.current_scene = null
-	tree.change_scene_to_file("res://scenes/lobby.tscn")
-	await wait(2.0)
+	tree.change_scene_to_file("res://scenes/splash.tscn")
+	await wait(1.6)
+	await shot("splash")
+	for i in 100:
+		if tree.current_scene and tree.current_scene.get_child_count() > 0 and tree.current_scene.get_child(-1) is LoadingScreen: break
+		await wait(0.1)
+	await wait(1.0)
+	await shot("loading")
+	for i in 100:
+		if tree.current_scene and tree.current_scene.name == "Lobby": break
+		await wait(0.1)
+	await wait(1.5)
 	await shot("lobby")
-	get_tree().change_scene_to_file("res://scenes/world.tscn")
-	await wait(4.0)
-	var world = get_tree().current_scene
+	var lobby = tree.current_scene
+	Game.wallet.gold = 500
+	lobby._open("inventory")
+	await wait(0.6)
+	await shot("lobby_inventory")
+	lobby._open("season")
+	await wait(0.4)
+	await shot("lobby_season")
+	lobby._close_panel()
+	lobby._start()
+	await wait(1.2)
+	await shot("match_loading")
+	var world = tree.current_scene
+	for i in 300:
+		if world.ready_done: break
+		await wait(0.1)
 	print("world built; bots=", world.bots.size(), " pickups=", world.pickups.size())
 	await shot("plane")
 	# Wait until the plane is over land, then jump.
@@ -64,6 +87,10 @@ func _run() -> void:
 	world.player.action("crouch", true)
 	await wait(0.5)
 	await shot("crouch")
+	world.hud.toggle_bag()
+	await wait(0.3)
+	await shot("bag")
+	world.hud.toggle_bag()
 	world.hud.toggle_map()
 	await wait(0.4)
 	await shot("map")

@@ -23,6 +23,14 @@ func _init(isl: Island, parent: Node3D) -> void:
 	island = isl
 	root = parent
 
+## Build steps with a label each, so the loading screen can show progress.
+func steps() -> Array:
+	return [
+		[_textures, "جاري تجهيز التضاريس"], [_environment, "جاري تجهيز السماء"], [_terrain, "جاري بناء الأرض"],
+		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_trees, "جاري زراعة الغابات"],
+		[_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_grass, "جاري تجهيز العشب"],
+	]
+
 func build_all() -> void:
 	_textures()
 	_environment()

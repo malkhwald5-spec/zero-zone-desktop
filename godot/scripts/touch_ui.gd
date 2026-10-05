@@ -28,16 +28,17 @@ func _layout() -> void:
 	buttons = [
 		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(s.x - 130, s.y - 150), "r": 58.0},
 		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(100, s.y * 0.42), "r": 38.0},
+		{"act": "bag", "icon": "", "label": "الحقيبة", "pos": Vector2(40, s.y - 64), "r": 24.0},
 		{"act": "aim", "icon": "⌖", "label": "منظار", "pos": Vector2(s.x - 245, s.y - 250), "r": 32.0},
 		{"act": "reload", "icon": "⟳", "label": "تلقيم", "pos": Vector2(s.x - 250, s.y - 140), "r": 30.0},
 		{"act": "jump", "icon": "⤒", "label": "قفز", "pos": Vector2(s.x - 70, s.y - 285), "r": 30.0},
-		{"act": "crouch", "icon": "⤓", "label": "انحناء", "pos": Vector2(s.x - 205, s.y - 45), "r": 28.0},
-		{"act": "prone", "icon": "▁", "label": "انبطاح", "pos": Vector2(s.x - 135, s.y - 45), "r": 28.0},
-		{"act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 40, 255), "r": 24.0},
+		{"act": "crouch", "icon": "⤓", "label": "انحناء", "pos": Vector2(s.x - 205, s.y - 62), "r": 26.0},
+		{"act": "prone", "icon": "▁", "label": "انبطاح", "pos": Vector2(s.x - 135, s.y - 62), "r": 26.0},
+		{"act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 280), "r": 24.0},
 		{"act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
-		{"act": "slot1", "icon": "1", "label": "", "pos": Vector2(s.x * 0.5 - 140, s.y - 112), "r": 0.0},
-		{"act": "slot2", "icon": "2", "label": "", "pos": Vector2(s.x * 0.5, s.y - 112), "r": 0.0},
-		{"act": "slot3", "icon": "3", "label": "", "pos": Vector2(s.x * 0.5 + 140, s.y - 112), "r": 0.0},
+		{"act": "slot1", "icon": "", "label": "", "pos": Hud.slot_rect(0, s).get_center(), "r": 0.0},
+		{"act": "slot2", "icon": "", "label": "", "pos": Hud.slot_rect(1, s).get_center(), "r": 0.0},
+		{"act": "slot3", "icon": "", "label": "", "pos": Hud.slot_rect(2, s).get_center(), "r": 0.0},
 		{"act": "interact", "icon": "", "label": "", "pos": Vector2(s.x - 380, s.y * 0.52), "r": 0.0},
 	]
 
@@ -56,7 +57,7 @@ func _hit_button(pos: Vector2) -> Dictionary:
 		if b.act == "interact":
 			if _interact_label() != "" and Rect2(b.pos - Vector2(80, 24), Vector2(160, 48)).has_point(pos): return b
 		elif b.act.begins_with("slot"):
-			if Rect2(b.pos - Vector2(66, 20), Vector2(132, 40)).has_point(pos): return b
+			if Hud.slot_rect(int(b.act.substr(4)) - 1, size).has_point(pos): return b
 		elif pos.distance_to(b.pos) < b.r * 1.15:
 			return b
 	return {}
@@ -109,6 +110,7 @@ func _press(act: String, down: bool) -> void:
 	match act:
 		"map": if down: hud.toggle_map()
 		"pause": if down: hud.toggle_pause()
+		"bag": if down: hud.toggle_bag()
 		_: p.action(act, down)
 
 func _process(_d: float) -> void:
@@ -137,9 +139,58 @@ func _draw() -> void:
 			draw_string(font, Vector2(r.position.x, b.pos.y + 8), label, HORIZONTAL_ALIGNMENT_CENTER, 160, 20, Color.WHITE)
 			continue
 		var down: bool = pressed.has(b.act)
-		draw_circle(b.pos, b.r, Color(0.95, 0.66, 0.0, 0.5) if down else Color(0.08, 0.1, 0.12, 0.45))
-		draw_arc(b.pos, b.r, 0, TAU, 40, Color(1, 1, 1, 0.55), 2.0)
-		var icon_size := int(b.r * (0.9 if b.label == "" else 0.7))
-		draw_string(font, b.pos + Vector2(-b.r, icon_size * 0.35 - (6 if b.label != "" else 0)), b.icon, HORIZONTAL_ALIGNMENT_CENTER, b.r * 2, icon_size, Color.WHITE)
+		draw_circle(b.pos, b.r, Color(0.95, 0.66, 0.0, 0.5) if down else Color(0.06, 0.08, 0.1, 0.38))
+		draw_arc(b.pos, b.r, 0, TAU, 40, Color(1, 1, 1, 0.6), 1.6)
+		_icon(b.act, b.pos, b.r)
 		if b.label != "":
-			draw_string(font, b.pos + Vector2(-b.r, b.r * 0.62), b.label, HORIZONTAL_ALIGNMENT_CENTER, b.r * 2, 11, Color(1, 1, 1, 0.85))
+			draw_string_outline(font, b.pos + Vector2(-50, b.r + 15), b.label, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, 3, Color(0, 0, 0, 0.6))
+			draw_string(font, b.pos + Vector2(-50, b.r + 15), b.label, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, Color(1, 1, 1, 0.9))
+
+## Vector icons in the style of mobile shooters.
+func _icon(act: String, c: Vector2, r: float) -> void:
+	var w := Color(1, 1, 1, 0.92)
+	var k := r / 30.0
+	match act:
+		"fire":
+			# Bullet.
+			var bw := 9.0 * k
+			draw_rect(Rect2(c + Vector2(-bw, -4 * k), Vector2(bw * 2, 20 * k)), w)
+			var tip := PackedVector2Array()
+			for i in 9:
+				var a := PI + i * PI / 8.0
+				tip.append(c + Vector2(cos(a) * bw, -4 * k + sin(a) * 14.0 * k))
+			draw_colored_polygon(tip, w)
+			draw_rect(Rect2(c + Vector2(-bw - 1.5 * k, 12 * k), Vector2(bw * 2 + 3 * k, 4 * k)), Color(0.08, 0.1, 0.12, 0.8))
+		"aim":
+			draw_arc(c, 13 * k, 0, TAU, 32, w, 2.0)
+			draw_arc(c, 4 * k, 0, TAU, 16, w, 2.0)
+			for d in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
+				draw_line(c + d * 8 * k, c + d * 18 * k, w, 2.0)
+		"reload":
+			draw_arc(c, 12 * k, -PI * 0.35, PI * 1.35, 24, w, 3.0 * k)
+			var e := c + Vector2(cos(-PI * 0.35), sin(-PI * 0.35)) * 12 * k
+			draw_colored_polygon(PackedVector2Array([e + Vector2(-6, -5) * k, e + Vector2(7, -1) * k, e + Vector2(-2, 8) * k]), w)
+		"jump":
+			for o in [-4.0, 5.0]:
+				draw_polyline(PackedVector2Array([c + Vector2(-10, 6 + o) * k, c + Vector2(0, -4 + o) * k, c + Vector2(10, 6 + o) * k]), w, 3.0 * k)
+		"crouch":
+			draw_circle(c + Vector2(4, -13) * k, 4.5 * k, w)
+			draw_polyline(PackedVector2Array([c + Vector2(3, -7) * k, c + Vector2(-4, 3) * k, c + Vector2(6, 6) * k, c + Vector2(2, 15) * k]), w, 3.5 * k)
+			draw_line(c + Vector2(1, -3) * k, c + Vector2(11, -1) * k, w, 3.0 * k)
+		"prone":
+			draw_circle(c + Vector2(-13, 2) * k, 4.5 * k, w)
+			draw_line(c + Vector2(-7, 4) * k, c + Vector2(15, 5) * k, w, 4.0 * k)
+			draw_line(c + Vector2(-6, 6) * k, c + Vector2(-14, 10) * k, w, 2.5 * k)
+		"map":
+			draw_polyline(PackedVector2Array([c + Vector2(-13, -9) * k, c + Vector2(-4, -12) * k, c + Vector2(4, -9) * k, c + Vector2(13, -12) * k, c + Vector2(13, 9) * k, c + Vector2(4, 12) * k, c + Vector2(-4, 9) * k, c + Vector2(-13, 12) * k, c + Vector2(-13, -9) * k]), w, 2.0)
+			draw_line(c + Vector2(-4, -12) * k, c + Vector2(-4, 9) * k, w, 1.5)
+			draw_line(c + Vector2(4, -9) * k, c + Vector2(4, 12) * k, w, 1.5)
+		"pause":
+			for i in 8:
+				var a := i * TAU / 8.0
+				draw_line(c + Vector2(cos(a), sin(a)) * 8 * k, c + Vector2(cos(a), sin(a)) * 14 * k, w, 4.0 * k)
+			draw_arc(c, 9 * k, 0, TAU, 24, w, 3.0 * k)
+		"bag":
+			draw_rect(Rect2(c + Vector2(-11, -8) * k, Vector2(22, 20) * k), w)
+			draw_arc(c + Vector2(0, -8) * k, 6 * k, PI, TAU, 12, w, 2.5 * k)
+			draw_rect(Rect2(c + Vector2(-7, 1) * k, Vector2(14, 6) * k), Color(0.08, 0.1, 0.12, 0.7))

@@ -7,7 +7,7 @@ config_version=5
 
 config/name="منطقة الصفر - Zero Zone"
 config/description="Battle royale - Godot 4 edition"
-run/main_scene="res://scenes/lobby.tscn"
+run/main_scene="res://scenes/splash.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
 
