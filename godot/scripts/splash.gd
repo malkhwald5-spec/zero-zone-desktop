@@ -108,10 +108,10 @@ func _build() -> void:
 	gh.add_theme_constant_override("separation", 8)
 	gh.add_child(UiKit.label("الجرافيك:", 15, Color.WHITE, UiKit.bold(), 0))
 	var ob := OptionButton.new()
-	for q in [["Low", "low"], ["Medium", "medium"], ["High", "high"]]:
+	for q in [["Low", "low"], ["Medium", "medium"], ["High", "high"], ["Ultra", "ultra"]]:
 		ob.add_item(q[0])
 		if Game.settings.quality == q[1]: ob.select(ob.item_count - 1)
-	ob.item_selected.connect(func(i): Game.settings.quality = ["low", "medium", "high"][i]; Game.save_data())
+	ob.item_selected.connect(func(i): Game.settings.quality = ["low", "medium", "high", "ultra"][i]; Game.save_data())
 	ob.add_theme_font_size_override("font_size", 14)
 	gh.add_child(ob)
 	gfx.add_child(gh)

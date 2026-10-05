@@ -991,7 +991,7 @@ func _seg(values: Array, names: Array, key: String, page: String) -> HBoxContain
 func _page_settings(body: VBoxContainer) -> void:
 	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "settings")))
 	body.add_child(_row("طريقة التحكم", _seg(["touch", "kbm"], ["أزرار الشاشة", "كيبورد وماوس"], "controls", "settings")))
-	body.add_child(_row("جودة الرسوميات", _seg(["low", "medium", "high"], ["منخفضة", "متوسطة", "عالية"], "quality", "settings")))
+	body.add_child(_row("جودة الرسوميات", _seg(["low", "medium", "high", "ultra"], ["منخفضة", "متوسطة", "عالية", "خارقة"], "quality", "settings")))
 	var sl := HSlider.new()
 	sl.min_value = 0.3
 	sl.max_value = 3.0

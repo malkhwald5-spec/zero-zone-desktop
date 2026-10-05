@@ -4,7 +4,7 @@ extends Node
 const MAP_SIZE := 4096.0          # metres; shown on the map as an 8×8 grid (512 m squares)
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
-const VERSION := "v0.8.0"
+const VERSION := "v0.9.0"
 const STUDIO := "Jordan Dan"
 const SEASON_NAME := "ليلة القمر الأحمر"
 const PASS_XP := 300               # season-pass XP per level
@@ -39,7 +39,7 @@ const WARDROBE := [
 
 var settings := {
 	"controls": "kbm",        # "kbm" (keyboard + mouse, PC default) or "touch" (on-screen buttons)
-	"quality": "high",        # "low" | "medium" | "high"
+	"quality": "high",        # "low" | "medium" | "high" | "ultra"
 	"sensitivity": 1.0,
 	"sound": true,
 	"difficulty": "normal",
@@ -114,12 +114,19 @@ func level() -> int:
 ## Applies graphics quality to an Environment and the main sun light.
 func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 	var q: String = settings.quality
+	var hi := q == "high" or q == "ultra"
 	if env:
 		env.ssao_enabled = q != "low"
 		env.glow_enabled = q != "low"
-		env.volumetric_fog_enabled = q == "high"
+		env.volumetric_fog_enabled = hi
+		env.ssil_enabled = q == "ultra"
 		env.sdfgi_enabled = false
 	if sun:
 		sun.shadow_enabled = q != "low"
-		sun.directional_shadow_max_distance = 260.0 if q == "high" else 140.0
-	get_viewport().msaa_3d = Viewport.MSAA_2X if q == "high" else Viewport.MSAA_DISABLED
+		sun.directional_shadow_max_distance = {"ultra": 400.0, "high": 260.0}.get(q, 140.0)
+		sun.light_angular_distance = 0.5 if q == "ultra" else 0.0
+	var vp := get_viewport()
+	vp.msaa_3d = {"ultra": Viewport.MSAA_4X, "high": Viewport.MSAA_2X}.get(q, Viewport.MSAA_DISABLED)
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if q == "medium" else Viewport.SCREEN_SPACE_AA_DISABLED
+	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_HIGH if hi else RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+	RenderingServer.directional_shadow_atlas_set_size(8192 if q == "ultra" else 4096, true)
