@@ -78,6 +78,14 @@ func _run() -> void:
 	world.player.pitch = -0.12
 	world.player.give_weapon("m416", 30)
 	world.player.ammo["556"] = 90
+	world.player.equip("vest", 2, 110.0)
+	world.player.equip("helmet", 3, 230.0)
+	world.player.equip("pack", 1, 0.0)
+	world.player.heals.bandage = 5
+	world.player.heals.firstaid = 1
+	world.player.heals.drink = 2
+	world.player.boost = 55.0
+	world.player.health = 62.0
 	await wait(1.0)
 	await shot("ground")
 	world.player.firing = true
@@ -94,6 +102,11 @@ func _run() -> void:
 	world.hud.toggle_bag()
 	await wait(0.3)
 	await shot("bag")
+	world.hud.toggle_bag()
+	world.player.use_heal("bandage")
+	await wait(1.2)
+	await shot("healing")
+	world.hud.toggle_bag()
 	world.hud.toggle_bag()
 	world.hud.toggle_map()
 	await wait(0.4)

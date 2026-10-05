@@ -180,6 +180,28 @@ func _spawn_loot() -> void:
 		_add_pickup({"kind": "weapon", "id": id, "mag": 0}, Vector3(p.x, y, p.y))
 		var at: String = Game.WEAPONS[id].ammo
 		_add_pickup({"kind": "ammo", "type": at, "amount": 30 if at != "12g" else 10}, Vector3(p.x + 0.6, y, p.y + 0.4))
+		if randf() < (0.5 if spot.military else 0.35):
+			var kind: String = ["vest", "helmet", "pack"][randi() % 3]
+			_add_gear(kind, Items.roll_level(spot.military), -1.0, Vector3(p.x - 0.6, y, p.y + 0.3))
+		if randf() < 0.45:
+			var hid := Items.roll_heal()
+			_add_pickup({"kind": "heal", "id": hid, "n": 3 if hid == "bandage" else 1}, Vector3(p.x - 0.3, y, p.y - 0.6))
+
+## Gear pickup; dur < 0 means brand new.
+func _add_gear(kind: String, lvl: int, dur: float, pos: Vector3) -> void:
+	if lvl <= 0: return
+	if dur < 0.0:
+		dur = (Items.VEST if kind == "vest" else Items.HELMET)[lvl].dur if kind != "pack" else 0.0
+	_add_pickup({"kind": "gear", "gear": kind, "lvl": lvl, "dur": dur}, pos)
+
+## Short label for a pickup (HUD prompt, bag).
+func pickup_name(data: Dictionary) -> String:
+	match data.kind:
+		"weapon": return Game.WEAPONS[data.id].name
+		"ammo": return "%s ×%d" % [Game.AMMO_NAMES[data.type], data.amount]
+		"gear": return Items.gear_name(data.gear, data.lvl)
+		"heal": return Items.HEALS[data.id].name + (" ×%d" % data.n if data.n > 1 else "")
+	return ""
 
 ## Pickups are kept in a coarse grid so nearby lookups don't scan the whole map.
 const CELL := 16.0
@@ -190,7 +212,12 @@ func _cell(p: Vector3) -> Vector2i:
 	return Vector2i(floori(p.x / CELL), floori(p.z / CELL))
 
 func _pickup_look(data: Dictionary) -> Array:
-	var key: String = (Game.WEAPONS[data.id].cls if data.kind == "weapon" else "ammo_" + data.type)
+	var key: String
+	match data.kind:
+		"weapon": key = Game.WEAPONS[data.id].cls
+		"ammo": key = "ammo_" + data.type
+		"gear": key = "gear_%s_%d" % [data.gear, data.lvl]
+		_: key = "heal_" + data.id
 	if not _pickup_res.has(key):
 		var mat := StandardMaterial3D.new()
 		var mesh: Mesh
@@ -200,9 +227,26 @@ func _pickup_look(data: Dictionary) -> Array:
 			mat.albedo_color = Color("2a2c30")
 			mat.metallic = 0.5
 			mat.roughness = 0.35
-		else:
+		elif data.kind == "ammo":
 			mesh = _box(Vector3(0.28, 0.2, 0.2))
 			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a")}[data.type]
+		elif data.kind == "gear":
+			var tint: Color = [Color.WHITE, Color("8d9a6b"), Color("4e6fa8"), Color("2b2b2b")][data.lvl]
+			match data.gear:
+				"vest": mesh = _box(Vector3(0.5, 0.12, 0.42))
+				"helmet":
+					var sp := SphereMesh.new()
+					sp.radius = 0.17
+					sp.height = 0.22
+					sp.is_hemisphere = true
+					mesh = sp
+				_:
+					mesh = _box(Vector3(0.4, 0.22, 0.5))
+					tint = [Color.WHITE, Color("7a6648"), Color("5a5a3c"), Color("3a3a32")][data.lvl]
+			mat.albedo_color = tint
+		else:
+			mesh = _box(Vector3(0.22, 0.12, 0.16))
+			mat.albedo_color = {"bandage": Color("e8e2d6"), "firstaid": Color("f2f2f2"), "medkit": Color("d93a3a"), "drink": Color("2f86d6"), "pills": Color("e8b23a")}[data.id]
 		mat.emission_enabled = true
 		mat.emission = mat.albedo_color * 0.25
 		_pickup_res[key] = [mesh, mat]
@@ -249,12 +293,37 @@ func nearest_pickup(p: Vector3, r: float) -> Node3D:
 			best = it
 	return best
 
-func pickup(who: Player, it: Node3D) -> void:
+func pickup(who: Player, it: Node3D, quiet := false) -> void:
 	var data: Dictionary = it.get_meta("data")
-	if data.kind == "weapon":
-		who.give_weapon(data.id, data.mag)
-	else:
-		who.ammo[data.type] += data.amount
+	match data.kind:
+		"weapon":
+			who.give_weapon(data.id, data.mag)
+		"ammo":
+			# Only what fits in the bag; the rest stays on the ground.
+			var fits := int(who.free_space() / Items.AMMO_SIZE)
+			var take := mini(int(data.amount), fits)
+			if take <= 0:
+				if not quiet: who.message.emit("الحقيبة ممتلئة")
+				return
+			who.ammo[data.type] += take
+			data.amount = int(data.amount) - take
+			if data.amount > 0: return
+		"gear":
+			var cur: int = who.gear[data.gear]
+			if data.lvl < cur or (data.lvl == cur and data.gear != "pack" and float(data.dur) <= float(who.gear[data.gear + "_dur"])):
+				who.message.emit("عندك " + Items.gear_name(data.gear, cur) + " أفضل")
+				return
+			var old := who.equip(data.gear, int(data.lvl), float(data.dur))
+			_add_gear(data.gear, old.lvl, old.dur, who.global_position)
+		"heal":
+			var size: float = Items.HEALS[data.id].size
+			var n := mini(int(data.n), int(who.free_space() / size))
+			if n <= 0:
+				if not quiet: who.message.emit("الحقيبة ممتلئة")
+				return
+			who.heals[data.id] += n
+			data.n = int(data.n) - n
+			if data.n > 0: return
 	_remove_pickup(it)
 
 func drop_weapon(id: String, mag: int, pos: Vector3) -> void:
@@ -409,6 +478,15 @@ func bot_take(b: Bot, it: Node3D) -> void:
 		b.reserve += 30   # some rounds come with the gun
 	elif data.kind == "ammo":
 		b.reserve += int(data.amount)
+	elif data.kind == "gear":
+		var kind: String = data.gear
+		if int(data.lvl) <= int(b.gear[kind]): return
+		if b.gear[kind] > 0: _add_gear(kind, b.gear[kind], float(b.gear.get(kind + "_dur", 0.0)), b.global_position)
+		b.gear[kind] = int(data.lvl)
+		if kind != "pack": b.gear[kind + "_dur"] = float(data.dur)
+		b.model.set_gear(b.gear.vest, b.gear.helmet, b.gear.pack)
+	elif data.kind == "heal":
+		b.meds += int(data.n)
 	_remove_pickup(it)
 
 func _remove_pickup(it: Node3D) -> void:
@@ -437,6 +515,11 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 			var at: String = Game.WEAPONS[v.weapon_id].ammo
 			if v.reserve > 0:
 				_add_pickup({"kind": "ammo", "type": at, "amount": mini(v.reserve, 60)}, v.global_position + Vector3(0.5, 0, 0.4))
+		for kind in ["vest", "helmet", "pack"]:
+			if v.gear[kind] > 0:
+				_add_gear(kind, v.gear[kind], float(v.gear.get(kind + "_dur", 0.0)), v.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+		if v.meds > 0:
+			_add_pickup({"kind": "heal", "id": "firstaid", "n": mini(v.meds, 3)}, v.global_position + Vector3(-0.5, 0, -0.4))
 	if player.state != "dead" and alive_count() == 1:
 		_end_match(true)
 
@@ -476,15 +559,18 @@ func _process(delta: float) -> void:
 		for a in actors():
 			if a.on_ground() and zone.is_outside(a.global_position):
 				a.take_damage(zone.dps, null)
-	# Auto-pickup ammo for guns the player carries.
+	# Auto-pickup ammo for guns the player carries, and meds, while there is room.
 	if player.state == "ground":
 		for it in pickups_near(player.global_position, 1.4):
 			var data: Dictionary = it.get_meta("data")
-			if data.kind != "ammo" or it.global_position.distance_to(player.global_position) > 1.4: continue
-			for s in player.slots:
-				if s != null and Game.WEAPONS[s.id].ammo == data.type:
-					pickup(player, it)
-					break
+			if it.global_position.distance_to(player.global_position) > 1.4: continue
+			if data.kind == "heal" and player.free_space() >= Items.HEALS[data.id].size:
+				pickup(player, it, true)
+			elif data.kind == "ammo" and player.free_space() >= Items.AMMO_SIZE:
+				for s in player.slots:
+					if s != null and Game.WEAPONS[s.id].ammo == data.type:
+						pickup(player, it, true)
+						break
 
 # ---------- Sound ----------
 func _make_shot_sound() -> AudioStreamWAV:

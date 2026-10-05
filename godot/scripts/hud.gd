@@ -321,6 +321,24 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 	var hp := clampf(p.health / 100.0, 0.0, 1.0)
 	c.draw_rect(Rect2(x0, y, w * hp, 8), Color.WHITE if hp > 0.6 else (Color("ffcf5a") if hp > 0.3 else Color("ff3d4a")))
 	c.draw_rect(Rect2(x0, y, w, 8), Color(1, 1, 1, 0.35), false, 1.0)
+	# Boost: four segments above the health bar.
+	if p.boost > 0.0:
+		var seg := (w - 6.0) / 4.0
+		for i in 4:
+			var fill := clampf((p.boost - i * 25.0) / 25.0, 0.0, 1.0)
+			c.draw_rect(Rect2(x0 + i * (seg + 2.0), y - 6, seg, 3), Color(0, 0, 0, 0.4))
+			c.draw_rect(Rect2(x0 + i * (seg + 2.0), y - 6, seg * fill, 3), Color("ffae2b"))
+	# Vest, helmet and backpack levels on the left of the health bar.
+	var gx := x0 - 34.0
+	for g in [["helmet", Items.HELMET], ["vest", Items.VEST], ["pack", null]]:
+		var lvl: int = p.gear[g[0]]
+		if lvl <= 0: continue
+		var col := Color.WHITE
+		if g[1] != null:
+			var f: float = float(p.gear[g[0] + "_dur"]) / float(g[1][lvl].dur)
+			col = Color.WHITE if f > 0.6 else (Color("ffcf5a") if f > 0.3 else Color("ff5a5a"))
+		_gear_icon(c, Vector2(gx, y - 8), g[0], lvl, col)
+		gx -= 34.0
 	# Weapon cards with silhouettes and ammo.
 	for i in 3:
 		var rr := slot_rect(i, sz)
@@ -340,6 +358,18 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 			c.draw_colored_polygon(PackedVector2Array([Vector2(rr.get_center().x - 6, rr.position.y - 8), Vector2(rr.get_center().x + 6, rr.position.y - 8), Vector2(rr.get_center().x, rr.position.y - 2)]), Color("ffd34d"))
 	if p.reload_t > 0.0:
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.62), "إعادة تلقيم…", 18, Color("ffcf5a"))
+
+## Small icon for worn gear with its level number.
+func _gear_icon(c: Control, at: Vector2, kind: String, lvl: int, col: Color) -> void:
+	c.draw_rect(Rect2(at - Vector2(14, 14), Vector2(28, 28)), Color(0, 0, 0, 0.45))
+	match kind:
+		"helmet": c.draw_arc(at + Vector2(0, 4), 9.0, PI, TAU, 12, col, 4.0)
+		"vest":
+			c.draw_colored_polygon(PackedVector2Array([at + Vector2(-8, -8), at + Vector2(-3, -8), at + Vector2(0, -4), at + Vector2(3, -8), at + Vector2(8, -8), at + Vector2(8, 9), at + Vector2(-8, 9)]), col)
+		_:
+			c.draw_rect(Rect2(at - Vector2(7, 6), Vector2(14, 15)), col)
+			c.draw_arc(at + Vector2(0, -6), 4.0, PI, TAU, 8, col, 2.0)
+	_text(c, at + Vector2(9, 14), str(lvl), 11, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 14)
 
 ## Side-view gun silhouette for the weapon cards.
 func _gun_icon(c: Control, r: Rect2, cls: String, col: Color) -> void:
@@ -388,12 +418,23 @@ func _draw_scope(c: Control, sz: Vector2) -> void:
 	c.draw_line(Vector2(ctr.x, ctr.y - r), Vector2(ctr.x, ctr.y + r), Color(0, 0, 0, 0.85), 1.5)
 
 func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
+	if p.heal_id != "":
+		_draw_heal(c, sz, p)
+		return
 	var it = world.nearest_pickup(p.global_position, 2.4)
 	if it == null: return
-	var data: Dictionary = it.get_meta("data")
-	var label: String = Game.WEAPONS[data.id].name if data.kind == "weapon" else Game.AMMO_NAMES[data.type]
+	var label: String = world.pickup_name(it.get_meta("data"))
 	var key := "[F] " if Game.settings.controls == "kbm" else ""
 	_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "التقاط: " + label, 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+
+func _draw_heal(c: Control, sz: Vector2, p: Player) -> void:
+	var h: Dictionary = Items.HEALS[p.heal_id]
+	var ctr := Vector2(sz.x * 0.5, sz.y * 0.62)
+	var k := 1.0 - p.heal_t / float(h.time)
+	c.draw_arc(ctr, 26.0, 0, TAU, 40, Color(0, 0, 0, 0.5), 6.0)
+	c.draw_arc(ctr, 26.0, -PI / 2, -PI / 2 + TAU * k, 40, Color("7dff8a"), 6.0)
+	_text(c, ctr + Vector2(0, 7), "%.1f" % p.heal_t, 16, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)
+	_text(c, ctr + Vector2(0, 52), "جاري استخدام " + h.name + " — الإطلاق يلغيه", 15, Color.WHITE)
 
 func _draw_gauges(c: Control, sz: Vector2, p: Player) -> void:
 	var h := minf(360.0, sz.y * 0.48)
@@ -454,22 +495,31 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	_text(c, Vector2(sz.x * 0.5, r.end.y + 26), "كل مربع = %d م — اضغط M للإغلاق" % int(S / Game.GRID), 14)
 
 func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
-	var r := Rect2(16, 70, 300, 64 + 30 * 7)
-	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.82))
-	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
-	_text(c, Vector2(r.position.x + 14, r.position.y + 32), "الحقيبة", 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_LEFT, bold, 200)
-	var y := r.position.y + 64
+	var rows := []
 	for i in 3:
-		var s = p.slots[i]
-		var name: String = ["السلاح 1", "السلاح 2", "المسدس"][i]
-		var val: String = "—" if s == null else Game.WEAPONS[s.id].name
-		_text(c, Vector2(r.position.x + 14, y), name, 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 140)
-		_text(c, Vector2(r.end.x - 14, y), val, 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
-		y += 30
+		var sl = p.slots[i]
+		rows.append([["السلاح 1", "السلاح 2", "المسدس"][i], "—" if sl == null else Game.WEAPONS[sl.id].name])
+	for g in ["helmet", "vest", "pack"]:
+		var lvl: int = p.gear[g]
+		var label := {"helmet": "الخوذة", "vest": "السترة", "pack": "الحقيبة"}[g] as String
+		var val := "—" if lvl == 0 else ("مستوى %d" % lvl + ("" if g == "pack" else "  (%d%%)" % int(100.0 * float(p.gear[g + "_dur"]) / float((Items.HELMET if g == "helmet" else Items.VEST)[lvl].dur))))
+		rows.append([label, val])
 	for at in p.ammo:
-		_text(c, Vector2(r.position.x + 14, y), "ذخيرة " + Game.AMMO_NAMES[at], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 180)
-		_text(c, Vector2(r.end.x - 14, y), str(p.ammo[at]), 16, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 80)
-		y += 30
+		if p.ammo[at] > 0: rows.append(["ذخيرة " + Game.AMMO_NAMES[at], str(p.ammo[at])])
+	for hid in Items.HEAL_ORDER:
+		if p.heals[hid] > 0: rows.append([Items.HEALS[hid].name, "×%d" % p.heals[hid]])
+	var r := Rect2(16, 70, 320, 84 + 26 * rows.size())
+	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.84))
+	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
+	_text(c, Vector2(r.position.x + 14, r.position.y + 30), "الحقيبة", 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_LEFT, bold, 200)
+	_text(c, Vector2(r.end.x - 14, r.position.y + 30), "السعة %d / %d" % [int(p.used_space()), int(p.capacity())], 14, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_RIGHT, null, 160)
+	var y := r.position.y + 60
+	for row in rows:
+		_text(c, Vector2(r.position.x + 14, y), row[0], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 170)
+		_text(c, Vector2(r.end.x - 14, y), row[1], 15, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
+		y += 26
+	if Game.settings.controls == "kbm":
+		_text(c, Vector2(r.position.x + 14, r.end.y - 8), "H علاج • G منشّط • 4-8 أداة محددة", 12, Color(1, 1, 1, 0.6), HORIZONTAL_ALIGNMENT_LEFT, null, 300)
 
 ## Blue zone and next safe circle on the minimap (world -> minimap: centre + (q - pos) * s).
 func _draw_zone(c: Control, r: Rect2, pos: Vector3, s: float) -> void:

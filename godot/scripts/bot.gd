@@ -19,6 +19,9 @@ var shape: CollisionShape3D
 var weapon_id := ""          # "" = unarmed (has to loot a gun first)
 var mag := 0
 var reserve := 0             # spare rounds for the current gun
+var gear := {"vest": 0, "vest_dur": 0.0, "helmet": 0, "helmet_dur": 0.0, "pack": 0}
+var meds := 0                # generic healing items
+var heal_t := 0.0
 
 var state := "plane"         # plane | fall | chute | ground | dead
 var dest := Vector3.ZERO     # landing spot
@@ -59,7 +62,7 @@ func _ready() -> void:
 	floor_max_angle = deg_to_rad(50)
 	model = SoldierModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25))
 	add_child(model)
-	model.set_gear(randi_range(0, 1), randi_range(0, 1), randi_range(0, 1))
+	model.set_gear(0, 0, 0)
 	_frame = randi() % 4
 	if state == "plane":
 		visible = false
@@ -74,8 +77,19 @@ func on_ground() -> bool:
 func armed() -> bool:
 	return weapon_id != ""
 
-func take_damage(amount: float, attacker: Node, _head := false) -> bool:
+func take_damage(amount: float, attacker: Node, head := false) -> bool:
 	if dead: return false
+	if attacker != null:
+		var kind := "helmet" if head else "vest"
+		var lvl: int = gear[kind]
+		if lvl > 0:
+			var absorbed: float = amount * (Items.HELMET if head else Items.VEST)[lvl].reduce
+			gear[kind + "_dur"] = float(gear[kind + "_dur"]) - amount
+			if gear[kind + "_dur"] <= 0.0:
+				gear[kind] = 0
+				model.set_gear(gear.vest, gear.helmet, gear.pack)
+			amount -= absorbed
+	heal_t = 0.0
 	health -= amount
 	hurt_t = 0.0
 	if attacker is Node3D and attacker != self and state == "ground":
@@ -199,6 +213,15 @@ func _think() -> void:
 			away.y = 0.0
 			_go(global_position + away.normalized() * 30.0)
 		return
+	# Patch up when hurt and nobody is shooting.
+	if health < 65.0 and meds > 0 and hurt_t > 5.0 and not outside_now:
+		mode = "heal"
+		heal_t += 0.3 if not far else 1.0
+		if heal_t >= 5.0:
+			meds -= 1
+			health = minf(100.0, health + 45.0)
+			heal_t = 0.0
+		return
 	if must_move or outside_now:
 		if mode != "zone" or global_position.distance_to(goal) < 3.0:
 			mode = "zone"
@@ -234,7 +257,7 @@ func _think() -> void:
 			_go(p)
 
 func _wants_loot() -> bool:
-	return not armed() or reserve < 30 or TIER.get(weapon_id, 0) < 3
+	return not armed() or reserve < 30 or TIER.get(weapon_id, 0) < 3 or gear.vest < 3 or gear.helmet < 3 or meds < 3
 
 func _useful(it: Node3D) -> bool:
 	var data: Dictionary = it.get_meta("data")
@@ -242,6 +265,10 @@ func _useful(it: Node3D) -> bool:
 		return not armed() or TIER.get(data.id, 0) > TIER.get(weapon_id, 0)
 	if data.kind == "ammo":
 		return armed() and Game.WEAPONS[weapon_id].ammo == data.type and reserve < 90
+	if data.kind == "gear":
+		return int(data.lvl) > int(gear[data.gear])
+	if data.kind == "heal":
+		return meds < 4
 	return false
 
 func _enemy_armed(e: Node) -> bool:
@@ -291,7 +318,9 @@ func _go(p: Vector3) -> void:
 func _move(delta: float) -> void:
 	var wish := Vector3.ZERO
 	var speed := 4.6
-	if mode == "fight" and target:
+	if mode == "heal":
+		pass
+	elif mode == "fight" and target:
 		var to_t: Vector3 = target.global_position - global_position
 		to_t.y = 0.0
 		var d := to_t.length()

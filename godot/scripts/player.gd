@@ -47,6 +47,13 @@ var fire_cd := 0.0
 var reload_t := 0.0
 var recoil_kick := 0.0
 
+# Gear and meds
+var gear := {"vest": 0, "vest_dur": 0.0, "helmet": 0, "helmet_dur": 0.0, "pack": 0}
+var heals := {"bandage": 0, "firstaid": 0, "medkit": 0, "drink": 0, "pills": 0}
+var boost := 0.0                  # 0..100, slowly heals and (when high) speeds you up
+var heal_id := ""                 # item being used
+var heal_t := 0.0                 # seconds left
+
 func _ready() -> void:
 	capsule = CapsuleShape3D.new()
 	capsule.radius = 0.35
@@ -62,6 +69,7 @@ func _ready() -> void:
 
 	model = SoldierModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
 	add_child(model)
+	_refresh_gear()
 
 	cam_rig = Node3D.new()
 	cam_rig.top_level = true
@@ -98,6 +106,8 @@ func action(act: String, pressed: bool) -> void:
 		"crouch": if pressed: set_stance("crouch")
 		"prone": if pressed: set_stance("prone")
 		"interact": if pressed: interact()
+		"heal": if pressed: use_heal(best_heal())
+		"boost": if pressed: use_heal(best_boost())
 		"slot1": if pressed: switch_slot(0)
 		"slot2": if pressed: switch_slot(1)
 		"slot3": if pressed: switch_slot(2)
@@ -128,6 +138,13 @@ func _unhandled_input(event: InputEvent) -> void:
 					jump_queued = true
 			KEY_C: set_stance("crouch")
 			KEY_Z: set_stance("prone")
+			KEY_H: use_heal(best_heal())
+			KEY_G: use_heal(best_boost())
+			KEY_4: use_heal("bandage")
+			KEY_5: use_heal("firstaid")
+			KEY_6: use_heal("medkit")
+			KEY_7: use_heal("drink")
+			KEY_8: use_heal("pills")
 			KEY_1: switch_slot(0)
 			KEY_2: switch_slot(1)
 			KEY_3: switch_slot(2)
@@ -272,6 +289,8 @@ func _ground(delta: float) -> void:
 	if stance == "crouch": speed = 2.8
 	elif stance == "prone": speed = 1.2
 	if aiming: speed = minf(speed, 2.8)
+	if heal_id != "": speed = minf(speed, 2.0)
+	elif boost >= 60.0: speed *= 1.06
 	# Wading through water is slow.
 	if global_position.y < Island.WATER - 0.3:
 		speed *= 0.55
@@ -296,7 +315,9 @@ func _ground(delta: float) -> void:
 		global_position = Vector3(before.x, global_position.y, before.z)
 		velocity.x = 0
 		velocity.z = 0
+	_tick_heal(delta)
 	if firing:
+		if heal_id != "": cancel_heal()
 		_try_fire()
 
 # ---------- Shooting ----------
@@ -364,6 +385,8 @@ func on_ground() -> bool:
 ## attacker is null for blue-zone damage.
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 	if state == "dead" or world.match_over: return false
+	if attacker != null:
+		amount = _armour(amount, _head)
 	health -= amount
 	if attacker is Node3D:
 		damaged.emit((attacker.global_position - global_position).normalized())
@@ -423,3 +446,93 @@ func _update_model(delta: float) -> void:
 		"ground": pose = stance
 	var sp := Vector2(velocity.x, velocity.z).length()
 	model.set_pose(pose, sp, active >= 0, delta, Time.get_ticks_msec() / 1000.0)
+
+# ---------- Gear and meds ----------
+func capacity() -> float:
+	return Items.PACK[int(gear.pack)].cap
+
+func used_space() -> float:
+	var u := 0.0
+	for a in ammo: u += ammo[a] * Items.AMMO_SIZE
+	for h in heals: u += heals[h] * Items.HEALS[h].size
+	return u
+
+func free_space() -> float:
+	return capacity() - used_space()
+
+## Damage left after the helmet (head shots) or vest (body) absorbs its share.
+## The armour piece loses durability and breaks at 0.
+func _armour(amount: float, head: bool) -> float:
+	var kind := "helmet" if head else "vest"
+	var lvl: int = gear[kind]
+	if lvl <= 0: return amount
+	var table: Array = Items.HELMET if head else Items.VEST
+	var absorbed: float = amount * table[lvl].reduce
+	gear[kind + "_dur"] = float(gear[kind + "_dur"]) - amount
+	if gear[kind + "_dur"] <= 0.0:
+		gear[kind] = 0
+		gear[kind + "_dur"] = 0.0
+		message.emit("انكسرت " + ("الخوذة" if head else "السترة") + "!")
+		_refresh_gear()
+	return amount - absorbed
+
+func _refresh_gear() -> void:
+	model.set_gear(int(gear.vest), int(gear.helmet), int(gear.pack))
+
+## Wear a vest/helmet/backpack. Returns the old piece as {lvl, dur} (lvl 0 = none).
+func equip(kind: String, lvl: int, dur: float) -> Dictionary:
+	var old := {"lvl": int(gear[kind]), "dur": float(gear.get(kind + "_dur", 0.0))}
+	gear[kind] = lvl
+	if kind != "pack": gear[kind + "_dur"] = dur
+	_refresh_gear()
+	return old
+
+func best_heal() -> String:
+	if health < 60.0 and heals.firstaid > 0: return "firstaid"
+	if health < 75.0 and heals.bandage > 0: return "bandage"
+	if health < 90.0 and heals.medkit > 0: return "medkit"
+	if health < 75.0 and heals.firstaid > 0: return "firstaid"
+	return ""
+
+func best_boost() -> String:
+	if heals.drink > 0 and boost < 85.0: return "drink"
+	if heals.pills > 0 and boost < 85.0: return "pills"
+	return ""
+
+func use_heal(id: String) -> void:
+	if id == "" or state != "ground" or heal_id != "": 
+		if id == "" and state == "ground": message.emit("ما عندك أدوية مناسبة هلق")
+		return
+	if heals.get(id, 0) <= 0:
+		message.emit("ما عندك " + Items.HEALS[id].name)
+		return
+	var h: Dictionary = Items.HEALS[id]
+	if h.heal > 0.0 and health >= h.max:
+		message.emit("صحتك ما بتحتاج " + h.name)
+		return
+	heal_id = id
+	heal_t = h.time
+	firing = false
+	reload_t = 0.0
+
+func cancel_heal() -> void:
+	heal_id = ""
+	heal_t = 0.0
+
+func _tick_heal(delta: float) -> void:
+	# Boost: slow regeneration, wears off over a few minutes.
+	if boost > 0.0:
+		boost = maxf(0.0, boost - delta * 0.55)
+		health = minf(100.0, health + delta * (0.15 + boost * 0.006))
+	if heal_id == "": return
+	if jump_queued or stance == "prone" and Vector2(velocity.x, velocity.z).length() > 0.5:
+		cancel_heal()
+		return
+	heal_t -= delta
+	if heal_t <= 0.0:
+		var h: Dictionary = Items.HEALS[heal_id]
+		heals[heal_id] -= 1
+		if h.heal > 0.0:
+			health = minf(h.max, health + h.heal) if heal_id == "bandage" else maxf(health, h.max)
+		boost = minf(100.0, boost + h.boost)
+		heal_id = ""
