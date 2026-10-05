@@ -54,6 +54,12 @@ var boost := 0.0                  # 0..100, slowly heals and (when high) speeds 
 var heal_id := ""                 # item being used
 var heal_t := 0.0                 # seconds left
 
+# Grenades
+var throwables := {"frag": 0, "smoke": 0}
+var throw_kind := "frag"
+var throw_ready := false          # holding G: aiming a throw (arc shown)
+var shake := 0.0                  # camera shake from nearby explosions
+
 func _ready() -> void:
 	capsule = CapsuleShape3D.new()
 	capsule.radius = 0.35
@@ -99,7 +105,11 @@ func add_look(dx: float, dy: float) -> void:
 
 func action(act: String, pressed: bool) -> void:
 	match act:
-		"fire": firing = pressed
+		"fire":
+			if throw_ready:
+				if pressed: release_throw()
+			else:
+				firing = pressed
 		"aim": if pressed: aiming = not aiming
 		"reload": if pressed: start_reload()
 		"jump": if pressed: jump_queued = true
@@ -108,6 +118,10 @@ func action(act: String, pressed: bool) -> void:
 		"interact": if pressed: interact()
 		"heal": if pressed: use_heal(best_heal())
 		"boost": if pressed: use_heal(best_boost())
+		"throw":
+			if pressed: start_throw()
+			else: release_throw()
+		"throw_kind": if pressed: switch_throw()
 		"slot1": if pressed: switch_slot(0)
 		"slot2": if pressed: switch_slot(1)
 		"slot3": if pressed: switch_slot(2)
@@ -117,6 +131,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		add_look(event.relative.x, event.relative.y)
+	elif event is InputEventMouseButton and throw_ready and event.button_index == MOUSE_BUTTON_LEFT and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if event.pressed: release_throw()
 	elif event is InputEventMouseButton:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			# Cursor shown with Ctrl: clicks don't shoot. Otherwise a click grabs the mouse again.
@@ -127,6 +143,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT: firing = event.pressed
 		elif event.button_index == MOUSE_BUTTON_RIGHT: aiming = event.pressed
+	elif event is InputEventKey and not event.pressed and event.physical_keycode == KEY_G:
+		release_throw()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			KEY_F: interact()
@@ -139,7 +157,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_C: set_stance("crouch")
 			KEY_Z: set_stance("prone")
 			KEY_H: use_heal(best_heal())
-			KEY_G: use_heal(best_boost())
+			KEY_Y: use_heal(best_boost())
+			KEY_G: start_throw()
+			KEY_T: switch_throw()
 			KEY_4: use_heal("bandage")
 			KEY_5: use_heal("firstaid")
 			KEY_6: use_heal("medkit")
@@ -316,7 +336,7 @@ func _ground(delta: float) -> void:
 		velocity.x = 0
 		velocity.z = 0
 	_tick_heal(delta)
-	if firing:
+	if firing and not throw_ready:
 		if heal_id != "": cancel_heal()
 		_try_fire()
 
@@ -402,6 +422,8 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 # ---------- Camera and model ----------
 func _update_camera(delta: float) -> void:
 	var head := global_position + Vector3(0, {"stand": 1.6, "crouch": 1.15, "prone": 0.45}[stance] as float, 0)
+	# Wading: keep the camera above the water surface.
+	head.y = maxf(head.y, Island.WATER + 0.6)
 	var w := weapon()
 	var zoom: float = w.get("zoom", 1.0) if aiming and state == "ground" else 1.0
 	var length := 3.2
@@ -422,8 +444,12 @@ func _update_camera(delta: float) -> void:
 		shoulder = 0.0 if zoom >= 3.0 else 0.45
 	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
 	cam_rig.rotation = Vector3(0, yaw, 0)
-	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, 0)
+	shake = move_toward(shake, 0.0, delta * 1.5)
+	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
+	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, 0) + sh
 	spring.spring_length = lerpf(spring.spring_length, length, minf(1.0, delta * 12.0))
+	if state == "ground" and head.y < Island.WATER + 1.5:
+		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 	spring.position.x = lerpf(spring.position.x, shoulder, minf(1.0, delta * 12.0))
 	camera.fov = lerpf(camera.fov, 70.0 / zoom, minf(1.0, delta * 14.0))
 	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane"
@@ -453,6 +479,7 @@ func capacity() -> float:
 
 func used_space() -> float:
 	var u := 0.0
+	for t in throwables: u += throwables[t] * Items.THROW_SIZE
 	for a in ammo: u += ammo[a] * Items.AMMO_SIZE
 	for h in heals: u += heals[h] * Items.HEALS[h].size
 	return u
@@ -536,3 +563,55 @@ func _tick_heal(delta: float) -> void:
 			health = minf(h.max, health + h.heal) if heal_id == "bandage" else maxf(health, h.max)
 		boost = minf(100.0, boost + h.boost)
 		heal_id = ""
+
+# ---------- Grenades ----------
+func switch_throw() -> void:
+	throw_kind = "smoke" if throw_kind == "frag" else "frag"
+	message.emit(Items.THROWS[throw_kind])
+
+func start_throw() -> void:
+	if state != "ground" or throw_ready: return
+	if throwables[throw_kind] <= 0:
+		var other := "smoke" if throw_kind == "frag" else "frag"
+		if throwables[other] <= 0:
+			message.emit("ما معك قنابل")
+			return
+		throw_kind = other
+	cancel_heal()
+	firing = false
+	throw_ready = true
+
+func throw_origin() -> Vector3:
+	return global_position + Vector3(0, 1.6, 0) + (-camera.global_basis.z) * 0.6
+
+func throw_velocity() -> Vector3:
+	return (-camera.global_basis.z) * 17.0 + Vector3.UP * 3.5 + Vector3(velocity.x, 0, velocity.z) * 0.5
+
+## Points of the throw arc for the HUD preview (until it reaches the ground).
+func throw_arc() -> PackedVector3Array:
+	var g: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
+	var pts := PackedVector3Array()
+	var p := throw_origin()
+	var v := throw_velocity()
+	for i in 60:
+		pts.append(p)
+		v.y -= g * 0.05
+		p += v * 0.05
+		if p.y < world.ground_height(p):
+			pts.append(p)
+			break
+	return pts
+
+func release_throw() -> void:
+	if not throw_ready: return
+	throw_ready = false
+	if state != "ground" or throwables[throw_kind] <= 0: return
+	throwables[throw_kind] -= 1
+	var g := Grenade.new()
+	g.world = world
+	g.kind = throw_kind
+	g.thrower = self
+	world.add_child(g)
+	g.global_position = throw_origin()
+	g.linear_velocity = throw_velocity()
+	g.angular_velocity = Vector3(randf(), randf(), randf()) * 6.0

@@ -75,6 +75,13 @@ func _run() -> void:
 		if world.player.state == "ground": break
 		await wait(0.1)
 	print("landed: ", world.player.state, " at ", world.player.global_position)
+	# Continue on dry ground in a town, away from buildings.
+	var town: Dictionary = world.island.towns[0]
+	for k in 200:
+		var q: Vector2 = town.pos + Vector2(randf_range(0, town.r), 0).rotated(randf() * TAU)
+		if world.island.height_at(q.x, q.y) > 1.0 and not world._in_building(q, 4.0):
+			world.player.global_position = Vector3(q.x, world.island.height_at(q.x, q.y) + 0.2, q.y)
+			break
 	world.player.pitch = -0.12
 	world.player.give_weapon("m416", 30)
 	world.player.ammo["556"] = 90
@@ -107,6 +114,24 @@ func _run() -> void:
 	await wait(1.2)
 	await shot("healing")
 	world.hud.toggle_bag()
+	world.player.cancel_heal()
+	world.hud.toggle_bag()
+	world.player.health = 100.0
+	world.player.throwables.frag = 2
+	world.player.throwables.smoke = 1
+	world.player.pitch = 0.15
+	world.player.start_throw()
+	await wait(0.4)
+	await shot("throw_arc")
+	world.player.release_throw()
+	world.player.pitch = -0.05
+	await wait(Grenade.FUSE + 0.12)
+	await shot("explosion")
+	var ahead := Vector3(-sin(world.player.yaw), 0, -cos(world.player.yaw))
+	var sp: Vector3 = world.player.global_position + ahead * 14.0
+	world.add_smoke(Vector3(sp.x, world.ground_height(sp), sp.z))
+	await wait(2.0)
+	await shot("smoke")
 	world.hud.toggle_bag()
 	world.hud.toggle_map()
 	await wait(0.4)

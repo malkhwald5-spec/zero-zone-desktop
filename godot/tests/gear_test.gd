@@ -25,6 +25,8 @@ func _run() -> void:
 		await wait(0.1)
 	var p: Player = world.player
 	var bot: Bot = world.bots[0]
+	# Freeze the bots so nobody shoots during the checks.
+	for b in world.bots: b.set_physics_process(false)
 	# Put the player on open ground.
 	p.jump_from_plane()
 	var c: Vector2 = world.island.towns[0].pos
@@ -104,5 +106,64 @@ func _run() -> void:
 	var hl: Node3D = world._add_pickup({"kind": "gear", "gear": "helmet", "lvl": 2, "dur": 150.0}, b2.global_position)
 	world.bot_take(b2, hl)
 	check("bot wears helmet 2", b2.gear.helmet == 2)
+	# Grenades.
+	var b3: Bot = world.bots[2]
+	b3.state = "ground"
+	b3.gear.vest = 0
+	b3.health = 100.0
+	var open_pos: Vector3 = p.global_position + Vector3(6, 0, 0)
+	b3.global_position = Vector3(open_pos.x, world.ground_height(open_pos) + 0.1, open_pos.z)
+	await wait(0.2)
+	world.explode(b3.global_position + Vector3(3, 0.2, 0), p)
+	check("frag hurts at 3 m", b3.health < 60.0, "hp=%.1f" % b3.health)
+	# Behind a wall: bot in the middle of a house, blast outside a wall without a door.
+	var bl: Dictionary = {}
+	for x in world.island.buildings:
+		if not x.doors.has(1) and x.size.x < 12.0:
+			bl = x
+			break
+	b3.health = 100.0
+	b3.global_position = Vector3(bl.pos.x, float(bl.floor) + 0.2, bl.pos.y)
+	await wait(0.3)
+	var outside := Vector3(bl.pos.x + bl.size.x * 0.5 + 1.5, world.ground_height(Vector3(bl.pos.x + bl.size.x * 0.5 + 1.5, 0, bl.pos.y)) + 0.3, bl.pos.y)
+	world.explode(outside, p)
+	check("walls stop the blast", is_equal_approx(b3.health, 100.0), "hp=%.1f d=%.1f" % [b3.health, outside.distance_to(b3.global_position)])
+	# Player throw flow.
+	p.throwables.frag = 1
+	p.start_throw()
+	check("throw ready shows arc", p.throw_ready and p.throw_arc().size() > 5)
+	p.release_throw()
+	var g_count := 0
+	for n in world.get_children():
+		if n is Grenade: g_count += 1
+	check("grenade thrown", g_count == 1 and p.throwables.frag == 0)
+	await wait(Grenade.FUSE + 0.5)
+	g_count = 0
+	for n in world.get_children():
+		if n is Grenade: g_count += 1
+	check("grenade went off", g_count == 0)
+	# Smoke blocks sight.
+	var sp: Vector3 = p.global_position + Vector3(0, 0, 10)
+	world.add_smoke(sp)
+	check("smoke blocks a line through it", world.smoke_blocks(p.global_position + Vector3(0, 1.5, 0), sp + Vector3(0, 1.5, 10)))
+	check("smoke does not block other lines", not world.smoke_blocks(p.global_position + Vector3(0, 1.5, 0), p.global_position + Vector3(30, 1.5, 0)))
+	# Bot throws at a hidden target.
+	b3.global_position = outside + Vector3(15, 0, 0)
+	b3.global_position.y = world.ground_height(b3.global_position) + 0.1
+	b3.frags = 1
+	b3.weapon_id = "m416"
+	b3.target = p
+	p.global_position = Vector3(bl.pos.x, float(bl.floor) + 0.2, bl.pos.y)
+	await wait(0.2)
+	b3.throw_cd = 0.0
+	var dd := b3.global_position.distance_to(p.global_position)
+	var clr := b3._clear_line(p)
+	var vv := Grenade.aim_velocity(b3._eye(), p.global_position + Vector3(0, 0.3, 0))
+	# Hidden: throws at once. In plain view: only now and then (12% per decision).
+	for k in 80:
+		b3.throw_cd = 0.0
+		b3._maybe_throw()
+		if b3.frags == 0: break
+	check("bot throws frags in a fight", b3.frags == 0, "d=%.1f clear=%s v=%s" % [dd, clr, vv])
 	print("GEAR TEST %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 	tree.quit()

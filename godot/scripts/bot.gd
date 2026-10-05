@@ -21,6 +21,8 @@ var mag := 0
 var reserve := 0             # spare rounds for the current gun
 var gear := {"vest": 0, "vest_dur": 0.0, "helmet": 0, "helmet_dur": 0.0, "pack": 0}
 var meds := 0                # generic healing items
+var frags := 0               # frag grenades
+var throw_cd := 0.0
 var heal_t := 0.0
 
 var state := "plane"         # plane | fall | chute | ground | dead
@@ -172,6 +174,7 @@ func _ground(delta: float) -> void:
 	model.visible = d_player < 650.0
 	fire_cd = maxf(0.0, fire_cd - delta)
 	hurt_t += delta
+	throw_cd = maxf(0.0, throw_cd - delta)
 	if reload_t > 0.0:
 		reload_t -= delta
 		if reload_t <= 0.0:
@@ -204,6 +207,7 @@ func _think() -> void:
 	var must_move: bool = zone.state != "idle" and zone.distance_to_safe(global_position) > 0.0 and (zone.state == "shrink" or zone.time_left / zone.speed < zone.distance_to_safe(global_position) / 4.0 + 25.0)
 	if target and armed() and not (outside_now and global_position.distance_to(target.global_position) > 35.0):
 		mode = "fight"
+		_maybe_throw()
 		return
 	# Unarmed: only run when actually under fire, otherwise keep looking for a gun.
 	if target and not armed() and hurt_t < 4.0 and _enemy_armed(target):
@@ -269,6 +273,8 @@ func _useful(it: Node3D) -> bool:
 		return int(data.lvl) > int(gear[data.gear])
 	if data.kind == "heal":
 		return meds < 4
+	if data.kind == "throw":
+		return data.id == "frag" and frags < 2
 	return false
 
 func _enemy_armed(e: Node) -> bool:
@@ -307,7 +313,9 @@ func _aim_height(e: Node3D) -> float:
 	return 1.8
 
 func _clear_line(e: Node3D) -> bool:
-	var q := PhysicsRayQueryParameters3D.create(_eye(), e.global_position + Vector3(0, _aim_height(e) * 0.7, 0), 1)
+	var to := e.global_position + Vector3(0, _aim_height(e) * 0.7, 0)
+	if world.smoke_blocks(_eye(), to): return false
+	var q := PhysicsRayQueryParameters3D.create(_eye(), to, 1)
 	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
 # ---------------------------------------------------------------- movement
@@ -376,6 +384,25 @@ func _combat(delta: float) -> void:
 	yaw = lerp_angle(yaw, want, minf(1.0, delta * (3.0 + skill * 6.0)))
 	if react_t <= 0.0 and absf(angle_difference(yaw, want)) < 0.15:
 		_shoot(target)
+
+## Throw a frag at an enemy hiding behind cover (or now and then in a fight).
+func _maybe_throw() -> void:
+	if frags <= 0 or throw_cd > 0.0 or target == null: return
+	var d := global_position.distance_to(target.global_position)
+	if d < 10.0 or d > 32.0: return
+	if _clear_line(target) and randf() > 0.12: return
+	var from := _eye()
+	var v := Grenade.aim_velocity(from, target.global_position + Vector3(0, 0.3, 0))
+	if v == Vector3.ZERO: return
+	frags -= 1
+	throw_cd = randf_range(8.0, 14.0)
+	var g := Grenade.new()
+	g.world = world
+	g.kind = "frag"
+	g.thrower = self
+	world.add_child(g)
+	g.global_position = from
+	g.linear_velocity = v
 
 func _shoot(e: Node3D) -> void:
 	if fire_cd > 0.0 or reload_t > 0.0 or not armed(): return

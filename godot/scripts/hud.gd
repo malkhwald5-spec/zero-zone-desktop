@@ -217,6 +217,8 @@ func _draw_hud() -> void:
 			_draw_scope(c, sz)
 		_draw_crosshair(c, sz, p)
 		_draw_prompt(c, sz, p)
+		if p.throw_ready: _draw_throw_arc(c, p)
+		_draw_throw_card(c, sz, p)
 	elif p.state in ["fall", "chute"]:
 		_draw_gauges(c, sz, p)
 	elif p.state == "plane":
@@ -508,6 +510,8 @@ func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
 		if p.ammo[at] > 0: rows.append(["ذخيرة " + Game.AMMO_NAMES[at], str(p.ammo[at])])
 	for hid in Items.HEAL_ORDER:
 		if p.heals[hid] > 0: rows.append([Items.HEALS[hid].name, "×%d" % p.heals[hid]])
+	for tid in p.throwables:
+		if p.throwables[tid] > 0: rows.append([Items.THROWS[tid], "×%d" % p.throwables[tid]])
 	var r := Rect2(16, 70, 320, 84 + 26 * rows.size())
 	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.84))
 	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
@@ -519,7 +523,7 @@ func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
 		_text(c, Vector2(r.end.x - 14, y), row[1], 15, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
 		y += 26
 	if Game.settings.controls == "kbm":
-		_text(c, Vector2(r.position.x + 14, r.end.y - 8), "H علاج • G منشّط • 4-8 أداة محددة", 12, Color(1, 1, 1, 0.6), HORIZONTAL_ALIGNMENT_LEFT, null, 300)
+		_text(c, Vector2(r.position.x + 14, r.end.y - 8), "H علاج • Y منشّط • G قنبلة • T نوعها", 12, Color(1, 1, 1, 0.6), HORIZONTAL_ALIGNMENT_LEFT, null, 300)
 
 ## Blue zone and next safe circle on the minimap (world -> minimap: centre + (q - pos) * s).
 func _draw_zone(c: Control, r: Rect2, pos: Vector3, s: float) -> void:
@@ -548,3 +552,31 @@ func _clipped_circle(c: Control, r: Rect2, at: Vector2, radius: float, col: Colo
 			if pts.size() > 1: c.draw_polyline(pts, col, width)
 			pts = PackedVector2Array()
 	if pts.size() > 1: c.draw_polyline(pts, col, width)
+
+## Dotted arc where a grenade would fly, with a ring where it lands.
+func _draw_throw_arc(c: Control, p: Player) -> void:
+	var cam := p.camera
+	var pts := p.throw_arc()
+	var prev := Vector2.INF
+	for i in pts.size():
+		if cam.is_position_behind(pts[i]): continue
+		var sp := cam.unproject_position(pts[i])
+		if prev != Vector2.INF and i % 2 == 0:
+			c.draw_line(prev, sp, Color(1, 1, 1, 0.85), 2.0)
+		prev = sp
+	if pts.size() > 1 and not cam.is_position_behind(pts[-1]):
+		var land := cam.unproject_position(pts[-1])
+		c.draw_arc(land, 10.0, 0, TAU, 20, Color("ff5a3c") if p.throw_kind == "frag" else Color.WHITE, 2.0)
+	_text(c, Vector2(c.size.x * 0.5, c.size.y * 0.7), "اترك G أو اضغط إطلاق للرمي", 15)
+
+## Small card next to the weapons with the selected grenade and how many.
+func _draw_throw_card(c: Control, sz: Vector2, p: Player) -> void:
+	var n: int = p.throwables.frag + p.throwables.smoke
+	if n == 0: return
+	var r := Rect2(Hud.slot_rect(0, sz).position.x - 74, sz.y - 98, 66, 62)
+	c.draw_rect(r, Color(0, 0, 0, 0.5) if p.throw_ready else Color(0, 0, 0, 0.3))
+	c.draw_rect(r, Color("ffd34d") if p.throw_ready else Color(1, 1, 1, 0.18), false, 1.2)
+	var col := Color("9fb07a") if p.throw_kind == "frag" else Color("c9cdd2")
+	c.draw_circle(r.get_center() + Vector2(0, -6), 11.0, col)
+	c.draw_rect(Rect2(r.get_center() + Vector2(-3, -21), Vector2(6, 5)), col)
+	_text(c, Vector2(r.get_center().x, r.end.y - 6), "×%d" % p.throwables[p.throw_kind], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)

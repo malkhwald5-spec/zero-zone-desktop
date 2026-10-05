@@ -32,6 +32,8 @@ const HEALS := {
 }
 const HEAL_ORDER := ["bandage", "firstaid", "medkit", "drink", "pills"]
 const AMMO_SIZE := 0.5            # bag space per round
+const THROW_SIZE := 12.0          # bag space per grenade
+const THROWS := {"frag": "قنبلة متفجرة", "smoke": "قنبلة دخانية"}
 
 static func gear_name(kind: String, lvl: int) -> String:
 	match kind:

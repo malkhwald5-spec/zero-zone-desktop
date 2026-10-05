@@ -12,6 +12,8 @@ var hud: Hud
 var zone: Zone
 var _zone_tick := 0.0
 var zone_deaths := 0
+var smokes: Array = []          # {pos: Vector3, r, t}
+var _boom_stream: AudioStreamWAV
 var bots: Array = []
 var pickups: Array = []
 var plane: Node3D
@@ -55,6 +57,7 @@ func _build() -> void:
 	effects = Effects.new()
 	add_child(effects)
 	_shot_stream = _make_shot_sound()
+	_boom_stream = _make_boom_sound()
 	_spawn_loot()
 	_make_plane()
 	loading.set_progress(0.85, "جاري تجهيز اللاعبين")
@@ -183,6 +186,8 @@ func _spawn_loot() -> void:
 		if randf() < (0.5 if spot.military else 0.35):
 			var kind: String = ["vest", "helmet", "pack"][randi() % 3]
 			_add_gear(kind, Items.roll_level(spot.military), -1.0, Vector3(p.x - 0.6, y, p.y + 0.3))
+		if randf() < 0.22:
+			_add_pickup({"kind": "throw", "id": "frag" if randf() < 0.65 else "smoke", "n": 1}, Vector3(p.x + 0.4, y, p.y - 0.5))
 		if randf() < 0.45:
 			var hid := Items.roll_heal()
 			_add_pickup({"kind": "heal", "id": hid, "n": 3 if hid == "bandage" else 1}, Vector3(p.x - 0.3, y, p.y - 0.6))
@@ -201,6 +206,7 @@ func pickup_name(data: Dictionary) -> String:
 		"ammo": return "%s ×%d" % [Game.AMMO_NAMES[data.type], data.amount]
 		"gear": return Items.gear_name(data.gear, data.lvl)
 		"heal": return Items.HEALS[data.id].name + (" ×%d" % data.n if data.n > 1 else "")
+		"throw": return Items.THROWS[data.id]
 	return ""
 
 ## Pickups are kept in a coarse grid so nearby lookups don't scan the whole map.
@@ -217,6 +223,7 @@ func _pickup_look(data: Dictionary) -> Array:
 		"weapon": key = Game.WEAPONS[data.id].cls
 		"ammo": key = "ammo_" + data.type
 		"gear": key = "gear_%s_%d" % [data.gear, data.lvl]
+		"throw": key = "throw_" + data.id
 		_: key = "heal_" + data.id
 	if not _pickup_res.has(key):
 		var mat := StandardMaterial3D.new()
@@ -244,6 +251,12 @@ func _pickup_look(data: Dictionary) -> Array:
 					mesh = _box(Vector3(0.4, 0.22, 0.5))
 					tint = [Color.WHITE, Color("7a6648"), Color("5a5a3c"), Color("3a3a32")][data.lvl]
 			mat.albedo_color = tint
+		elif data.kind == "throw":
+			var sp2 := SphereMesh.new()
+			sp2.radius = 0.08
+			sp2.height = 0.17
+			mesh = sp2
+			mat.albedo_color = Color("3d4a2c") if data.id == "frag" else Color("8a8f94")
 		else:
 			mesh = _box(Vector3(0.22, 0.12, 0.16))
 			mat.albedo_color = {"bandage": Color("e8e2d6"), "firstaid": Color("f2f2f2"), "medkit": Color("d93a3a"), "drink": Color("2f86d6"), "pills": Color("e8b23a")}[data.id]
@@ -315,6 +328,11 @@ func pickup(who: Player, it: Node3D, quiet := false) -> void:
 				return
 			var old := who.equip(data.gear, int(data.lvl), float(data.dur))
 			_add_gear(data.gear, old.lvl, old.dur, who.global_position)
+		"throw":
+			if who.free_space() < Items.THROW_SIZE:
+				if not quiet: who.message.emit("الحقيبة ممتلئة")
+				return
+			who.throwables[data.id] += 1
 		"heal":
 			var size: float = Items.HEALS[data.id].size
 			var n := mini(int(data.n), int(who.free_space() / size))
@@ -487,6 +505,9 @@ func bot_take(b: Bot, it: Node3D) -> void:
 		b.model.set_gear(b.gear.vest, b.gear.helmet, b.gear.pack)
 	elif data.kind == "heal":
 		b.meds += int(data.n)
+	elif data.kind == "throw":
+		if data.id != "frag": return
+		b.frags += 1
 	_remove_pickup(it)
 
 func _remove_pickup(it: Node3D) -> void:
@@ -518,6 +539,8 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 		for kind in ["vest", "helmet", "pack"]:
 			if v.gear[kind] > 0:
 				_add_gear(kind, v.gear[kind], float(v.gear.get(kind + "_dur", 0.0)), v.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+		for k in v.frags:
+			_add_pickup({"kind": "throw", "id": "frag", "n": 1}, v.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
 		if v.meds > 0:
 			_add_pickup({"kind": "heal", "id": "firstaid", "n": mini(v.meds, 3)}, v.global_position + Vector3(-0.5, 0, -0.4))
 	if player.state != "dead" and alive_count() == 1:
@@ -552,6 +575,8 @@ func _process(delta: float) -> void:
 		elif plane_t >= 0.995 and player.state == "plane":
 			player.jump_from_plane()
 	builder.update_grass(player.global_position)
+	for s in smokes: s.t -= delta
+	smokes = smokes.filter(func(s): return s.t > 0.0)
 	# Blue zone damage, once a second.
 	_zone_tick += delta
 	if _zone_tick >= 1.0 and zone.state != "idle":
@@ -572,6 +597,42 @@ func _process(delta: float) -> void:
 						pickup(player, it, true)
 						break
 
+# ---------- Grenades ----------
+## Frag explosion: damage falls off with distance; walls and terrain protect.
+func explode(pos: Vector3, thrower: Node) -> void:
+	effects.explosion(pos)
+	sound_boom(pos)
+	var space := get_world_3d().direct_space_state
+	for a in actors():
+		if not a.on_ground(): continue
+		var target: Vector3 = a.global_position + Vector3(0, 0.9, 0)
+		var d := pos.distance_to(target)
+		if d > Grenade.FRAG_RADIUS: continue
+		var q := PhysicsRayQueryParameters3D.create(pos, target, 1)
+		if not space.intersect_ray(q).is_empty(): continue
+		var dmg := Grenade.FRAG_DAMAGE * pow(1.0 - d / Grenade.FRAG_RADIUS, 1.3)
+		var killed: bool = a.take_damage(dmg, thrower, false)
+		if thrower == player and a != player:
+			hud.hit_t = 0.22
+			if killed: player.kills += 1
+		elif killed and thrower is Bot and thrower != a:
+			thrower.kills += 1
+	var pd := pos.distance_to(player.global_position)
+	if pd < 40.0: player.shake = maxf(player.shake, 1.0 - pd / 40.0)
+
+func add_smoke(pos: Vector3) -> void:
+	effects.smoke_cloud(pos, 22.0)
+	smokes.append({"pos": pos + Vector3(0, 1.5, 0), "r": 5.0, "t": 22.0})
+
+## True when the line a->b passes through a smoke cloud.
+func smoke_blocks(a: Vector3, b: Vector3) -> bool:
+	for s in smokes:
+		var c: Vector3 = s.pos
+		var ab := b - a
+		var k := clampf((c - a).dot(ab) / maxf(ab.length_squared(), 0.001), 0.0, 1.0)
+		if (a + ab * k).distance_to(c) < float(s.r): return true
+	return false
+
 # ---------- Sound ----------
 func _make_shot_sound() -> AudioStreamWAV:
 	var rate := 22050
@@ -591,6 +652,34 @@ func _make_shot_sound() -> AudioStreamWAV:
 	w.mix_rate = rate
 	w.data = data
 	return w
+
+func _make_boom_sound() -> AudioStreamWAV:
+	var rate := 22050
+	var n := int(rate * 1.4)
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / rate
+		var s := (randf() * 2.0 - 1.0) * exp(-t * 3.5)
+		lp = lp * 0.93 + s * 0.07          # deep rumble
+		data.encode_s16(i * 2, int(clampf(lp * 4.0, -1.0, 1.0) * 32767.0))
+	var w := AudioStreamWAV.new()
+	w.format = AudioStreamWAV.FORMAT_16_BITS
+	w.mix_rate = rate
+	w.data = data
+	return w
+
+func sound_boom(pos: Vector3) -> void:
+	if not Game.settings.sound: return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = _boom_stream
+	p.unit_size = 40.0
+	p.max_distance = 900.0
+	add_child(p)
+	p.global_position = pos
+	p.play()
+	p.finished.connect(p.queue_free)
 
 func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 	if not Game.settings.sound: return
