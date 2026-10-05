@@ -546,7 +546,7 @@ func bot_take(b: Bot, it: Node3D) -> void:
 		b.weapon_id = data.id
 		b.mag = int(data.mag)
 		b.reserve = maxi(b.reserve, 0)
-		b.model.set_weapon(Game.WEAPONS[data.id].cls)
+		b.model.set_weapon(data.id)
 		if b.mag == 0: b.reload_t = Game.WEAPONS[data.id].reload
 		b.reserve += 30   # some rounds come with the gun
 	elif data.kind == "ammo":

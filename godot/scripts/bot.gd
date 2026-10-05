@@ -203,6 +203,15 @@ func _ground(delta: float) -> void:
 	var every := 1 if d_player < 50.0 else (2 if d_player < 140.0 else 4)
 	_pose_dt += delta
 	if _frame % every == 0 and model.visible:
+		var sp := Vector2(velocity.x, velocity.z).length()
+		var t: Node3D = target if is_instance_valid(target) else null
+		model.aiming = t != null and mode == "fight"
+		model.sprinting = sp > 5.0 and not model.aiming
+		model.aim_pitch = 0.0
+		if model.aiming:
+			var to := t.global_position - global_position
+			model.aim_pitch = clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.8, 0.8)
+		model.reload_p = 1.0 - reload_t / float(Game.WEAPONS[weapon_id].reload) if reload_t > 0.0 and armed() else -1.0
 		model.set_pose("stand", Vector2(velocity.x, velocity.z).length(), armed(), _pose_dt, world.time)
 		_pose_dt = 0.0
 
@@ -462,7 +471,8 @@ func _shoot(e: Node3D) -> void:
 		var hit := get_world_3d().direct_space_state.intersect_ray(q)
 		var end: Vector3 = hit.position if hit else origin + dir * range_m
 		if i == 0 and not far:
-			world.effects.tracer(origin + Vector3(0, -0.15, 0), end)
+			model.recoil = 1.0
+			world.effects.tracer(model.muzzle_position() if model.visible and model.weapon_node else origin + Vector3(0, -0.15, 0), end)
 		if hit and hit.collider and hit.collider.has_method("take_damage"):
 			var head: bool = end.y > hit.collider.global_position.y + _aim_height(hit.collider) * 0.8
 			var dmg: float = float(w.dmg) * (0.5 if hit.collider == world.player else 0.8) * (1.8 if head else 1.0)

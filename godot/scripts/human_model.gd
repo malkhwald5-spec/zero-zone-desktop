@@ -12,10 +12,17 @@ const SCENE := preload("res://assets/models/soldier.glb")
 var body: Node3D              # the imported model; tilted/lowered for poses
 var sk: Skeleton3D
 var ap: AnimationPlayer
-var gun: Node3D               # procedural rifle held at chest height
-var gun_body: MeshInstance3D
-var gun_barrel: MeshInstance3D
-var gun_mag: MeshInstance3D
+var gun: Node3D               # holder of the weapon model (weapon frame: grip at origin, barrel -Z)
+var weapon_node: Node3D       # current WeaponModels.build() result
+var _weapon_id := ""
+var _cls := ""
+## Weapon handling, set by the owner each frame.
+var aiming := false           # rifle up at the shoulder (ADS / firing)
+var sprinting := false        # rifle carried across the chest
+var aim_pitch := 0.0          # look up/down (radians): bends the upper body
+var reload_p := -1.0          # reload progress 0..1 (-1 = not reloading)
+var recoil := 0.0             # kick from the last shot (decays here)
+var _gun_xf := Transform3D()  # smoothed weapon pose (model space)
 var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 ## Skydive / parachute controls, set by the owner each frame.
 var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
@@ -172,22 +179,7 @@ static func _lines_mesh() -> ArrayMesh:
 
 func _build_gun() -> void:
 	gun = Node3D.new()
-	body.add_child(gun)
-	var gm := _mat("gun", Color("1f2124"), 0.35, 0.6)
-	gun_body = MeshInstance3D.new()
-	gun_body.mesh = SoldierModel._mesh("gunbody")
-	gun_body.material_override = gm
-	gun.add_child(gun_body)
-	gun_barrel = MeshInstance3D.new()
-	gun_barrel.mesh = SoldierModel._mesh("barrel")
-	gun_barrel.material_override = gm
-	gun_barrel.rotation.x = PI / 2
-	gun.add_child(gun_barrel)
-	gun_mag = MeshInstance3D.new()
-	gun_mag.mesh = SoldierModel._mesh("mag")
-	gun_mag.material_override = gm
-	gun_mag.position = Vector3(0, -0.11, -0.1)
-	gun.add_child(gun_mag)
+	add_child(gun)
 	gun.visible = false
 
 ## Helmet and backpack follow the head and upper back bones.
@@ -196,7 +188,7 @@ func _build_gear() -> void:
 	_helmet_att.bone_name = sk.get_bone_name(_bone.Head)
 	sk.add_child(_helmet_att)
 	helmet = MeshInstance3D.new()
-	helmet.mesh = SoldierModel._mesh("helmet")
+	helmet.mesh = gear_mesh("helmet", 2)
 	helmet.scale = Vector3.ONE / _skel_scale * 1.08
 	helmet.position = Vector3(0, 7.5, 0.8)
 	helmet.material_override = _mat("helmet", Color("5a7a4a"), 0.5)
@@ -205,28 +197,152 @@ func _build_gear() -> void:
 	_pack_att.bone_name = sk.get_bone_name(_bone.Spine2)
 	sk.add_child(_pack_att)
 	pack = MeshInstance3D.new()
-	pack.mesh = SoldierModel._mesh("pack")
-	pack.scale = Vector3.ONE / _skel_scale * Vector3(0.9, 0.95, 0.95)
+	pack.mesh = gear_mesh("pack", 2)
+	pack.scale = Vector3.ONE / _skel_scale
 	pack.position = Vector3(0, 4.0, -15.0)
 	pack.material_override = _mat("pack", Color("5a4a2e"), 0.9)
 	_pack_att.add_child(pack)
 
-func set_weapon(cls: String) -> void:
-	_has_weapon = cls != ""
+## Weapon id ("m416") or class ("ar"); "" = empty hands.
+func set_weapon(id_or_cls: String) -> void:
+	_has_weapon = id_or_cls != ""
 	gun.visible = _has_weapon
-	if cls == "": return
-	var len := {"pistol": 0.25, "smg": 0.5, "shotgun": 0.8, "ar": 0.85, "dmr": 0.95, "sr": 1.1, "lmg": 0.95}.get(cls, 0.8) as float
-	gun_body.scale = Vector3(1, 1, len * 0.6)
-	gun_body.position.z = -len * 0.1
-	gun_barrel.scale = Vector3(1, len * 0.55, 1)
-	gun_barrel.position.z = -len * 0.55
-	gun_mag.visible = cls != "shotgun" and cls != "sr"
+	if id_or_cls == _weapon_id: return
+	_weapon_id = id_or_cls
+	if weapon_node:
+		weapon_node.queue_free()
+		weapon_node = null
+	if id_or_cls == "": return
+	_cls = Game.WEAPONS[id_or_cls].cls if Game.WEAPONS.has(id_or_cls) else id_or_cls
+	weapon_node = WeaponModels.build(id_or_cls)
+	gun.add_child(weapon_node)
+
+var _back_att: BoneAttachment3D
+var _back_id := ""
+var _back_dirty := false
+
+## Muzzle up over the left shoulder, top of the gun facing away from the back
+## (worked out in model space once the skeleton is posed).
+func _place_back() -> void:
+	_back_dirty = false
+	if _back_att == null or _back_att.get_child_count() == 0: return
+	var holder: Node3D = _back_att.get_child(_back_att.get_child_count() - 1)
+	var b := Basis.looking_at(Vector3(-0.55, 0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+	holder.global_transform = global_transform * Transform3D(b, Vector3(0.02, 1.2, 0.2) + b * Vector3(0, 0, 0.25))
+
+## Weapon slung diagonally across the back ("" = none).
+func set_back_weapon(id: String) -> void:
+	if id == _back_id: return
+	_back_id = id
+	if _back_att == null:
+		_back_att = BoneAttachment3D.new()
+		_back_att.bone_name = sk.get_bone_name(_bone.Spine2)
+		sk.add_child(_back_att)
+	for c in _back_att.get_children(): c.queue_free()
+	if id == "": return
+	var holder := Node3D.new()
+	holder.add_child(WeaponModels.build(id))
+	_back_att.add_child(holder)
+	_back_dirty = true
+
+## World position of the muzzle (bullets and flashes start here).
+func muzzle_position() -> Vector3:
+	var z: float = weapon_node.get_meta("muzzle", -0.6) if weapon_node else -0.6
+	return gun.global_transform * (Vector3(0, 0.03, z) * WSCALE)
 
 func set_gear(_vest: int, helmet_lvl: int, pack_lvl: int) -> void:
 	helmet.visible = helmet_lvl > 0
 	pack.visible = pack_lvl > 0
-	if helmet_lvl > 0: helmet.material_override = _mat("helmet%d" % helmet_lvl, [Color.WHITE, Color("a8a27c"), Color("5a7a4a"), Color("1e1e1e")][helmet_lvl], 0.5)
-	if pack_lvl > 0: pack.material_override = _mat("pack%d" % pack_lvl, [Color.WHITE, Color("7a6648"), Color("5a5a3c"), Color("3a3a32")][pack_lvl], 0.9)
+	if helmet_lvl > 0:
+		helmet.mesh = gear_mesh("helmet", helmet_lvl)
+		helmet.material_override = null
+	if pack_lvl > 0:
+		pack.mesh = gear_mesh("pack", pack_lvl)
+		pack.material_override = null
+
+static var _gear_cache := {}
+
+## Helmets (level 1 light shell, 2 military with ear guards and NVG mount,
+## 3 heavy dark shell) and backpacks (bigger and with more pockets per level).
+## Built in metres in bone space: +Z is the front of the body.
+static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
+	var key := "%s%d" % [kind, lvl]
+	if _gear_cache.has(key): return _gear_cache[key]
+	var parts := []      # [mesh, position, rotation, scale, colour]
+	if kind == "helmet":
+		var col: Color = [Color.WHITE, Color("8c8670"), Color("4f5d3a"), Color("2a2d2a")][lvl]
+		var dome := SphereMesh.new()
+		dome.radius = 0.138 + lvl * 0.004
+		dome.height = 0.2 + lvl * 0.01
+		dome.is_hemisphere = true
+		dome.radial_segments = 20
+		dome.rings = 8
+		parts.append([dome, Vector3(0, -0.005, -0.005), Vector3.ZERO, Vector3(1, 1, 1.1), col])
+		var rim := CylinderMesh.new()
+		rim.top_radius = 0.142 + lvl * 0.004
+		rim.bottom_radius = 0.149 + lvl * 0.004
+		rim.height = 0.022
+		rim.radial_segments = 20
+		parts.append([rim, Vector3(0, 0.0, -0.005), Vector3.ZERO, Vector3(1, 1, 1.1), col.darkened(0.25)])
+		if lvl >= 2:
+			for x in [-1.0, 1.0]:
+				var ear := BoxMesh.new()
+				ear.size = Vector3(0.025, 0.085, 0.11)
+				parts.append([ear, Vector3(x * 0.142, -0.045, -0.02), Vector3(0, 0, x * 0.12), Vector3.ONE, col.darkened(0.1)])
+			var nvg := BoxMesh.new()
+			nvg.size = Vector3(0.05, 0.035, 0.02)
+			parts.append([nvg, Vector3(0, 0.055, 0.15), Vector3(-0.35, 0, 0), Vector3.ONE, Color(0.1, 0.1, 0.1)])
+			var strap := CylinderMesh.new()
+			strap.top_radius = 0.152
+			strap.bottom_radius = 0.152
+			strap.height = 0.018
+			strap.radial_segments = 20
+			parts.append([strap, Vector3(0, 0.05, -0.005), Vector3.ZERO, Vector3(1, 1, 1.1), col.darkened(0.45)])
+		if lvl == 3:
+			var visor := BoxMesh.new()
+			visor.size = Vector3(0.2, 0.05, 0.02)
+			parts.append([visor, Vector3(0, -0.02, 0.155), Vector3(0.2, 0, 0), Vector3.ONE, Color(0.06, 0.06, 0.07)])
+	else:
+		var col: Color = [Color.WHITE, Color("6e5c40"), Color("4e5236"), Color("3a3a30")][lvl]
+		var sc: float = [1.0, 0.85, 1.0, 1.15][lvl]
+		var b := func(sz: Vector3) -> BoxMesh:
+			var m := BoxMesh.new()
+			m.size = sz * sc
+			return m
+		parts.append([b.call(Vector3(0.3, 0.38, 0.16)), Vector3(0, 0, 0), Vector3.ZERO, Vector3.ONE, col])
+		parts.append([b.call(Vector3(0.31, 0.07, 0.17)), Vector3(0, 0.2 * sc, 0.0), Vector3(0.1, 0, 0), Vector3.ONE, col.darkened(0.15)])
+		parts.append([b.call(Vector3(0.22, 0.15, 0.05)), Vector3(0, -0.08 * sc, -0.1 * sc), Vector3.ZERO, Vector3.ONE, col.darkened(0.08)])
+		for x in [-1.0, 1.0]:
+			parts.append([b.call(Vector3(0.05, 0.18, 0.1)), Vector3(x * 0.17 * sc, -0.05 * sc, 0), Vector3.ZERO, Vector3.ONE, col.darkened(0.12)])
+			parts.append([b.call(Vector3(0.04, 0.4, 0.015)), Vector3(x * 0.08 * sc, 0.0, 0.09 * sc), Vector3.ZERO, Vector3.ONE, Color(0.1, 0.1, 0.1)])
+		if lvl >= 2:
+			var roll := CylinderMesh.new()
+			roll.top_radius = 0.055 * sc
+			roll.bottom_radius = 0.055 * sc
+			roll.height = 0.34 * sc
+			parts.append([roll, Vector3(0, 0.26 * sc, -0.01), Vector3(0, 0, PI / 2), Vector3.ONE, Color("3f4a3a") if lvl == 2 else Color("2a3a4a")])
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for pt in parts:
+		var tmp := SurfaceTool.new()
+		tmp.create_from(pt[0], 0)
+		var arr := tmp.commit_to_arrays()
+		var n: int = arr[Mesh.ARRAY_VERTEX].size()
+		var cols := PackedColorArray()
+		cols.resize(n)
+		cols.fill(pt[4])
+		arr[Mesh.ARRAY_COLOR] = cols
+		var am := ArrayMesh.new()
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		st.append_from(am, 0, Transform3D(Basis.from_euler(pt[2]).scaled(pt[3]), pt[1]))
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.roughness = 0.6 if kind == "helmet" else 0.92
+	st.set_material(m)
+	var mesh := st.commit()
+	_gear_cache[key] = mesh
+	return mesh
 
 ## Lobby emote.
 func wave(seconds: float) -> void:
@@ -249,6 +365,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	else:
 		_play("Idle", 1.0)
 	ap.advance(delta)
+	if _back_dirty and is_inside_tree(): _place_back()
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
 	canopy.visible = pose == "chute"
@@ -256,21 +373,19 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
 		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone"]
-	gun.position = Vector3(0.13, 1.33, -0.32)
-	gun.rotation = Vector3.ZERO
+	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:
 		"crouch":
 			body.position.y = -0.48
-			gun.position.y += 0.06
-			_leg("Left", Vector3(-0.14, 0.05, -0.32))
-			_leg("Right", Vector3(0.16, 0.05, 0.18))
+			# Crouch-walk: the feet step forward and back with the walk cycle.
+			var ph := _phase()
+			var st := clampf(speed / 1.5, 0.0, 1.0)
+			_leg("Left", Vector3(-0.14, 0.05 + maxf(0.0, sin(ph)) * 0.08 * st, -0.32 + sin(ph) * 0.16 * st))
+			_leg("Right", Vector3(0.16, 0.05 + maxf(0.0, -sin(ph)) * 0.08 * st, 0.18 - sin(ph) * 0.16 * st))
 		"prone":
-			# Lying face down; the walk cycle becomes a crawl. The rifle lies in
-			# front of the face, still pointing forward.
+			# Lying face down; the walk cycle becomes a crawl.
 			body.rotation.x = -PI / 2
 			body.position = Vector3(0, 0.22, 0.9)
-			gun.position = Vector3(0.13, 1.45, 0.12)
-			gun.rotation.x = PI / 2
 		"dead":
 			body.rotation.x = PI / 2
 			body.position = Vector3(0, 0.25, -0.9)
@@ -298,9 +413,13 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
 			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
 	if armed and gun.visible:
+		_place_gun(pose, delta)
+		_bend_spine(pose)
 		_hold_gun()
-	elif pose in ["stand", "crouch"]:
-		_relaxed_arms(speed)
+	else:
+		gun.visible = false
+		if pose in ["stand", "crouch"]:
+			_relaxed_arms(speed)
 	if _wave > 0.0:
 		_wave -= delta
 		_arm("Right", Vector3(0.45, 1.95 + sin(t * 10.0) * 0.06, -0.1 + sin(t * 10.0) * 0.12), Vector3(1, 0, 0))
@@ -316,13 +435,115 @@ func _relaxed_arms(speed: float) -> void:
 	_arm("Left", Vector3(-0.3, y, 0.02 - swing), Vector3(0, 0, 1))
 	_arm("Right", Vector3(0.3, y, 0.02 + swing), Vector3(0, 0, 1))
 
-## Hands on the rifle: right hand at the grip, left hand under the barrel.
+func _phase() -> float:
+	if ap.current_animation != "" and ap.current_animation_length > 0.0:
+		return ap.current_animation_position / ap.current_animation_length * TAU
+	return 0.0
+
+const AIM_PIVOT := Vector3(0.0, 1.4, 0.05)     # between the shoulders (model space)
+const WSCALE := 0.85                            # weapons sized to this character's reach
+
+## Where the weapon should be for this pose (model space), then eased there.
+## Positions are the pistol grip (right hand); rotations are pitch, yaw, roll.
+func _place_gun(pose: String, delta: float) -> void:
+	var pistol := _cls == "pistol"
+	var pos: Vector3
+	var rot := Vector3.ZERO
+	var pitch_with_aim := true
+	if pose == "prone":
+		pos = Vector3(0.1, 0.3, -0.75)
+		rot = Vector3(clampf(aim_pitch, -0.15, 0.25), 0, 0)
+		pitch_with_aim = false
+	elif sprinting and reload_p < 0.0:
+		# Carried across the chest, muzzle up to the left, top of the gun facing out.
+		if pistol:
+			pos = Vector3(0.2, 1.0, -0.12)
+			rot = Vector3(-1.2, 0, 0)
+		else:
+			pos = Vector3(0.16, 1.12, -0.2)
+			var bb := Basis.looking_at(Vector3(-0.62, 0.72, -0.3).normalized(), Vector3(0, 0, -1))
+			rot = bb.get_euler(EULER_ORDER_YXZ)
+		pitch_with_aim = false
+	elif aiming or recoil > 0.05:
+		# Stock in the shoulder, sight in front of the eye.
+		pos = Vector3(0.08, 1.44, -0.24) if not pistol else Vector3(0.03, 1.44, -0.4)
+	else:
+		# Ready: muzzle a little down and inwards.
+		pos = Vector3(0.12, 1.32, -0.22) if not pistol else Vector3(0.12, 1.15, -0.28)
+		rot = Vector3(-0.22, 0.2, 0.06) if not pistol else Vector3(-0.6, 0.2, 0)
+	if reload_p >= 0.0:
+		# Gun brought in front of the chest and rolled to see the magazine well.
+		var k := sin(clampf(reload_p, 0.0, 1.0) * PI)
+		pos = pos.lerp(Vector3(0.1, 1.3, -0.2), k)
+		rot = rot.lerp(Vector3(0.1, 0.3, 0.55), k)
+	pos.y += body.position.y
+	var b := Basis.from_euler(rot, EULER_ORDER_YXZ)
+	var target := Transform3D(b, pos)
+	if pitch_with_aim:
+		var piv := AIM_PIVOT + Vector3(0, body.position.y, 0)
+		var pr := Basis(Vector3.RIGHT, aim_pitch * (1.0 if aiming else 0.6))
+		target = Transform3D(pr * target.basis, piv + pr * (target.origin - piv))
+	target.origin += target.basis * Vector3(0, 0.01, 0.06) * recoil
+	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.07)
+	var k2 := minf(1.0, delta * 14.0)
+	_gun_xf = Transform3D(_gun_xf.basis.slerp(target.basis.orthonormalized(), k2).orthonormalized(), _gun_xf.origin.lerp(target.origin, k2)) if _gun_xf.origin != Vector3.ZERO else target
+	gun.transform = _gun_xf
+	if weapon_node: weapon_node.scale = Vector3.ONE * WSCALE
+	# Magazine out and back in during a reload.
+	var mag := weapon_node.get_node_or_null("Mag") as Node3D if weapon_node else null
+	if mag and mag is MeshInstance3D:
+		var p := reload_p
+		var drop := 0.0
+		if p >= 0.15 and p < 0.6: drop = 1.0
+		elif p >= 0.6 and p < 0.8: drop = 1.0 - (p - 0.6) / 0.2
+		mag.position = Vector3(0, -0.28 * drop, 0.05 * drop)
+		mag.visible = not (p >= 0.3 and p < 0.45)
+
+## Upper body follows the aim up/down; the head looks a bit further.
+func _bend_spine(pose: String) -> void:
+	if pose == "prone": return
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var axis_sk := (to_sk.basis * Vector3.RIGHT).normalized()
+	var up_sk := (to_sk.basis * Vector3.UP).normalized()
+	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
+	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
+	var twist := -0.3 if _cls != "pistol" and not sprinting else 0.0
+	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
+		if not _bone.has(bn): continue
+		var i: int = _bone[bn]
+		var gp: Transform3D = sk.get_bone_global_pose(i)
+		var inv := gp.basis.inverse()
+		var share := 0.3 if bn.begins_with("Spine") else 0.12
+		var tw := twist / 3.0 if bn.begins_with("Spine") else -twist * 0.5
+		var q := Quaternion((inv * axis_sk).normalized(), amount * share) * Quaternion((inv * up_sk).normalized(), tw)
+		if bn == "Head" and aiming:
+			q = q * Quaternion((inv * axis_sk).normalized(), -0.12)     # cheek down to the sight
+		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
+
+## Hands on the weapon: right hand at the grip, left hand on the handguard
+## (or on the magazine while reloading).
 func _hold_gun() -> void:
-	var grip := gun.global_transform * Vector3(0, -0.06, 0.1)
-	var fore := gun.global_transform * Vector3(0, -0.05, -0.32)
 	var to_local := global_transform.affine_inverse()
-	_arm("Right", to_local * grip, Vector3(1, -1, 0.3))
-	_arm("Left", to_local * fore, Vector3(-1, -1, 0))
+	var g := gun.global_transform
+	var grip := g * Vector3(0.0, -0.06, 0.07)
+	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32)) if weapon_node else Vector3(0, -0.06, -0.32)
+	var fore := g * (fore_v * WSCALE + Vector3(-0.02, -0.02, 0.06))
+	var p := reload_p
+	if p >= 0.0:
+		var mag := weapon_node.get_node_or_null("Mag") as Node3D
+		var mag_pt := (mag.global_transform * Vector3(-0.03, -0.08, 0.0)) if mag else fore
+		var pouch := global_transform * Vector3(-0.22, 1.0 + body.position.y, 0.0)
+		if p < 0.15: fore = fore.lerp(mag_pt, p / 0.15)
+		elif p < 0.3: fore = mag_pt
+		elif p < 0.45: fore = mag_pt.lerp(pouch, (p - 0.3) / 0.15)
+		elif p < 0.6: fore = pouch.lerp(mag_pt, (p - 0.45) / 0.15)
+		elif p < 0.8: fore = mag_pt
+		else: fore = mag_pt.lerp(fore, (p - 0.8) / 0.2)
+	_arm("Right", to_local * grip, Vector3(1, -1, 0.4))
+	if _cls == "pistol" and not aiming and p < 0.0:
+		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
+	else:
+		_arm("Left", to_local * fore, Vector3(-1, -1, 0))
 
 # ---------------------------------------------------------------- reach solver
 ## Model-space target -> moves the hand there (elbow pushed towards `pole`).

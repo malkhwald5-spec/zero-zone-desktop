@@ -50,6 +50,7 @@ var chute_heading := 0.0          # direction the canopy flies
 var chute_bank := 0.0             # roll from turning (radians)
 var chute_swing := 0.0            # pitch swing under the canopy (radians)
 var land_t := 0.0                 # short landing crouch
+var is_sprinting := false
 var _wind: AudioStreamPlayer
 
 # Weapons: two primaries + pistol. Each slot: {id, mag}
@@ -235,7 +236,13 @@ func switch_slot(i: int) -> void:
 	active = i
 	reload_t = 0.0
 	fire_cd = maxf(fire_cd, 0.35)
-	model.set_weapon(Game.WEAPONS[slots[i].id].cls)
+	model.set_weapon(slots[i].id)
+	_refresh_back()
+
+## The primary you are not holding hangs on your back.
+func _refresh_back() -> void:
+	var other = slots[1 - active] if active in [0, 1] else (slots[0] if active == 2 else null)
+	model.set_back_weapon(other.id if other != null else "")
 
 func weapon() -> Dictionary:
 	return Game.WEAPONS[slots[active].id] if active >= 0 and slots[active] != null else {}
@@ -369,6 +376,7 @@ func _ground(delta: float) -> void:
 	var wish := _wish_dir()
 	var speed := 5.2
 	var sprint := sprinting and not aiming and move_input.y > 0.3 and stance != "prone"
+	is_sprinting = sprint and not firing
 	if sprint:
 		speed = 7.2
 		if stance == "crouch": set_stance("crouch")
@@ -427,7 +435,8 @@ func _try_fire() -> void:
 	recoil_kick += w.recoil
 	pitch = clampf(pitch + deg_to_rad(w.recoil) * 0.5, -1.35, 1.0)
 	yaw += deg_to_rad(randf_range(-w.recoil, w.recoil)) * 0.15
-	world.effects.muzzle_flash(model.gun.global_position + (-model.global_basis.z) * 0.6)
+	model.recoil = 1.0
+	world.effects.muzzle_flash(model.muzzle_position())
 	world.sound_shot(w.cls, global_position, true)
 	if s.mag == 0:
 		start_reload()
@@ -446,7 +455,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 	var hit := space.intersect_ray(q)
 	var end: Vector3 = hit.position if hit else origin + dir * float(w.range)
 	# The bullet leaves the muzzle; make sure nothing blocks it on the way.
-	var muzzle := model.gun.global_position + (-model.global_basis.z) * 0.6
+	var muzzle := model.muzzle_position()
 	var q2 := PhysicsRayQueryParameters3D.create(muzzle, end + (end - muzzle).normalized() * 0.1, 1 | 4)
 	q2.exclude = [get_rid()]
 	var hit2 := space.intersect_ray(q2)
@@ -547,6 +556,11 @@ func _update_model(delta: float) -> void:
 	else:
 		model.transform = Transform3D(Basis(Vector3.UP, ry), Vector3.ZERO)
 	model.dive = dive
+	model.aiming = aiming and state == "ground"
+	model.sprinting = is_sprinting and state == "ground"
+	model.aim_pitch = pitch + 0.1
+	var w := weapon()
+	model.reload_p = 1.0 - reload_t / float(w.reload) if reload_t > 0.0 and not w.is_empty() else -1.0
 	model.lean = move_input.x if state == "fall" else 0.0
 	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
