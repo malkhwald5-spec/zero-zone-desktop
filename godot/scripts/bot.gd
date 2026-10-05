@@ -13,7 +13,7 @@ var health := 100.0
 var dead := false
 var skill := 0.5
 var kills := 0
-var model: SoldierModel
+var model: HumanModel
 var shape: CollisionShape3D
 
 var weapon_id := ""          # "" = unarmed (has to loot a gun first)
@@ -48,6 +48,7 @@ var stuck_t := 0.0
 var stuck_n := 0
 var last_pos := Vector3.ZERO
 var far := false
+var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
 var _frame := 0
 
@@ -62,7 +63,7 @@ func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 1 | 2 | 4
 	floor_max_angle = deg_to_rad(50)
-	model = SoldierModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25))
+	model = HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25))
 	add_child(model)
 	model.set_gear(0, 0, 0)
 	_frame = randi() % 4
@@ -189,8 +190,12 @@ func _ground(delta: float) -> void:
 	_move(delta)
 	_combat(delta)
 	model.rotation.y = yaw
-	if not far or _frame % 4 == 0:
-		model.set_pose("stand", Vector2(velocity.x, velocity.z).length(), armed(), delta, world.time)
+	# Animation level of detail: every frame up close, less often further away.
+	var every := 1 if d_player < 50.0 else (2 if d_player < 140.0 else 4)
+	_pose_dt += delta
+	if _frame % every == 0 and model.visible:
+		model.set_pose("stand", Vector2(velocity.x, velocity.z).length(), armed(), _pose_dt, world.time)
+		_pose_dt = 0.0
 
 # ---------------------------------------------------------------- decisions
 func _think() -> void:

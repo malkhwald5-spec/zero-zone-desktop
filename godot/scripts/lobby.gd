@@ -4,7 +4,7 @@ extends Node3D
 ## currencies, season pass, events, mode card, big start button and the
 ## bottom menu bar). Solo only: no squads.
 
-var soldier: SoldierModel
+var soldier: HumanModel
 var holder: Node3D
 var cam: Camera3D
 var ui: CanvasLayer
@@ -15,7 +15,6 @@ var labels := {}
 var t := 0.0
 var drag_rot := 0.0
 var _dragging := false
-var wave_t := 0.0
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -303,7 +302,7 @@ func _car(pos: Vector3, yaw: float) -> void:
 
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
-	soldier = SoldierModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
+	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
 	soldier.set_gear(0, 0, 0)
 	soldier.rotation.y = PI    # face the camera
 	holder.add_child(soldier)
@@ -312,17 +311,6 @@ func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
 	soldier.set_pose("stand", 0.0, false, delta, t)
-	# Relaxed idle: breathing, weight on one leg, arms loose.
-	soldier.spine.rotation.x = sin(t * 1.6) * 0.015
-	soldier.hip.rotation.z = 0.03
-	soldier.arms[0].shoulder.rotation.z = -0.14
-	soldier.arms[1].shoulder.rotation.z = 0.12
-	soldier.arms[0].elbow.rotation.x = 0.18
-	soldier.arms[1].elbow.rotation.x = 0.22
-	if wave_t > 0.0:
-		wave_t -= delta
-		soldier.arms[1].shoulder.rotation = Vector3(0.2, 0, 2.6)
-		soldier.arms[1].elbow.rotation.x = 0.5 + sin(t * 12.0) * 0.45
 	_tick_ui(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -558,7 +546,7 @@ func _bottom_bar() -> void:
 	var icons := HBoxContainer.new()
 	icons.add_theme_constant_override("separation", 10)
 	_anchor(icons, Control.PRESET_BOTTOM_RIGHT, Vector2(-20, -80))
-	for ic in [["؟", func(): _open("help")], ["👋", func(): wave_t = 2.2], ["⛶", func(): _toggle_fullscreen()]]:
+	for ic in [["؟", func(): _open("help")], ["👋", func(): soldier.wave(2.2)], ["⛶", func(): _toggle_fullscreen()]]:
 		icons.add_child(UiKit.button(ic[0], ic[1], Vector2(38, 34), UiKit.style(Color(0, 0, 0, 0.35), 17, Color(1, 1, 1, 0.2), 1, 2), 16))
 	# Darkened strip behind the bar.
 	var strip := TextureRect.new()

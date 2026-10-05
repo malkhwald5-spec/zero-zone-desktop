@@ -30,7 +30,7 @@ func _layout() -> void:
 		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(100, s.y * 0.42), "r": 38.0},
 		{"act": "bag", "icon": "", "label": "الحقيبة", "pos": Vector2(40, s.y - 64), "r": 24.0},
 		{"act": "heal", "icon": "", "label": "علاج", "pos": Vector2(Hud.slot_rect(2, s).end.x + 38, s.y - 82), "r": 24.0},
-		{"act": "throw", "icon": "", "label": "قنبلة", "pos": Vector2(s.x - 345, s.y - 62), "r": 26.0},
+		{"act": "throw", "icon": "", "label": "قنبلة", "pos": Vector2(s.x - 335, s.y - 160), "r": 26.0},
 		{"act": "boost", "icon": "", "label": "منشّط", "pos": Vector2(Hud.slot_rect(2, s).end.x + 96, s.y - 82), "r": 24.0},
 		{"act": "aim", "icon": "⌖", "label": "منظار", "pos": Vector2(s.x - 245, s.y - 250), "r": 32.0},
 		{"act": "reload", "icon": "⟳", "label": "تلقيم", "pos": Vector2(s.x - 250, s.y - 140), "r": 30.0},

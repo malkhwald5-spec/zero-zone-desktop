@@ -194,23 +194,21 @@ func _shards() -> void:
 
 func _characters() -> void:
 	# Player 1: left foreground, seen from behind, aiming up at the villain.
-	var p1 := SoldierModel.new(Color("d8d8d2"), Color("f2a900"), Color("2c3a55"))
+	var p1 := HumanModel.new(Color("d8d8d2"), Color("f2a900"), Color("2c3a55"))
 	p1.set_weapon("ar")
 	p1.set_gear(2, 2, 0)
 	add_child(p1)
 	p1.position = Vector3(-1.9, 0, 2.6)
 	p1.rotation.y = 0.35
 	p1.set_pose("stand", 0.0, true, 0.016, 0.0)
-	p1.spine.rotation.x = 0.35
 	# Player 2: right, firing with a muzzle flash.
-	var p2 := SoldierModel.new(Color("232327"), Color("f2a900"), Color("39404f"))
+	var p2 := HumanModel.new(Color("232327"), Color("f2a900"), Color("39404f"))
 	p2.set_weapon("smg")
 	p2.set_gear(0, 0, 0)
 	add_child(p2)
 	p2.position = Vector3(2.6, 0, 1.6)
 	p2.rotation.y = -0.55
 	p2.set_pose("stand", 0.0, true, 0.016, 0.0)
-	p2.spine.rotation.x = 0.15
 	var flash := OmniLight3D.new()
 	flash.light_color = Color("ffb347")
 	flash.light_energy = 6.0

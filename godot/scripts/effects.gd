@@ -5,6 +5,8 @@ extends Node3D
 var _tracer_mat: StandardMaterial3D
 var _spark_mat: StandardMaterial3D
 var _dust_mat: StandardMaterial3D
+var _tracer_mesh: BoxMesh             # shared unit box, stretched per tracer
+var _impact_mesh := {}                # flesh(bool) -> shared SphereMesh with material
 
 func _ready() -> void:
 	_tracer_mat = StandardMaterial3D.new()
@@ -22,15 +24,18 @@ func _ready() -> void:
 func tracer(from: Vector3, to: Vector3) -> void:
 	var length := from.distance_to(to)
 	if length < 0.5: return
+	if _tracer_mesh == null:
+		_tracer_mesh = BoxMesh.new()
+		_tracer_mesh.size = Vector3(0.025, 0.025, 1.0)
+		_tracer_mesh.material = _tracer_mat
 	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.025, 0.025, minf(length, 14.0))
-	bm.material = _tracer_mat
-	mi.mesh = bm
+	mi.mesh = _tracer_mesh
+	mi.scale = Vector3(1, 1, minf(length, 14.0))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 	mi.global_position = from
 	mi.look_at(to, Vector3.UP if absf((to - from).normalized().y) < 0.99 else Vector3.RIGHT)
+	mi.scale = Vector3(1, 1, minf(length, 14.0))
 	var tw := create_tween()
 	var dur := clampf(length / 600.0, 0.03, 0.4)
 	tw.tween_property(mi, "global_position", to, dur)
@@ -50,16 +55,18 @@ func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
 	p.gravity = Vector3(0, -9.8, 0)
 	p.scale_amount_min = 0.03
 	p.scale_amount_max = 0.07
-	var m := SphereMesh.new()
-	m.radius = 0.5
-	m.height = 1.0
-	m.radial_segments = 4
-	m.rings = 2
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = Color(0.6, 0.05, 0.05) if flesh else Color(0.62, 0.56, 0.45)
-	m.material = mat
-	p.mesh = m
+	if not _impact_mesh.has(flesh):
+		var m := SphereMesh.new()
+		m.radius = 0.5
+		m.height = 1.0
+		m.radial_segments = 4
+		m.rings = 2
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(0.6, 0.05, 0.05) if flesh else Color(0.62, 0.56, 0.45)
+		m.material = mat
+		_impact_mesh[flesh] = m
+	p.mesh = _impact_mesh[flesh]
 	add_child(p)
 	p.global_position = pos + normal * 0.05
 	p.create_tween().tween_callback(p.queue_free).set_delay(1.0)

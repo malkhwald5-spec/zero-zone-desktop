@@ -189,11 +189,27 @@ func _water() -> void:
 func _wall_material() -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
-	m.albedo_texture = noise_b
+	m.albedo_texture = _plaster_tex()
 	m.uv1_triplanar = true
-	m.uv1_scale = Vector3(0.15, 0.15, 0.15)
+	m.uv1_scale = Vector3(0.5, 0.5, 0.5)     # one tile = 2 m
 	m.roughness = 0.92
 	return m
+
+## Light plaster with faint stains and panel joints (multiplied by the house colour).
+func _plaster_tex() -> ImageTexture:
+	var n := FastNoiseLite.new()
+	n.seed = 21
+	n.frequency = 0.05
+	n.fractal_octaves = 3
+	var img := Image.create(128, 128, true, Image.FORMAT_RGB8)
+	for y in 128:
+		for x in 128:
+			var v := 0.9 + n.get_noise_2d(x, y) * 0.08
+			if y % 64 < 2: v *= 0.8                  # horizontal joint every metre
+			elif (x + (32 if y >= 64 else 0)) % 128 < 2: v *= 0.86
+			img.set_pixel(x, y, Color(v, v, v))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
 
 func _add_box(st: SurfaceTool, c: Vector3, sz: Vector3, col: Color) -> void:
 	var h := sz * 0.5

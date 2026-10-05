@@ -53,6 +53,8 @@ pointing/emulate_touch_from_mouse=true
 
 [physics]
 
+3d/physics_engine="Jolt Physics"
+
 common/physics_ticks_per_second=60
 
 [rendering]

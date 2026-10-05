@@ -28,7 +28,7 @@ var cam_rig: Node3D
 var cam_pivot: Node3D
 var spring: SpringArm3D
 var camera: Camera3D
-var model: SoldierModel
+var model: HumanModel
 var shape_node: CollisionShape3D
 var capsule: CapsuleShape3D
 
@@ -74,7 +74,7 @@ func _ready() -> void:
 	floor_snap_length = 0.4
 	floor_max_angle = deg_to_rad(50)
 
-	model = SoldierModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
+	model = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
 	add_child(model)
 	_refresh_gear()
 

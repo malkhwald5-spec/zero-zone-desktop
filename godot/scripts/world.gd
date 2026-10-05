@@ -794,18 +794,25 @@ func sound_boom(pos: Vector3) -> void:
 	p.play()
 	p.finished.connect(p.queue_free)
 
+var _sounds_playing := 0
+
 func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 	if not Game.settings.sound: return
+	# Far shots are inaudible anyway; and cap how many play at once.
+	if not own and (_sounds_playing >= 14 or pos.distance_to(player.global_position) > 450.0): return
+	_sounds_playing += 1
 	var p := AudioStreamPlayer3D.new()
 	p.stream = _shot_stream
 	p.unit_size = 25.0
 	p.max_distance = 600.0
 	p.volume_db = -4.0 if own else 0.0
-	p.pitch_scale = {"pistol": 1.3, "smg": 1.4, "shotgun": 0.7, "ar": 1.0, "sr": 0.75}.get(cls, 1.0) * randf_range(0.95, 1.05)
+	p.pitch_scale = {"pistol": 1.3, "smg": 1.4, "shotgun": 0.7, "ar": 1.0, "sr": 0.75, "lmg": 0.95}.get(cls, 1.0) * randf_range(0.95, 1.05)
 	add_child(p)
 	p.global_position = pos
 	p.play()
-	p.finished.connect(p.queue_free)
+	p.finished.connect(func():
+		_sounds_playing -= 1
+		p.queue_free())
 
 # ---------- Map texture (rendered once from above) ----------
 func _capture_map() -> void:

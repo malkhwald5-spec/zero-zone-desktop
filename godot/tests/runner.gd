@@ -58,7 +58,7 @@ func _run() -> void:
 	print("world built; bots=", world.bots.size(), " pickups=", world.pickups.size())
 	await shot("plane")
 	# Wait until the plane is over land, then jump.
-	for i in 200:
+	for i in 900:
 		if world.plane_over_land(): break
 		await wait(0.1)
 	world.player.interact()
