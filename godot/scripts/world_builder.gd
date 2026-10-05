@@ -637,8 +637,9 @@ func _grass() -> void:
 	grass_mat.set_shader_parameter("maskmap", mask_tex)
 	grass_mat.set_shader_parameter("noise_a", noise_a)
 	grass_mat.set_shader_parameter("map_size", island.size)
-	var spacing := 0.42 if Game.settings.quality in ["high", "ultra"] else 0.6
-	var radius := 55.0 if Game.settings.quality == "ultra" else 40.0
+	var lv := Game.quality_level()
+	var spacing: float = [0.6, 0.6, 0.42, 0.42, 0.42][lv]
+	var radius: float = [30.0, 32.0, 40.0, 48.0, 55.0][lv]
 	grass_snap = spacing * 12.0
 	grass_mat.set_shader_parameter("radius", radius)
 	var xforms := []

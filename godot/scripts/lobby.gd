@@ -982,16 +982,17 @@ func _seg(values: Array, names: Array, key: String, page: String) -> HBoxContain
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 2)
 	for i in values.size():
-		var v: String = values[i]
+		var v = values[i]
 		var on: bool = Game.settings[key] == v
-		var b := UiKit.button(names[i], func(): Game.settings[key] = v; Game.save_data(); _open(page), Vector2(0, 38), UiKit.style(UiKit.YELLOW if on else Color(1, 1, 1, 0.08), 3, Color(0, 0, 0, 0), 0, 10), 15, UiKit.INK if on else Color.WHITE)
+		var b := UiKit.button(names[i], func(): Game.settings[key] = v; Game.save_data(); Game.apply_fps(); _open(page), Vector2(0, 38), UiKit.style(UiKit.YELLOW if on else Color(1, 1, 1, 0.08), 3, Color(0, 0, 0, 0), 0, 10), 15, UiKit.INK if on else Color.WHITE)
 		hb.add_child(b)
 	return hb
 
 func _page_settings(body: VBoxContainer) -> void:
 	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "settings")))
 	body.add_child(_row("طريقة التحكم", _seg(["touch", "kbm"], ["أزرار الشاشة", "كيبورد وماوس"], "controls", "settings")))
-	body.add_child(_row("جودة الرسوميات", _seg(["low", "medium", "high", "ultra"], ["منخفضة", "متوسطة", "عالية", "خارقة"], "quality", "settings")))
+	body.add_child(_row("جودة الرسوميات", _seg(Game.QUALITIES, Game.QUALITY_NAMES, "quality", "settings")))
+	body.add_child(_row("عدد الإطارات", _seg(Game.FPS_OPTIONS, Game.FPS_OPTIONS.map(func(f): return str(f)), "fps", "settings")))
 	body.add_child(_row("كرت الشاشة", UiKit.label(RenderingServer.get_video_adapter_name(), 14, Color(1, 1, 1, 0.7), null, 0)))
 	var sl := HSlider.new()
 	sl.min_value = 0.3

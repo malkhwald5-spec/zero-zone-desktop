@@ -39,7 +39,8 @@ const WARDROBE := [
 
 var settings := {
 	"controls": "kbm",        # "kbm" (keyboard + mouse, PC default) or "touch" (on-screen buttons)
-	"quality": "high",        # "low" | "medium" | "high" | "ultra"
+	"quality": "medium",      # PUBG Mobile names: "low" سلس | "medium" متوازن | "high" HD | "hdr" HDR | "ultra" ألترا HD
+	"fps": 60,                # frame-rate cap: 30 | 60 | 90 | 120
 	"sensitivity": 1.0,
 	"sound": true,
 	"difficulty": "normal",
@@ -57,12 +58,13 @@ var cursor_free := false
 
 func _ready() -> void:
 	load_data()
+	apply_fps.call_deferred()
 
-## First launch: integrated graphics (Intel) start on medium, real cards on high.
+## First launch: integrated graphics (Intel) start on متوازن, real cards on HD.
 func _auto_quality() -> void:
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
-	if gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe"):
-		settings.quality = "medium"
+	if not (gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe")):
+		settings.quality = "high"
 
 func load_data() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -119,21 +121,43 @@ func level() -> int:
 	return 1 + int((stats.kills * 10 + stats.games * 25 + stats.wins * 100) / 200)
 
 ## Applies graphics quality to an Environment and the main sun light.
+## Graphics presets named like PUBG Mobile, from fastest to prettiest.
+const QUALITIES := ["low", "medium", "high", "hdr", "ultra"]
+const QUALITY_NAMES := ["سلس", "متوازن", "HD", "HDR", "ألترا HD"]
+const FPS_OPTIONS := [30, 60, 90, 120]
+
+## 0 = سلس ... 4 = ألترا HD
+func quality_level() -> int:
+	return max(QUALITIES.find(settings.quality), 0)
+
+## Frame-rate cap. V-sync is off so the cap (not the monitor) decides.
+func apply_fps() -> void:
+	if DisplayServer.get_name() == "headless":
+		return    # tests run as fast as they can
+	Engine.max_fps = int(settings.get("fps", 60))
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+
 func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
-	var q: String = settings.quality
-	var hi := q == "high" or q == "ultra"
+	var lv := quality_level()
 	if env:
-		env.ssao_enabled = q != "low"
-		env.glow_enabled = q != "low"
-		env.volumetric_fog_enabled = hi
-		env.ssil_enabled = q == "ultra"
+		env.ssao_enabled = lv >= 2
+		env.glow_enabled = lv >= 1
+		env.volumetric_fog_enabled = lv >= 2
+		env.ssil_enabled = lv >= 3
+		env.ssr_enabled = false
 		env.sdfgi_enabled = false
 	if sun:
-		sun.shadow_enabled = q != "low"
-		sun.directional_shadow_max_distance = {"ultra": 400.0, "high": 260.0}.get(q, 140.0)
-		sun.light_angular_distance = 0.5 if q == "ultra" else 0.0
+		sun.shadow_enabled = lv >= 1
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 300.0, 400.0][lv]
+		sun.light_angular_distance = 0.5 if lv == 4 else 0.0
 	var vp := get_viewport()
-	vp.msaa_3d = {"ultra": Viewport.MSAA_4X, "high": Viewport.MSAA_2X}.get(q, Viewport.MSAA_DISABLED)
-	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if q == "medium" else Viewport.SCREEN_SPACE_AA_DISABLED
-	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_HIGH if hi else RenderingServer.SHADOW_QUALITY_SOFT_LOW)
-	RenderingServer.directional_shadow_atlas_set_size(8192 if q == "ultra" else 4096, true)
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_2X, Viewport.MSAA_4X][lv]
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if lv <= 1 else Viewport.SCREEN_SPACE_AA_DISABLED
+	# "سلس" draws the 3D scene at 80% and sharpens it back up (like the mobile game).
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if lv == 0 else Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = 0.8 if lv == 0 else 1.0
+	vp.mesh_lod_threshold = [4.0, 2.0, 1.0, 1.0, 0.5][lv]
+	RenderingServer.directional_soft_shadow_filter_set_quality([RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW, RenderingServer.SHADOW_QUALITY_SOFT_LOW, RenderingServer.SHADOW_QUALITY_SOFT_HIGH, RenderingServer.SHADOW_QUALITY_SOFT_HIGH][lv])
+	RenderingServer.directional_shadow_atlas_set_size([2048, 2048, 4096, 4096, 8192][lv], true)
+	apply_fps()
