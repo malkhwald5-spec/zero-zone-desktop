@@ -112,11 +112,15 @@ static func body(kind: String) -> Dictionary:
 			var tri := [c, b, a] if e == steps else [c, a, b]
 			for v in tri: trim.add_vertex(v)
 	var mesh := ArrayMesh.new()
-	for st in [paint, glass, trim]:
+	var names := []
+	for pair in [["paint", paint], ["glass", glass], ["trim", trim]]:
+		var st: SurfaceTool = pair[1]
+		if pair[0] == "glass" and kind == "jeep": continue      # open top: no glass in the body
 		st.generate_normals()
 		st.commit(mesh)
+		names.append(pair[0])
 	var details := _details(kind, sp)
-	var d := {"mesh": mesh, "details": details, "spec": sp}
+	var d := {"mesh": mesh, "details": details, "spec": sp, "surfaces": names}
 	_cache[kind] = d
 	return d
 

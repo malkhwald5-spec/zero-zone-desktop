@@ -8,6 +8,19 @@ uniform sampler2D noise_a : filter_linear_mipmap, repeat_enable;
 uniform sampler2D noise_b : filter_linear_mipmap, repeat_enable;
 uniform float map_size = 3072.0;
 uniform float texel = 0.001953125; // 1 / (N - 1)
+// Photo textures (CC0, ambientCG): colour + normal per ground type.
+uniform sampler2D grass_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D grass_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D dirt_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D dirt_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D sand_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D sand_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D rock_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D rock_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D asphalt_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D asphalt_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D concrete_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform bool use_normals = true;
 
 varying vec3 wpos;
 varying float hgt;
@@ -28,50 +41,67 @@ void vertex() {
 	hgt = h;
 }
 
+// Two scales, the second rotated, mixed by a noise value: hides tiling.
+vec2 rot2(vec2 p) { return vec2(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8); }
+vec3 tcol(sampler2D t, vec2 p, float sc, float k) {
+	return mix(texture(t, p / sc).rgb, texture(t, rot2(p) / (sc * 2.7) + 0.31).rgb, k);
+}
+vec2 tnrm(sampler2D t, vec2 p, float sc) {
+	return texture(t, p / sc).rg * 2.0 - 1.0;
+}
+
 void fragment() {
 	vec4 mask = texture(maskmap, UV);
 	float n1 = texture(noise_a, wpos.xz / 37.0).r;
 	float n2 = texture(noise_b, wpos.xz / 7.0).r;
 	float n3 = texture(noise_a, wpos.xz / 230.0).r;
-	float n4 = texture(noise_b, wpos.xz / 1.3).r;
 	float dist = length(wpos - CAMERA_POSITION_WORLD);
-	float near = 1.0 - smoothstep(30.0, 90.0, dist);
 	vec3 wn = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	float slope = 1.0 - wn.y;
+	float k = smoothstep(0.3, 0.7, n1) * 0.6 + 0.2;
 
-	vec3 grass = mix(vec3(0.12, 0.2, 0.06), vec3(0.2, 0.28, 0.08), n1);
-	grass = mix(grass, vec3(0.3, 0.3, 0.13), smoothstep(0.55, 0.85, n3) * 0.6);
-	grass *= 0.8 + n2 * 0.35;
-	vec3 dirt = mix(vec3(0.26, 0.2, 0.13), vec3(0.34, 0.27, 0.18), n2);
-	vec3 rock = mix(vec3(0.3, 0.29, 0.27), vec3(0.42, 0.41, 0.38), n2);
-	vec3 sand = mix(vec3(0.52, 0.46, 0.33), vec3(0.6, 0.54, 0.4), n2);
-	vec3 wet = vec3(0.24, 0.21, 0.15);
-	vec3 field = mix(vec3(0.46, 0.38, 0.16), vec3(0.54, 0.45, 0.2), n2) * (0.85 + 0.15 * sin(wpos.x * 1.4));
-	vec3 asphalt = mix(vec3(0.09, 0.09, 0.1), vec3(0.15, 0.15, 0.16), n2);
-	vec3 paved = mix(vec3(0.32, 0.3, 0.27), vec3(0.4, 0.37, 0.33), n2);
+	vec3 grass = tcol(grass_c, wpos.xz, 4.0, k) * mix(vec3(0.82, 0.9, 0.7), vec3(1.0, 0.95, 0.75), n3);
+	vec3 dirt = tcol(dirt_c, wpos.xz, 3.5, k);
+	vec3 sand = tcol(sand_c, wpos.xz, 4.0, k);
+	vec3 asphalt = tcol(asphalt_c, wpos.xz, 5.0, k) * 0.85;
+	vec3 paved = tcol(concrete_c, wpos.xz, 6.0, k) * 0.7;
+	// Rock: triplanar so steep slopes are not stretched.
+	vec3 tw = pow(abs(wn), vec3(4.0));
+	tw /= (tw.x + tw.y + tw.z);
+	vec3 rock = texture(rock_c, wpos.zy / 6.0).rgb * tw.x + texture(rock_c, wpos.xz / 6.0).rgb * tw.y + texture(rock_c, wpos.xy / 6.0).rgb * tw.z;
+	vec3 field = mix(dirt, vec3(0.55, 0.45, 0.2), 0.45) * (0.85 + 0.15 * sin(wpos.x * 1.4));
+	vec3 wet = sand * 0.5;
 
-	vec3 col = grass;
-	col = mix(col, dirt, smoothstep(0.62, 0.8, n3) * 0.5);
-	col = mix(col, dirt, smoothstep(0.62, 0.78, n2 * 0.6 + n4 * 0.4) * 0.45);
-	col = mix(col, field, mask.g);
-	col = mix(col, mix(dirt, paved, 0.6), mask.b * 0.9);
-	float rocky = max(smoothstep(0.32, 0.5, slope), smoothstep(48.0, 58.0, hgt));
-	col = mix(col, rock, rocky);
-	float sandy = 1.0 - smoothstep(1.6, 2.6, hgt + (n2 - 0.5) * 0.8);
-	col = mix(col, sand, sandy);
-	col = mix(col, wet, 1.0 - smoothstep(0.0, 0.7, hgt));
-	float road = smoothstep(0.3, 0.6, mask.r);
-	col = mix(col, asphalt, road);
-	// Close-up grain so the ground does not look like flat paint.
-	col *= mix(1.0, 0.82 + n4 * 0.36, near);
+	// Layer weights (each step blends the previous result towards a layer).
+	float w_dirt = max(smoothstep(0.62, 0.8, n3) * 0.55, smoothstep(0.6, 0.78, n2 * 0.6 + n1 * 0.4) * 0.4);
+	float w_field = mask.g;
+	float w_town = mask.b * 0.9;
+	float w_rock = max(smoothstep(0.32, 0.5, slope), smoothstep(48.0, 58.0, hgt));
+	float w_sand = 1.0 - smoothstep(1.6, 2.6, hgt + (n2 - 0.5) * 0.8);
+	float w_wet = 1.0 - smoothstep(0.0, 0.7, hgt);
+	float w_road = smoothstep(0.3, 0.6, mask.r);
+
+	vec3 col = mix(grass, dirt, w_dirt);
+	col = mix(col, field, w_field);
+	col = mix(col, mix(dirt, paved, 0.65), w_town);
+	col = mix(col, rock, w_rock);
+	col = mix(col, sand, w_sand);
+	col = mix(col, wet, w_wet);
+	col = mix(col, asphalt, w_road);
+	col *= 0.85 + 0.3 * n3;     // large-scale colour variation
 	ALBEDO = col;
-	ROUGHNESS = mix(0.95, 0.75, road);
+	ROUGHNESS = mix(0.95, 0.8, w_road);
 	SPECULAR = 0.3;
-	// Detail normal from the fine noise.
-	float e = 0.02;
-	float dx = texture(noise_b, (wpos.xz + vec2(e * 1.3, 0.0)) / 1.3).r - n4;
-	float dz = texture(noise_b, (wpos.xz + vec2(0.0, e * 1.3)) / 1.3).r - n4;
-	float bump = mix(1.2, 3.0, rocky + sandy * 0.5) * (1.0 - road * 0.7) * (1.0 - mask.b * 0.6) * near;
-	vec3 bn = normalize(vec3(-dx * bump / e * 0.05, 1.0, -dz * bump / e * 0.05));
-	NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(bn.x, 0.0, bn.z, 0.0)).xyz);
+	if (use_normals) {
+		float near = 1.0 - smoothstep(40.0, 140.0, dist);
+		vec2 nb = tnrm(grass_n, wpos.xz, 4.0);
+		nb = mix(nb, tnrm(dirt_n, wpos.xz, 3.5), max(w_dirt, w_field));
+		nb = mix(nb, tnrm(dirt_n, wpos.xz, 3.5) * 0.6, w_town);
+		nb = mix(nb, tnrm(rock_n, wpos.xz, 6.0) * 1.3, w_rock);
+		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), w_sand);
+		nb = mix(nb, tnrm(asphalt_n, wpos.xz, 5.0), w_road);
+		// Tangent space (u = +x, v = +z) to world, then to view space.
+		vec3 bent = normalize(wn + vec3(nb.x, 0.0, -nb.y) * 0.9 * near);
+		NORMAL = normalize((VIEW_MATRIX * vec4(bent, 0.0)).xyz);
+	}
 }

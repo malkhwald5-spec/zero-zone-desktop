@@ -9,6 +9,8 @@ uniform sampler2D noise_a : filter_linear_mipmap, repeat_enable;
 uniform float map_size = 3072.0;
 uniform vec3 center = vec3(0.0);
 uniform float radius = 40.0;
+uniform sampler2D grass_c : source_color, filter_linear_mipmap, repeat_enable;
+varying vec3 ground_col;
 
 varying float tip;
 varying float tint;
@@ -24,6 +26,8 @@ void vertex() {
 	tip = 1.0 - UV.y;
 	tint = textureLod(noise_a, base.xz / 31.0, 0.0).r;
 	dry = textureLod(noise_a, base.xz / 97.0 + 0.3, 0.0).r;
+	// Same colour as the ground texture under the clump (blurred mip), so blades blend in.
+	ground_col = textureLod(grass_c, base.xz / 4.0, 6.0).rgb;
 	vec3 local = VERTEX - base;
 	local.y *= keep * (0.6 + tint * 0.9);
 	local.xz *= mix(0.3, 1.0, keep);
@@ -35,9 +39,9 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 lo = vec3(0.05, 0.09, 0.02);
-	vec3 hi = mix(vec3(0.17, 0.26, 0.06), vec3(0.24, 0.29, 0.08), tint);
-	hi = mix(hi, vec3(0.36, 0.33, 0.14), smoothstep(0.55, 0.8, dry) * 0.7);
+	vec3 lo = ground_col * 0.35;
+	vec3 hi = ground_col * mix(1.0, 1.25, tint) * vec3(0.95, 1.0, 0.85);
+	hi = mix(hi, vec3(0.36, 0.33, 0.14), smoothstep(0.6, 0.85, dry) * 0.5);
 	ALBEDO = mix(lo, hi, smoothstep(0.0, 0.8, tip));
 	ROUGHNESS = 0.85;
 	SPECULAR = 0.35;

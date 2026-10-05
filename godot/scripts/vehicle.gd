@@ -105,10 +105,10 @@ func _build_model() -> void:
 	pm.clearcoat_enabled = true
 	pm.clearcoat = 0.6
 	pm.clearcoat_roughness = 0.15
-	body.set_surface_override_material(0, pm)
 	var gm := _shared_mat("glass", Color(0.08, 0.1, 0.12), 0.04, 0.6)
-	body.set_surface_override_material(1, gm)
-	body.set_surface_override_material(2, _shared_mat("trim", Color("161719"), 0.8))
+	var by_name := {"paint": pm, "glass": gm, "trim": _shared_mat("trim", Color("161719"), 0.8)}
+	for i in data.surfaces.size():
+		body.set_surface_override_material(i, by_name[data.surfaces[i]])
 	add_child(body)
 	var head := _shared_mat("head", Color("fff6dc"), 0.1)
 	head.emission_enabled = true

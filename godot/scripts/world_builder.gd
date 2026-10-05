@@ -132,6 +132,11 @@ func _terrain() -> void:
 	mat.set_shader_parameter("noise_b", noise_b)
 	mat.set_shader_parameter("map_size", s)
 	mat.set_shader_parameter("texel", 1.0 / float(Island.N - 1))
+	for t in ["grass", "dirt", "sand", "rock", "asphalt"]:
+		mat.set_shader_parameter(t + "_c", load("res://assets/textures/%s_col.jpg" % t))
+		mat.set_shader_parameter(t + "_n", load("res://assets/textures/%s_nrm.jpg" % t))
+	mat.set_shader_parameter("concrete_c", load("res://assets/textures/concrete_col.jpg"))
+	mat.set_shader_parameter("use_normals", Game.quality_level() >= 1)
 	var mi := MeshInstance3D.new()
 	mi.mesh = plane
 	mi.material_override = mat
@@ -193,27 +198,14 @@ func _wall_material() -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
 	m.vertex_color_is_srgb = true
-	m.albedo_texture = _plaster_tex()
+	m.albedo_texture = load("res://assets/textures/plaster_col.jpg")
+	m.normal_enabled = true
+	m.normal_texture = load("res://assets/textures/plaster_nrm.jpg")
+	m.normal_scale = 0.8
 	m.uv1_triplanar = true
-	m.uv1_scale = Vector3(0.5, 0.5, 0.5)     # one tile = 2 m
+	m.uv1_scale = Vector3(0.33, 0.33, 0.33)  # one tile = 3 m
 	m.roughness = 0.92
 	return m
-
-## Light plaster with faint stains and panel joints (multiplied by the house colour).
-func _plaster_tex() -> ImageTexture:
-	var n := FastNoiseLite.new()
-	n.seed = 21
-	n.frequency = 0.05
-	n.fractal_octaves = 3
-	var img := Image.create(128, 128, true, Image.FORMAT_RGB8)
-	for y in 128:
-		for x in 128:
-			var v := 0.9 + n.get_noise_2d(x, y) * 0.08
-			if y % 64 < 2: v *= 0.8                  # horizontal joint every metre
-			elif (x + (32 if y >= 64 else 0)) % 128 < 2: v *= 0.86
-			img.set_pixel(x, y, Color(v, v, v))
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
 
 func _add_box(st: SurfaceTool, c: Vector3, sz: Vector3, col: Color) -> void:
 	var h := sz * 0.5
@@ -276,12 +268,16 @@ func _buildings() -> void:
 	glass_mat.metallic = 0.6
 	var roof_mat := StandardMaterial3D.new()
 	roof_mat.vertex_color_use_as_albedo = true
-	roof_mat.albedo_texture = noise_a
+	roof_mat.vertex_color_is_srgb = true
+	roof_mat.albedo_texture = load("res://assets/textures/roof_col.jpg")
+	roof_mat.normal_enabled = true
+	roof_mat.normal_texture = load("res://assets/textures/roof_nrm.jpg")
 	roof_mat.uv1_triplanar = true
-	roof_mat.uv1_scale = Vector3(0.6, 0.6, 0.6)
+	roof_mat.uv1_scale = Vector3(0.4, 0.4, 0.4)
 	roof_mat.roughness = 0.8
 	var tints := [Color("e9e0cc"), Color("dcc9a8"), Color("efe8dc"), Color("d2c2ad"), Color("e2d3bd")]
-	var roofs := [Color("8c3b2e"), Color("6e4a35"), Color("5c5f66"), Color("7a2f2f"), Color("4f5d4a")]
+	# Multiplies the terracotta tile texture: natural tiles, darker, grey-brown, red, weathered.
+	var roofs := [Color("ffffff"), Color("c9b6a6"), Color("a8a8ae"), Color("f2c8b8"), Color("b8b8a0")]
 	var parent := Node3D.new()
 	parent.name = "Buildings"
 	root.add_child(parent)
@@ -461,9 +457,11 @@ func _trees() -> void:
 	trunk.radial_segments = 8
 	trunk.rings = 2
 	var trunk_mat := StandardMaterial3D.new()
-	trunk_mat.albedo_color = Color("5a4434")
-	trunk_mat.albedo_texture = noise_b
-	trunk_mat.uv1_scale = Vector3(1.0, 6.0, 1.0)
+	trunk_mat.albedo_color = Color("c8b8a8")
+	trunk_mat.albedo_texture = load("res://assets/textures/bark_col.jpg")
+	trunk_mat.normal_enabled = true
+	trunk_mat.normal_texture = load("res://assets/textures/bark_nrm.jpg")
+	trunk_mat.uv1_scale = Vector3(2.0, 3.0, 1.0)
 	trunk_mat.roughness = 1.0
 	trunk.material = trunk_mat
 	var fol := ShaderMaterial.new()
@@ -558,9 +556,12 @@ func _rock_mesh() -> ArrayMesh:
 func _rocks() -> void:
 	var rock := _rock_mesh()
 	var rm := StandardMaterial3D.new()
-	rm.albedo_color = Color("6e6f68")
-	rm.albedo_texture = noise_b
+	rm.albedo_color = Color("d8d4cc")
+	rm.albedo_texture = load("res://assets/textures/rock_col.jpg")
+	rm.normal_enabled = true
+	rm.normal_texture = load("res://assets/textures/rock_nrm.jpg")
 	rm.uv1_triplanar = true
+	rm.uv1_scale = Vector3(0.4, 0.4, 0.4)
 	rm.roughness = 0.95
 	rock.surface_set_material(0, rm)
 	var mm := _multimesh(rock, island.rocks.size(), false)
@@ -637,6 +638,7 @@ func _grass() -> void:
 	grass_mat.set_shader_parameter("maskmap", mask_tex)
 	grass_mat.set_shader_parameter("noise_a", noise_a)
 	grass_mat.set_shader_parameter("map_size", island.size)
+	grass_mat.set_shader_parameter("grass_c", load("res://assets/textures/grass_col.jpg"))
 	var lv := Game.quality_level()
 	var spacing: float = [0.6, 0.6, 0.42, 0.42, 0.42][lv]
 	var radius: float = [30.0, 32.0, 40.0, 48.0, 55.0][lv]

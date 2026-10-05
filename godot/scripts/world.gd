@@ -134,8 +134,6 @@ func _make_plane() -> void:
 
 ## Four-engine military transport (C-130 style) with spinning propellers and
 ## an open rear ramp. Faces -Z.
-var plane_props: Array = []
-
 func _plane_model() -> Node3D:
 	var plane := Node3D.new()
 	var skin := StandardMaterial3D.new()
@@ -188,7 +186,7 @@ func _plane_model() -> Node3D:
 		w.material_override = glass
 		plane.add_child(w)
 	# Propellers: four blades each, spun every frame.
-	plane_props.clear()
+	var props := []
 	for x in [-13.0, -6.5, 6.5, 13.0]:
 		var hub := Node3D.new()
 		hub.position = Vector3(x, 1.7, -6.6)
@@ -200,7 +198,8 @@ func _plane_model() -> Node3D:
 			blade.position = Vector3(0, 1.0, 0).rotated(Vector3.BACK, k * PI / 2)
 			blade.rotation.z = k * PI / 2
 			hub.add_child(blade)
-		plane_props.append(hub)
+		props.append(hub)
+	plane.set_meta("props", props)
 	return plane
 
 func _cyl(r1: float, r2: float, h: float) -> CylinderMesh:
@@ -621,7 +620,7 @@ func _process(delta: float) -> void:
 	if plane_active:
 		plane_t += delta / plane_dur
 		plane.global_position = plane_position()
-		for pr in plane_props: pr.rotate_object_local(Vector3.BACK, delta * 40.0)
+		for pr in plane.get_meta("props", []): pr.rotate_object_local(Vector3.BACK, delta * 40.0)
 		if plane_t >= 1.0:
 			plane_active = false
 			plane.visible = false
