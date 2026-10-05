@@ -219,6 +219,8 @@ func _draw_hud() -> void:
 		_draw_prompt(c, sz, p)
 		if p.throw_ready: _draw_throw_arc(c, p)
 		_draw_throw_card(c, sz, p)
+	elif p.state == "vehicle":
+		_draw_vehicle(c, sz, p)
 	elif p.state in ["fall", "chute"]:
 		_draw_gauges(c, sz, p)
 	elif p.state == "plane":
@@ -427,9 +429,12 @@ func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
 		_draw_heal(c, sz, p)
 		return
 	var it = world.nearest_pickup(p.global_position, 2.4)
-	if it == null: return
-	var label: String = world.pickup_name(it.get_meta("data"))
 	var key := "[F] " if Game.settings.controls == "kbm" else ""
+	if it == null:
+		if world.nearest_vehicle(p.global_position, 3.5):
+			_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "ركوب السيارة", 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		return
+	var label: String = world.pickup_name(it.get_meta("data"))
 	_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "التقاط: " + label, 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
 
 func _draw_heal(c: Control, sz: Vector2, p: Player) -> void:
@@ -595,3 +600,24 @@ func _crate_icon(c: Control, at: Vector2, landed: bool) -> void:
 	c.draw_rect(Rect2(at - Vector2(6, 5), Vector2(12, 10)), Color.WHITE, false, 1.5)
 	if not landed:
 		c.draw_arc(at + Vector2(0, -10), 8.0, PI, TAU, 10, Color.WHITE, 2.0)
+
+## Speedometer and car health while driving.
+func _draw_vehicle(c: Control, sz: Vector2, p: Player) -> void:
+	var v: Vehicle = p.vehicle
+	if v == null: return
+	var ctr := Vector2(sz.x * 0.5, sz.y - 70.0)
+	var kmh := absf(v.speed()) * 3.6
+	c.draw_arc(ctr, 46.0, PI * 0.75, PI * 2.25, 40, Color(0, 0, 0, 0.45), 8.0)
+	c.draw_arc(ctr, 46.0, PI * 0.75, PI * 0.75 + PI * 1.5 * clampf(kmh / 130.0, 0.0, 1.0), 40, Color.WHITE, 8.0)
+	_text(c, ctr + Vector2(0, 8), str(int(kmh)), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 90)
+	_text(c, ctr + Vector2(0, 26), "كم/س", 12, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_CENTER, null, 90)
+	var w := 160.0
+	var hp := clampf(v.health / Vehicle.MAX_HEALTH, 0.0, 1.0)
+	var r := Rect2(ctr.x - w * 0.5, ctr.y + 40.0, w, 7.0)
+	c.draw_rect(r, Color(0, 0, 0, 0.5))
+	c.draw_rect(Rect2(r.position, Vector2(w * hp, 7.0)), Color("ffcf5a") if hp > 0.3 else Color("ff4a3a"))
+	_text(c, Vector2(ctr.x, r.end.y + 16), "حالة السيارة", 12, Color(1, 1, 1, 0.75), HORIZONTAL_ALIGNMENT_CENTER, null, 160)
+	# Player health stays visible too.
+	var hw := 260.0
+	c.draw_rect(Rect2(sz.x * 0.5 - hw * 0.5, sz.y - 14.0, hw, 6.0), Color(0, 0, 0, 0.5))
+	c.draw_rect(Rect2(sz.x * 0.5 - hw * 0.5, sz.y - 14.0, hw * clampf(p.health / 100.0, 0.0, 1.0), 6.0), Color.WHITE)

@@ -52,7 +52,9 @@ func _interact_label() -> String:
 		"fall": return "افتح المظلة" if p.global_position.y < Player.PLANE_ALT - 40.0 else ""
 		"ground":
 			var it = hud.world.nearest_pickup(p.global_position, 2.4)
-			return "التقاط" if it else ""
+			if it: return "التقاط"
+			return "ركوب" if hud.world.nearest_vehicle(p.global_position, 3.5) else ""
+		"vehicle": return "نزول"
 	return ""
 
 func _hit_button(pos: Vector2) -> Dictionary:

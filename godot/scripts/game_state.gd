@@ -1,7 +1,7 @@
 extends Node
 ## Global state (autoload "Game"): settings, player profile, career stats and shared data.
 
-const MAP_SIZE := 3072.0          # metres; shown on the map as an 8×8 grid
+const MAP_SIZE := 4096.0          # metres; shown on the map as an 8×8 grid (512 m squares)
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
 const VERSION := "v0.7.2"

@@ -14,6 +14,7 @@ var _zone_tick := 0.0
 var zone_deaths := 0
 var smokes: Array = []          # {pos: Vector3, r, t}
 var airdrops: Array = []        # Airdrop nodes (falling or landed)
+var vehicles: Array = []
 var _drop_flights: Array = []   # {node, from, to, t, dur, drop: Vector3, dropped}
 var _drop_phase := 0
 var _boom_stream: AudioStreamWAV
@@ -62,6 +63,7 @@ func _build() -> void:
 	_shot_stream = _make_shot_sound()
 	_boom_stream = _make_boom_sound()
 	_spawn_loot()
+	_spawn_vehicles()
 	_make_plane()
 	loading.set_progress(0.85, "جاري تجهيز اللاعبين")
 	await _frame()
@@ -125,7 +127,7 @@ func _make_plane() -> void:
 	var d := Vector2(cos(a), sin(a)) * s * 0.75
 	plane_from = Vector3(c.x - d.x, Player.PLANE_ALT, c.y - d.y)
 	plane_to = Vector3(c.x + d.x, Player.PLANE_ALT, c.y + d.y)
-	plane_dur = plane_from.distance_to(plane_to) / 70.0
+	plane_dur = plane_from.distance_to(plane_to) / 90.0
 	plane = _plane_model()
 	add_child(plane)
 	plane.look_at_from_position(plane_from, plane_to, Vector3.UP)
@@ -605,6 +607,40 @@ func _process(delta: float) -> void:
 						pickup(player, it, true)
 						break
 
+# ---------- Vehicles ----------
+const CAR_COLORS := [Color("b8402f"), Color("2f5fb0"), Color("e0e0dc"), Color("2b2d30"), Color("c9a03a"), Color("3f6b3a")]
+
+## Cars parked along the roads, roughly one per 300 m of road.
+func _spawn_vehicles() -> void:
+	for rd in island.roads:
+		var a: Vector2 = rd.a
+		var b: Vector2 = rd.b
+		var n := int(a.distance_to(b) / 300.0) + (1 if randf() < 0.6 else 0)
+		for k in n:
+			var t := randf_range(0.15, 0.85)
+			var p := a.lerp(b, t)
+			var dir := (b - a).normalized()
+			p += Vector2(-dir.y, dir.x) * 6.0 * (1.0 if randf() < 0.5 else -1.0)
+			if island.height_at(p.x, p.y) < 0.8 or _in_building(p, 3.0): continue
+			var v := Vehicle.new()
+			v.world = self
+			v.paint = CAR_COLORS[randi() % CAR_COLORS.size()]
+			v.position = Vector3(p.x, island.height_at(p.x, p.y) + 0.9, p.y)
+			v.rotation.y = atan2(dir.x, dir.y) + (PI if randf() < 0.5 else 0.0)   # cars face +Z
+			add_child(v)
+			vehicles.append(v)
+
+func nearest_vehicle(p: Vector3, r: float) -> Vehicle:
+	var best: Vehicle = null
+	var bd := r
+	for v in vehicles:
+		if v.dead or v.driver != null: continue
+		var d: float = p.distance_to(v.global_position)
+		if d < bd:
+			bd = d
+			best = v
+	return best
+
 # ---------- Airdrops ----------
 ## One supply drop each time a new safe zone is announced (phases 2 to 5).
 func _update_airdrops(delta: float) -> void:
@@ -665,7 +701,8 @@ func nearest_airdrop(p: Vector3, r: float, ok: Callable) -> Node3D:
 
 # ---------- Grenades ----------
 ## Frag explosion: damage falls off with distance; walls and terrain protect.
-func explode(pos: Vector3, thrower: Node) -> void:
+func explode(pos: Vector3, thrower: Node, exclude: Array = []) -> void:
+	pos.y = maxf(pos.y, ground_height(pos) + 0.3)   # never start inside a slope
 	effects.explosion(pos)
 	sound_boom(pos)
 	var space := get_world_3d().direct_space_state
@@ -674,8 +711,15 @@ func explode(pos: Vector3, thrower: Node) -> void:
 		var target: Vector3 = a.global_position + Vector3(0, 0.9, 0)
 		var d := pos.distance_to(target)
 		if d > Grenade.FRAG_RADIUS: continue
-		var q := PhysicsRayQueryParameters3D.create(pos, target, 1)
-		if not space.intersect_ray(q).is_empty(): continue
+		# Covered only if both the body and the head are hidden from the blast.
+		var hidden := true
+		for hgt in [0.9, 1.6]:
+			var q := PhysicsRayQueryParameters3D.create(pos + Vector3(0, 0.2, 0), a.global_position + Vector3(0, hgt, 0), 1)
+			q.exclude = exclude
+			if space.intersect_ray(q).is_empty():
+				hidden = false
+				break
+		if hidden: continue
 		var dmg := Grenade.FRAG_DAMAGE * pow(1.0 - d / Grenade.FRAG_RADIUS, 1.3)
 		var killed: bool = a.take_damage(dmg, thrower, false)
 		if thrower == player and a != player:
@@ -683,6 +727,9 @@ func explode(pos: Vector3, thrower: Node) -> void:
 			if killed: player.kills += 1
 		elif killed and thrower is Bot and thrower != a:
 			thrower.kills += 1
+	for v in vehicles:
+		if v.dead or v.global_position.distance_to(pos) > Grenade.FRAG_RADIUS: continue
+		v.take_damage(Grenade.FRAG_DAMAGE * 2.0 * (1.0 - v.global_position.distance_to(pos) / Grenade.FRAG_RADIUS), thrower)
 	var pd := pos.distance_to(player.global_position)
 	if pd < 40.0: player.shake = maxf(player.shake, 1.0 - pd / 40.0)
 
@@ -762,6 +809,7 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 
 # ---------- Map texture (rendered once from above) ----------
 func _capture_map() -> void:
+	if DisplayServer.get_name() == "headless": return   # nothing is drawn in tests
 	var vp := SubViewport.new()
 	vp.size = Vector2i(1024, 1024)
 	vp.render_target_update_mode = SubViewport.UPDATE_ONCE

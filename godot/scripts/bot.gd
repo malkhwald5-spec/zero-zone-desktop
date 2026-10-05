@@ -334,6 +334,10 @@ func _go(p: Vector3) -> void:
 	path = world.route(global_position, p)
 
 func _move(delta: float) -> void:
+	var g: float = world.ground_height(global_position)
+	if global_position.y < g - 0.8 and not world.is_deep(global_position):
+		global_position.y = g + 0.1
+		velocity.y = 0.0
 	var wish := Vector3.ZERO
 	var speed := 4.6
 	if mode == "heal":

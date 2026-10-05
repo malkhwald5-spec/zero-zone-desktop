@@ -146,6 +146,25 @@ func _run() -> void:
 	await wait(2.5)
 	world.player.pitch = -0.05
 	await shot("airdrop_landed")
+	# A car: walk up to it, then drive.
+	var car: Vehicle = world.vehicles[0]
+	var ppos: Vector3 = world.player.global_position
+	var fw := Vector3(-sin(world.player.yaw), 0, -cos(world.player.yaw))
+	var cp: Vector3 = ppos + fw * 7.0 + Vector3(-12, 0, 0)
+	car.global_transform = Transform3D(Basis(Vector3.UP, world.player.yaw + 0.9), Vector3(cp.x, world.ground_height(cp) + 1.0, cp.z))
+	world.player.global_position = car.global_position + car.global_basis.x * 2.4
+	world.player.global_position.y = world.ground_height(world.player.global_position) + 0.2
+	world.player.yaw = atan2(-(car.global_position - world.player.global_position).x, -(car.global_position - world.player.global_position).z) + 0.5
+	await wait(1.5)
+	await shot("car_near")
+	world.player.enter_vehicle(car)
+	Game.settings.controls = "touch"
+	world.player.touch_move = Vector2(0.3, 1)
+	world.player.yaw = car.rotation.y + PI
+	await wait(2.5)
+	await shot("driving")
+	world.player.touch_move = Vector2.ZERO
+	Game.settings.controls = "kbm"
 	world.hud.toggle_bag()
 	world.hud.toggle_map()
 	await wait(0.4)

@@ -12,7 +12,8 @@ const PLANE_ALT := 600.0
 const CHUTE_AUTO := 120.0
 
 var world: Node
-var state := "plane"          # plane | fall | chute | ground | dead
+var state := "plane"          # plane | fall | chute | ground | vehicle | dead
+var vehicle: Vehicle = null
 var stance := "stand"         # stand | crouch | prone
 var health := 100.0
 var kills := 0
@@ -187,12 +188,18 @@ func interact() -> void:
 		"fall":
 			open_chute()
 		"ground":
+			var car: Vehicle = world.nearest_vehicle(global_position, 3.5)
 			var it = world.nearest_pickup(global_position, 2.4)
-			if it: world.pickup(self, it)
+			if it and (car == null or car.global_position.distance_to(global_position) > 2.8):
+				world.pickup(self, it)
+			elif car:
+				enter_vehicle(car)
+		"vehicle":
+			exit_vehicle()
 
 func jump_from_plane() -> void:
 	state = "fall"
-	velocity = world.plane_velocity() * 0.3
+	velocity = world.plane_velocity() * 0.25
 	message.emit("اسحب للأمام للغوص أسرع — افتح المظلة متى شئت")
 
 func open_chute() -> void:
@@ -243,6 +250,8 @@ func _physics_process(delta: float) -> void:
 			_air(delta)
 		"ground":
 			_ground(delta)
+		"vehicle":
+			_drive(delta)
 		"dead":
 			velocity.y -= GRAVITY * delta
 			velocity.x = 0
@@ -288,6 +297,11 @@ func _land() -> void:
 	message.emit("اجمع الأسلحة بسرعة!")
 
 func _ground(delta: float) -> void:
+	# Safety net: never stay below the terrain surface.
+	var g: float = world.ground_height(global_position)
+	if global_position.y < g - 0.8 and not world.is_deep(global_position):
+		global_position.y = g + 0.1
+		velocity.y = 0.0
 	fire_cd = maxf(0.0, fire_cd - delta)
 	recoil_kick = move_toward(recoil_kick, 0.0, delta * 6.0)
 	if reload_t > 0.0:
@@ -400,7 +414,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 			world.effects.impact(end, hit.normal, false)
 
 func on_ground() -> bool:
-	return state == "ground"
+	return state == "ground" or state == "vehicle"
 
 ## attacker is null for blue-zone damage.
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
@@ -439,6 +453,10 @@ func _update_camera(delta: float) -> void:
 			length = 9.0
 			shoulder = 0.0
 			head.y += 3.0
+		"vehicle":
+			head = vehicle.global_position + Vector3(0, 2.2, 0)
+			length = 7.5
+			shoulder = 0.0
 	if aiming and state == "ground":
 		length = 0.0 if zoom >= 3.0 else 1.5
 		shoulder = 0.0 if zoom >= 3.0 else 0.45
@@ -452,7 +470,7 @@ func _update_camera(delta: float) -> void:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 	spring.position.x = lerpf(spring.position.x, shoulder, minf(1.0, delta * 12.0))
 	camera.fov = lerpf(camera.fov, 70.0 / zoom, minf(1.0, delta * 14.0))
-	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane"
+	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane" and state != "vehicle"
 
 func scoped() -> bool:
 	return aiming and state == "ground" and float(weapon().get("zoom", 1.0)) >= 3.0
@@ -615,3 +633,45 @@ func release_throw() -> void:
 	g.global_position = throw_origin()
 	g.linear_velocity = throw_velocity()
 	g.angular_velocity = Vector3(randf(), randf(), randf()) * 6.0
+
+# ---------- Vehicles ----------
+func enter_vehicle(v: Vehicle) -> void:
+	if v.dead or v.driver != null: return
+	vehicle = v
+	v.driver = self
+	state = "vehicle"
+	stance = "stand"
+	shape_node.disabled = true
+	firing = false
+	aiming = false
+	throw_ready = false
+	cancel_heal()
+	message.emit("WASD للقيادة • Space فرامل • F للنزول")
+
+func exit_vehicle() -> void:
+	if vehicle == null: return
+	var v := vehicle
+	v.driver = null
+	v.throttle = 0.0
+	v.steer_in = 0.0
+	vehicle = null
+	# Step out on the left side (or the right if that side is blocked by water).
+	var side: Vector3 = v.global_transform.basis.x
+	var out := v.global_position - side * 1.9
+	if world.is_deep(out): out = v.global_position + side * 1.9
+	out.y = maxf(world.ground_height(out), v.global_position.y - 0.5) + 0.3
+	global_position = out
+	velocity = Vector3.ZERO
+	shape_node.disabled = false
+	if state != "dead": state = "ground"
+
+func _drive(_delta: float) -> void:
+	if vehicle == null or not is_instance_valid(vehicle) or vehicle.dead:
+		exit_vehicle()
+		return
+	global_position = vehicle.global_position + Vector3(0, 0.6, 0)
+	velocity = vehicle.linear_velocity
+	vehicle.throttle = move_input.y
+	vehicle.steer_in = move_input.x
+	vehicle.handbrake = jump_queued or (Game.settings.controls == "kbm" and Input.is_physical_key_pressed(KEY_SPACE))
+	jump_queued = false
