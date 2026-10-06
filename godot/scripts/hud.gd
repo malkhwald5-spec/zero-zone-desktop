@@ -214,8 +214,9 @@ func _draw_hud() -> void:
 	if p.state == "ground":
 		_draw_bottom(c, sz, p)
 		if p.scoped():
-			_draw_scope(c, sz)
-		_draw_crosshair(c, sz, p)
+			_draw_scope(c, sz, p.weapon())
+		else:
+			_draw_crosshair(c, sz, p)
 		_draw_prompt(c, sz, p)
 		if p.throw_ready: _draw_throw_arc(c, p)
 		_draw_throw_card(c, sz, p)
@@ -361,6 +362,13 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 		var ammo_txt := "%d/%d" % [s.mag, p.ammo[wd.ammo]]
 		_text(c, Vector2(rr.position.x + 6, rr.end.y - 7), ammo_txt, 14, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, bold, rr.size.x)
 		_text(c, Vector2(rr.end.x - 6, rr.end.y - 7), wd.name, 11, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, null, rr.size.x)
+		# Fitted attachments: one small lit square per slot (sight, muzzle, mag, grip).
+		var att: Dictionary = s.get("att", {})
+		for k in Items.ATTACH_SLOTS.size():
+			var slot_name: String = Items.ATTACH_SLOTS[k]
+			if not Items.ATTACH.values().any(func(a): return a.slot == slot_name and a["for"].has(wd.cls)): continue
+			var sq := Rect2(rr.end.x - 10 - (3 - k) * 11, rr.position.y + 4, 8, 8)
+			c.draw_rect(sq, Color("ffd34d") if att.has(slot_name) else Color(1, 1, 1, 0.15))
 		if active:
 			c.draw_colored_polygon(PackedVector2Array([Vector2(rr.get_center().x - 6, rr.position.y - 8), Vector2(rr.get_center().x + 6, rr.position.y - 8), Vector2(rr.get_center().x, rr.position.y - 2)]), Color("ffd34d"))
 	if p.reload_t > 0.0:
@@ -407,22 +415,72 @@ func _draw_crosshair(c: Control, sz: Vector2, p: Player) -> void:
 		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			c.draw_line(ctr + d * 7.0, ctr + d * 15.0, hc, 2.5)
 
-func _draw_scope(c: Control, sz: Vector2) -> void:
+## Looking through a sight: reflex sights (red dot, holographic) keep the view
+## open inside a thin housing; magnified scopes black out all but the lens.
+func _draw_scope(c: Control, sz: Vector2, w: Dictionary) -> void:
 	var ctr := sz * 0.5
+	var sight: String = w.get("sight", "")
+	var red := Color(1.0, 0.16, 0.12)
+	if sight == "reddot" or sight == "holo":
+		# Housing: dark frame around a slightly tinted glass.
+		var hw := minf(sz.x, sz.y) * 0.34
+		var r := Rect2(ctr - Vector2(hw, hw * 0.78), Vector2(hw * 2, hw * 1.56))
+		c.draw_rect(r, Color(0.3, 0.5, 0.6, 0.06))
+		c.draw_rect(r, Color(0.05, 0.05, 0.06, 0.9), false, 8.0)
+		c.draw_rect(r.grow(-7), Color(0.4, 0.42, 0.45, 0.6), false, 1.5)
+		if sight == "reddot":
+			c.draw_circle(ctr, 3.2, red)
+			c.draw_circle(ctr, 6.0, Color(red.r, red.g, red.b, 0.18))
+		else:
+			c.draw_arc(ctr, 26.0, 0, TAU, 48, red, 2.0, true)
+			c.draw_circle(ctr, 2.4, red)
+			for d in [Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]:
+				c.draw_line(ctr + d * 26.0, ctr + d * 34.0, red, 2.0)
+		_hit_marks(c, ctr)
+		return
 	var r := minf(sz.x, sz.y) * 0.44
-	# Black mask around a round scope.
-	var pts := PackedVector2Array()
-	for i in 65:
-		pts.append(ctr + Vector2(r, 0).rotated(i * TAU / 64.0))
-	c.draw_rect(Rect2(0, 0, ctr.x - r, sz.y), Color.BLACK)
-	c.draw_rect(Rect2(ctr.x + r, 0, sz.x - ctr.x - r, sz.y), Color.BLACK)
-	for i in 64:
-		var a := pts[i]
-		var b := pts[i + 1]
-		var top_y := 0.0
-		c.draw_colored_polygon(PackedVector2Array([a, b, Vector2(b.x, top_y if b.y < ctr.y else sz.y), Vector2(a.x, top_y if a.y < ctr.y else sz.y)]), Color.BLACK)
-	c.draw_line(Vector2(ctr.x - r, ctr.y), Vector2(ctr.x + r, ctr.y), Color(0, 0, 0, 0.85), 1.5)
-	c.draw_line(Vector2(ctr.x, ctr.y - r), Vector2(ctr.x, ctr.y + r), Color(0, 0, 0, 0.85), 1.5)
+	if r < 4.0: return
+	# Black mask around a round scope: one thick ring out past the corners.
+	var outer := ctr.length() + 4.0
+	c.draw_arc(ctr, (r + outer) * 0.5, 0, TAU, 128, Color.BLACK, outer - r + 2.0)
+	# Lens edge darkening.
+	for i in 6:
+		c.draw_arc(ctr, r - i * 4.0, 0, TAU, 96, Color(0, 0, 0, 0.35 - i * 0.05), 5.0, true)
+	var ink := Color(0.02, 0.02, 0.02, 0.95)
+	match sight:
+		"x2":
+			c.draw_circle(ctr, 2.6, red)
+			c.draw_arc(ctr, 30.0, PI * 0.15, PI * 0.85, 24, ink, 1.6, true)
+		"x4":
+			# Chevron with bullet-drop marks below.
+			c.draw_polyline(PackedVector2Array([ctr + Vector2(-9, 9), ctr, ctr + Vector2(9, 9)]), red, 2.2, true)
+			c.draw_line(ctr + Vector2(0, 3), ctr + Vector2(0, r * 0.55), ink, 1.4)
+			for k in 4:
+				var y := ctr.y + 30.0 + k * 26.0
+				var hw2 := 14.0 - k * 2.5
+				c.draw_line(Vector2(ctr.x - hw2, y), Vector2(ctr.x + hw2, y), ink, 1.4)
+			c.draw_line(Vector2(ctr.x - r, ctr.y), Vector2(ctr.x - 40, ctr.y), ink, 2.0)
+			c.draw_line(Vector2(ctr.x + 40, ctr.y), Vector2(ctr.x + r, ctr.y), ink, 2.0)
+		_:
+			# 8x / sniper scope: thin crosshair with mil dots and thick outer posts.
+			c.draw_line(Vector2(ctr.x - r, ctr.y), Vector2(ctr.x + r, ctr.y), ink, 1.2)
+			c.draw_line(Vector2(ctr.x, ctr.y - r), Vector2(ctr.x, ctr.y + r), ink, 1.2)
+			for k in range(1, 6):
+				for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+					c.draw_circle(ctr + d * k * 22.0, 2.0, ink)
+			for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1)]:
+				c.draw_line(ctr + d * r * 0.62, ctr + d * r, ink, 6.0)
+			c.draw_circle(ctr, 1.8, red)
+	_hit_marks(c, ctr)
+	# Magnification label.
+	var zoom := float(w.get("zoom", 1.0))
+	_text(c, Vector2(ctr.x + r * 0.62, ctr.y + r * 0.86), "%dx" % int(round(zoom)), 16, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_CENTER, bold)
+
+func _hit_marks(c: Control, ctr: Vector2) -> void:
+	if hit_t > 0.0:
+		var hc := Color("ff4040") if hit_head else Color.WHITE
+		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+			c.draw_line(ctr + d * 7.0, ctr + d * 15.0, hc, 2.5)
 
 func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
 	if p.heal_id != "":
@@ -514,6 +572,10 @@ func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
 	for i in 3:
 		var sl = p.slots[i]
 		rows.append([["السلاح 1", "السلاح 2", "المسدس"][i], "—" if sl == null else Game.WEAPONS[sl.id].name])
+		if sl != null:
+			for slot_name in Items.ATTACH_SLOTS:
+				if sl.get("att", {}).has(slot_name):
+					rows.append(["   " + Items.ATTACH_SLOT_NAMES[slot_name], Items.ATTACH[sl.att[slot_name]].name])
 	for g in ["helmet", "vest", "pack"]:
 		var lvl: int = p.gear[g]
 		var label := {"helmet": "الخوذة", "vest": "السترة", "pack": "الحقيبة"}[g] as String

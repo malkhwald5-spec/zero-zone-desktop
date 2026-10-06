@@ -1,6 +1,7 @@
 class_name Items
 extends RefCounted
-## Gear and healing items: armour vests, helmets, backpacks, meds and boosts.
+## Gear and healing items: armour vests, helmets, backpacks, meds and boosts,
+## and weapon attachments (sights, muzzles, magazines, grips).
 
 ## Damage reduction and durability per level (index 0 = none).
 const VEST := [
@@ -56,3 +57,55 @@ static func roll_heal() -> String:
 	if r < 0.7: return "medkit"
 	if r < 0.88: return "drink"
 	return "pills"
+
+# ---------- Weapon attachments ----------
+## slot: one attachment per slot on a gun. for: weapon classes it fits.
+## zoom (sights), recoil / spread / reload multipliers, mag multiplier,
+## suppressed (quiet, no flash, heard only nearby).
+const ATTACH := {
+	"reddot":      {"name": "ريد دوت",          "slot": "sight",  "zoom": 1.35, "for": ["pistol", "smg", "shotgun", "ar", "lmg"]},
+	"holo":        {"name": "هولوغرافيك",       "slot": "sight",  "zoom": 1.35, "for": ["pistol", "smg", "shotgun", "ar", "lmg"]},
+	"x2":          {"name": "سكوب 2",          "slot": "sight",  "zoom": 2.0,  "for": ["smg", "ar", "lmg"]},
+	"x4":          {"name": "سكوب 4",          "slot": "sight",  "zoom": 4.0,  "for": ["ar", "lmg", "sr"]},
+	"x8":          {"name": "سكوب 8",          "slot": "sight",  "zoom": 8.0,  "for": ["ar", "sr"]},
+	"suppressor":  {"name": "كاتم صوت",         "slot": "muzzle", "suppressed": true, "for": ["pistol", "smg", "ar", "sr"]},
+	"compensator": {"name": "معوّض ارتداد",      "slot": "muzzle", "recoil": 0.75, "for": ["smg", "ar", "sr", "lmg"]},
+	"ext_mag":     {"name": "مخزن موسّع",        "slot": "mag",    "mag": 1.35, "for": ["pistol", "smg", "ar", "sr"]},
+	"quick_mag":   {"name": "مخزن سريع",        "slot": "mag",    "reload": 0.7, "for": ["pistol", "smg", "ar", "sr", "lmg"]},
+	"ext_quick":   {"name": "مخزن موسّع وسريع", "slot": "mag",    "mag": 1.35, "reload": 0.75, "for": ["pistol", "smg", "ar", "sr"]},
+	"vgrip":       {"name": "مقبض عمودي",       "slot": "grip",   "recoil": 0.8, "for": ["smg", "ar", "lmg"]},
+	"angled":      {"name": "مقبض مائل",        "slot": "grip",   "recoil": 0.9, "spread": 0.85, "for": ["smg", "ar", "lmg"]},
+}
+const ATTACH_SLOTS := ["sight", "muzzle", "mag", "grip"]
+const ATTACH_SLOT_NAMES := {"sight": "منظار", "muzzle": "فوهة", "mag": "مخزن", "grip": "مقبض"}
+## Loot weights: [town, military]
+const ATTACH_LOOT := {"reddot": [6, 4], "holo": [5, 4], "x2": [4, 4], "x4": [2.2, 4], "x8": [0.7, 2],
+	"suppressor": [1.6, 3], "compensator": [3, 3], "ext_mag": [4, 3], "quick_mag": [4, 3], "ext_quick": [1.2, 2.5],
+	"vgrip": [3, 3], "angled": [3, 3]}
+
+static func roll_attach(military: bool) -> String:
+	var total := 0.0
+	for k in ATTACH_LOOT: total += ATTACH_LOOT[k][1 if military else 0]
+	var r := randf() * total
+	for k in ATTACH_LOOT:
+		r -= ATTACH_LOOT[k][1 if military else 0]
+		if r <= 0.0: return k
+	return "reddot"
+
+static func attach_fits(id: String, cls: String) -> bool:
+	return ATTACH.has(id) and ATTACH[id]["for"].has(cls)
+
+## A weapon's stats with its attachments applied (att: slot -> attachment id).
+static func apply_attachments(w: Dictionary, att: Dictionary) -> Dictionary:
+	var r := w.duplicate()
+	for slot in att:
+		var a: Dictionary = ATTACH.get(att[slot], {})
+		if a.has("zoom"): r.zoom = maxf(float(a.zoom), float(w.zoom)) if w.cls == "sr" else float(a.zoom)
+		if a.has("recoil"): r.recoil = float(r.recoil) * float(a.recoil)
+		if a.has("spread"): r.spread = float(r.spread) * float(a.spread)
+		if a.has("reload"): r.reload = float(r.reload) * float(a.reload)
+		if a.has("mag"): r.mag = int(round(float(w.mag) * float(a.mag)))
+		if a.get("suppressed", false): r.suppressed = true
+	r.sight = att.get("sight", "")
+	return r
+

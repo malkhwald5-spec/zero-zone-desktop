@@ -93,5 +93,7 @@ func _land() -> void:
 	world._add_pickup({"kind": "ammo", "type": at, "amount": 40 if at != "300" else 20}, top + Vector3(0.4, 0, 0.2))
 	world._add_gear("vest" if randf() < 0.5 else "helmet", 3, -1.0, top + Vector3(-0.4, 0, -0.2))
 	world._add_pickup({"kind": "heal", "id": "medkit", "n": 1}, top + Vector3(0.3, 0, -0.3))
+	world._add_pickup({"kind": "attach", "id": "x8" if weapon == "awm" or randf() < 0.5 else "x4"}, top + Vector3(-0.1, 0, -0.4))
+	world._add_pickup({"kind": "attach", "id": "suppressor" if weapon != "m249" else "ext_quick"}, top + Vector3(0.1, 0, 0.4))
 	if randf() < 0.5:
 		world._add_pickup({"kind": "throw", "id": "frag", "n": 1}, top + Vector3(-0.3, 0, 0.3))

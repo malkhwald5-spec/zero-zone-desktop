@@ -238,6 +238,98 @@ func set_weapon(id_or_cls: String) -> void:
 	_cls = Game.WEAPONS[id_or_cls].cls if Game.WEAPONS.has(id_or_cls) else id_or_cls
 	weapon_node = WeaponModels.build(id_or_cls)
 	gun.add_child(weapon_node)
+	_att_key = ""
+
+var _att_key := ""
+
+## Shows sights, muzzle devices, magazines and grips on the held gun.
+## Sizes and places come from the gun's own bounds (barrel along -Z).
+func set_attachments(att: Dictionary) -> void:
+	if weapon_node == null: return
+	var key := str(att)
+	if key == _att_key and weapon_node.get_node_or_null("Attachments"): return
+	_att_key = key
+	var old := weapon_node.get_node_or_null("Attachments")
+	if old:
+		weapon_node.remove_child(old)
+		old.queue_free()
+	if att.is_empty(): return
+	var box := _local_aabb(weapon_node)
+	var L := maxf(box.size.z, 0.3)
+	var root := Node3D.new()
+	root.name = "Attachments"
+	weapon_node.add_child(root)
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color("1b1d21")
+	dark.metallic = 0.6
+	dark.roughness = 0.35
+	var lens := StandardMaterial3D.new()
+	lens.albedo_color = Color(0.1, 0.25, 0.35)
+	lens.metallic = 0.9
+	lens.roughness = 0.05
+	var top := box.position.y + box.size.y
+	var mid_z := box.position.z + box.size.z * 0.55
+	var muzzle_z: float = weapon_node.get_meta("muzzle", box.position.z)
+	var cyl_z := func(r: float, h: float, pos: Vector3, mat: Material) -> void:
+		var mi := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = r
+		cm.bottom_radius = r
+		cm.height = h
+		cm.radial_segments = 14
+		mi.mesh = cm
+		mi.material_override = mat
+		mi.rotation = Vector3(PI * 0.5, 0, 0)
+		mi.position = pos
+		root.add_child(mi)
+	var cube := func(sz: Vector3, pos: Vector3, mat: Material) -> void:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = sz
+		mi.mesh = bm
+		mi.material_override = mat
+		mi.position = pos
+		root.add_child(mi)
+	match att.get("sight", ""):
+		"reddot", "holo":
+			cube.call(Vector3(0.035, 0.012, 0.07) * L / 0.9, Vector3(0, top + 0.006, mid_z), dark)
+			cube.call(Vector3(0.04, 0.045, 0.012) * L / 0.9, Vector3(0, top + 0.03 * L / 0.9, mid_z - 0.02), lens)
+			cube.call(Vector3(0.045, 0.05, 0.02) * L / 0.9, Vector3(0, top + 0.03 * L / 0.9, mid_z + 0.02), dark)
+		"x2", "x4", "x8":
+			var n := {"x2": 0.16, "x4": 0.22, "x8": 0.28}[att.sight] as float
+			var r := (0.02 if att.sight == "x2" else 0.025) * L / 0.9
+			cube.call(Vector3(0.02, 0.025, 0.08) * L / 0.9, Vector3(0, top + 0.012, mid_z), dark)
+			cyl_z.call(r, n * L / 0.9, Vector3(0, top + 0.03 * L / 0.9 + r, mid_z), dark)
+			cyl_z.call(r * 1.25, 0.03 * L / 0.9, Vector3(0, top + 0.03 * L / 0.9 + r, mid_z - n * 0.5 * L / 0.9), dark)
+			cyl_z.call(r * 1.25, 0.03 * L / 0.9, Vector3(0, top + 0.03 * L / 0.9 + r, mid_z + n * 0.5 * L / 0.9), dark)
+	match att.get("muzzle", ""):
+		"suppressor":
+			cyl_z.call(0.022 * L / 0.9, 0.2 * L / 0.9, Vector3(0, 0.03, muzzle_z - 0.1 * L / 0.9), dark)
+		"compensator":
+			cyl_z.call(0.018 * L / 0.9, 0.07 * L / 0.9, Vector3(0, 0.03, muzzle_z - 0.035 * L / 0.9), dark)
+	match att.get("grip", ""):
+		"vgrip":
+			cube.call(Vector3(0.025, 0.08, 0.03) * L / 0.9, Vector3(0, box.position.y - 0.02 * L / 0.9, box.position.z + box.size.z * 0.3), dark)
+		"angled":
+			cube.call(Vector3(0.025, 0.045, 0.07) * L / 0.9, Vector3(0, box.position.y + 0.005, box.position.z + box.size.z * 0.3), dark)
+	if att.has("mag") and att.mag != "quick_mag":
+		var mag := weapon_node.get_node_or_null("Mag") as Node3D
+		if mag: mag.scale = Vector3(1, 1.35, 1)
+
+## Bounding box of all meshes under n, in n's own space.
+static func _local_aabb(n: Node3D) -> AABB:
+	var res := AABB()
+	var first := true
+	for mi in n.find_children("*", "MeshInstance3D", true, false):
+		var xf := Transform3D.IDENTITY
+		var c: Node = mi
+		while c != n and c != null:
+			xf = (c as Node3D).transform * xf
+			c = c.get_parent()
+		var b: AABB = xf * (mi as MeshInstance3D).get_aabb()
+		res = b if first else res.merge(b)
+		first = false
+	return res
 
 var _back_att: BoneAttachment3D
 var _back_id := ""

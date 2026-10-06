@@ -246,6 +246,8 @@ func _spawn_loot() -> void:
 			_add_gear(kind, Items.roll_level(spot.military), -1.0, Vector3(p.x - 0.6, y, p.y + 0.3))
 		if randf() < 0.22:
 			_add_pickup({"kind": "throw", "id": "frag" if randf() < 0.65 else "smoke", "n": 1}, Vector3(p.x + 0.4, y, p.y - 0.5))
+		if randf() < (0.6 if spot.military else 0.4):
+			_add_pickup({"kind": "attach", "id": Items.roll_attach(spot.military)}, Vector3(p.x - 0.4, y, p.y - 0.6))
 		if randf() < 0.45:
 			var hid := Items.roll_heal()
 			_add_pickup({"kind": "heal", "id": hid, "n": 3 if hid == "bandage" else 1}, Vector3(p.x - 0.3, y, p.y - 0.6))
@@ -265,6 +267,7 @@ func pickup_name(data: Dictionary) -> String:
 		"gear": return Items.gear_name(data.gear, data.lvl)
 		"heal": return Items.HEALS[data.id].name + (" ×%d" % data.n if data.n > 1 else "")
 		"throw": return Items.THROWS[data.id]
+		"attach": return Items.ATTACH[data.id].name
 	return ""
 
 ## Pickups are kept in a coarse grid so nearby lookups don't scan the whole map.
@@ -282,6 +285,7 @@ func _pickup_look(data: Dictionary) -> Array:
 		"ammo": key = "ammo_" + data.type
 		"gear": key = "gear_%s_%d" % [data.gear, data.lvl]
 		"throw": key = "throw_" + data.id
+		"attach": key = "attach_" + data.id
 		_: key = "heal_" + data.id
 	if not _pickup_res.has(key):
 		var mat := StandardMaterial3D.new()
@@ -309,6 +313,16 @@ func _pickup_look(data: Dictionary) -> Array:
 					mesh = _box(Vector3(0.4, 0.22, 0.5))
 					tint = [Color.WHITE, Color("7a6648"), Color("5a5a3c"), Color("3a3a32")][data.lvl]
 			mat.albedo_color = tint
+		elif data.kind == "attach":
+			match Items.ATTACH[data.id].slot:
+				"sight":
+					mesh = _cyl(0.035, 0.035, 0.22 if data.id.begins_with("x") else 0.09)
+				"muzzle": mesh = _cyl(0.025, 0.025, 0.2 if data.id == "suppressor" else 0.1)
+				"mag": mesh = _box(Vector3(0.05, 0.2, 0.09))
+				_: mesh = _box(Vector3(0.05, 0.12, 0.05))
+			mat.albedo_color = Color("1e2024")
+			mat.metallic = 0.6
+			mat.roughness = 0.35
 		elif data.kind == "throw":
 			mesh = Grenade.model_mesh(data.id)
 			mat.albedo_color = Color("3d4a2c") if data.id == "frag" else Color("6f7a6a")
@@ -367,7 +381,9 @@ func pickup(who: Player, it: Node3D, quiet := false) -> void:
 	var data: Dictionary = it.get_meta("data")
 	match data.kind:
 		"weapon":
-			who.give_weapon(data.id, data.mag)
+			who.give_weapon(data.id, data.mag, data.get("att", {}))
+		"attach":
+			if not who.add_attachment(data.id): return
 		"ammo":
 			# Only what fits in the bag; the rest stays on the ground.
 			var fits := int(who.free_space() / Items.AMMO_SIZE)
@@ -401,8 +417,8 @@ func pickup(who: Player, it: Node3D, quiet := false) -> void:
 			if data.n > 0: return
 	_remove_pickup(it)
 
-func drop_weapon(id: String, mag: int, pos: Vector3) -> void:
-	_add_pickup({"kind": "weapon", "id": id, "mag": mag}, pos + Vector3(randf_range(-0.6, 0.6), 0, randf_range(-0.6, 0.6)))
+func drop_weapon(id: String, mag: int, pos: Vector3, att := {}) -> void:
+	_add_pickup({"kind": "weapon", "id": id, "mag": mag, "att": att.duplicate()}, pos + Vector3(randf_range(-0.6, 0.6), 0, randf_range(-0.6, 0.6)))
 
 # ---------- Bots ----------
 const BOT_NAMES := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ليث", "Falcon_IQ", "Viper_SY", "نمر_EG", "Hunter_JO", "Storm_MA",
@@ -932,11 +948,12 @@ const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr
 const SPEED_OF_SOUND := 343.0
 var _snd := {}
 
-func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
+func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> void:
 	if not Game.settings.sound: return
 	var d := pos.distance_to(player.global_position)
-	# Cap how many play at once; past ~700 m nothing is heard anyway.
-	if not own and (_sounds_playing >= 14 or d > 700.0): return
+	# Cap how many play at once; past ~700 m nothing is heard anyway, and a
+	# suppressed gun only within ~120 m.
+	if not own and (_sounds_playing >= 14 or d > (120.0 if suppressed else 700.0)): return
 	var far := not own and d > 160.0
 	# Close: the punchy AK recording (sometimes another take for variety).
 	# Far: a distant shot rolling over the hills, or a short sharp crack.
@@ -963,8 +980,8 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 		# Your own gun: straight into the ears, not placed in the world.
 		var p2 := AudioStreamPlayer.new()
 		p2.stream = stream
-		p2.volume_db = -3.0
-		p2.pitch_scale = pitch
+		p2.volume_db = -15.0 if suppressed else -3.0
+		p2.pitch_scale = pitch * (1.25 if suppressed else 1.0)
 		p = p2
 		add_child(p2)
 		p2.play()
@@ -977,7 +994,8 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 		p3.stream = stream
 		p3.unit_size = 30.0 if not far else 120.0
 		p3.max_distance = 900.0
-		p3.volume_db = 2.0 if cls in ["sr", "lmg"] else 0.0
+		p3.volume_db = (2.0 if cls in ["sr", "lmg"] else 0.0) - (14.0 if suppressed else 0.0)
+		if suppressed: p3.unit_size = 8.0
 		p3.pitch_scale = pitch
 		p = p3
 		add_child(p3)

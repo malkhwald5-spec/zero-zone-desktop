@@ -241,6 +241,7 @@ func switch_slot(i: int) -> void:
 	reload_t = 0.0
 	fire_cd = maxf(fire_cd, 0.35)
 	model.set_weapon(slots[i].id)
+	model.set_attachments(slots[i].get("att", {}))
 	_refresh_back()
 
 ## The primary you are not holding hangs on your back.
@@ -248,8 +249,51 @@ func _refresh_back() -> void:
 	var other = slots[1 - active] if active in [0, 1] else (slots[0] if active == 2 else null)
 	model.set_back_weapon(other.id if other != null else "")
 
+var _wkey := ""
+var _wcache := {}
+
+## The held gun's stats, with its attachments applied (cached).
 func weapon() -> Dictionary:
-	return Game.WEAPONS[slots[active].id] if active >= 0 and slots[active] != null else {}
+	if active < 0 or slots[active] == null: return {}
+	var s: Dictionary = slots[active]
+	var att: Dictionary = s.get("att", {})
+	if att.is_empty(): return Game.WEAPONS[s.id]
+	var key := "%s%s" % [s.id, att]
+	if key != _wkey:
+		_wkey = key
+		_wcache = Items.apply_attachments(Game.WEAPONS[s.id], att)
+	return _wcache
+
+## Fits a picked-up attachment: first to a gun with that slot free (the one in
+## your hands first), else swaps it onto the first gun it fits (the old part
+## drops at your feet). False if no gun takes it.
+func add_attachment(id: String) -> bool:
+	var a: Dictionary = Items.ATTACH[id]
+	var order := [active, 0, 1, 2]
+	for pass_n in 2:
+		for i in order:
+			if i < 0 or slots[i] == null: continue
+			if not Items.attach_fits(id, Game.WEAPONS[slots[i].id].cls): continue
+			var att: Dictionary = slots[i].get("att", {})
+			if pass_n == 0 and att.has(a.slot): continue
+			if att.has(a.slot):
+				world._add_pickup({"kind": "attach", "id": att[a.slot]}, global_position + Vector3(randf_range(-0.5, 0.5), 0, randf_range(-0.5, 0.5)))
+			att[a.slot] = id
+			slots[i].att = att
+			_after_attach_change(i)
+			message.emit("تم تركيب %s على %s" % [a.name, Game.WEAPONS[slots[i].id].name])
+			return true
+	message.emit("%s ما بيركب على أسلحتك" % a.name)
+	return false
+
+func _after_attach_change(i: int) -> void:
+	# A smaller magazine than the rounds loaded: put the extra back in the bag.
+	var w := Items.apply_attachments(Game.WEAPONS[slots[i].id], slots[i].get("att", {}))
+	if slots[i].mag > w.mag:
+		ammo[w.ammo] += slots[i].mag - w.mag
+		slots[i].mag = w.mag
+	if i == active:
+		model.set_attachments(slots[i].att)
 
 func start_reload() -> void:
 	var w := weapon()
@@ -263,12 +307,12 @@ func start_reload() -> void:
 	if length > 0.0:
 		world.sound_local(snd, 0.0, clampf(length / float(w.reload), 0.85, 1.35))
 
-func give_weapon(id: String, mag: int) -> void:
+func give_weapon(id: String, mag: int, att := {}) -> void:
 	var cls: String = Game.WEAPONS[id].cls
 	var slot := 2 if cls == "pistol" else (0 if slots[0] == null else (1 if slots[1] == null else (active if active in [0, 1] else 0)))
 	if slots[slot] != null:
-		world.drop_weapon(slots[slot].id, slots[slot].mag, global_position)
-	slots[slot] = {"id": id, "mag": mag}
+		world.drop_weapon(slots[slot].id, slots[slot].mag, global_position, slots[slot].get("att", {}))
+	slots[slot] = {"id": id, "mag": mag, "att": att.duplicate()}
 	active = -1
 	switch_slot(slot)
 
@@ -467,8 +511,9 @@ func _try_fire() -> void:
 	pitch = clampf(pitch + deg_to_rad(w.recoil) * 0.5, -1.35, 1.0)
 	yaw += deg_to_rad(randf_range(-w.recoil, w.recoil)) * 0.15
 	model.recoil = 1.0
-	world.effects.muzzle_flash(model.muzzle_position())
-	world.sound_shot(w.cls, global_position, true)
+	var quiet: bool = w.get("suppressed", false)
+	if not quiet: world.effects.muzzle_flash(model.muzzle_position())
+	world.sound_shot(w.cls, global_position, true, quiet)
 	if s.mag == 0:
 		start_reload()
 
@@ -565,8 +610,8 @@ func _update_camera(delta: float) -> void:
 			length = 7.5
 			shoulder = 0.0
 	if aiming and state == "ground":
-		length = 0.0 if zoom >= 3.0 else 1.5
-		shoulder = 0.0 if zoom >= 3.0 else 0.45
+		length = 0.0 if scoped() else 1.5
+		shoulder = 0.0 if scoped() else 0.45
 	# Where the camera looks from, relative to the body (applied every rendered
 	# frame in _process, so it is smooth at any frame rate and the mouse reacts
 	# at once).
@@ -590,7 +635,7 @@ func _update_camera(delta: float) -> void:
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
 	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
 	_update_wind()
-	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane"
+	model.visible = not scoped() and state != "plane"
 
 var _cam_offset := Vector3(0, 1.6, 0)
 var _cam_low_water := false
@@ -607,8 +652,11 @@ func _process(delta: float) -> void:
 	if _cam_low_water:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 
+## Looking through a sight or scope (first person, reticle on screen).
 func scoped() -> bool:
-	return aiming and state == "ground" and float(weapon().get("zoom", 1.0)) >= 3.0
+	if not aiming or state != "ground": return false
+	var w := weapon()
+	return w.get("sight", "") != "" or float(w.get("zoom", 1.0)) >= 3.0
 
 func _update_model(delta: float) -> void:
 	# Face where the camera looks (or the travel direction while skydiving).
