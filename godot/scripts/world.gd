@@ -232,7 +232,7 @@ func _spawn_loot() -> void:
 		var y := island.height_at(p.x, p.y)
 		for b in island.buildings:
 			if absf(p.x - b.pos.x) < b.size.x * 0.5 and absf(p.y - b.pos.y) < b.size.y * 0.5:
-				y = b.floor
+				y = b.floor + (WorldBuilder.STOREY_H if spot.get("level", 0) == 1 else 0.0)
 		var id := _pick_weapon(spot.military)
 		_add_pickup({"kind": "weapon", "id": id, "mag": 0}, Vector3(p.x, y, p.y))
 		var at: String = Game.WEAPONS[id].ammo

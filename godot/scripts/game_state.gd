@@ -165,10 +165,12 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 		env.sdfgi_use_occlusion = true
 		env.sdfgi_cascades = 4
 		env.sdfgi_min_cell_size = 0.4
+		env.volumetric_fog_length = 160.0 if lv >= 4 else 120.0
 	if sun:
 		sun.shadow_enabled = lv >= 1
 		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 300.0, 400.0][lv]
+		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 320.0, 500.0][lv]
+		sun.shadow_blur = 1.0 if lv < 4 else 1.4
 		sun.light_angular_distance = 0.5 if lv == 4 else 0.0
 	var vp := get_viewport()
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_DISABLED, Viewport.MSAA_2X][lv]

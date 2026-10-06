@@ -21,7 +21,10 @@ var bridges: Array = []        # {a, b, w}
 var buildings: Array = []      # {pos: Vector2 (centre), size: Vector2, rot: 0|90, floor, military, doors: Array}
 var trees: Array = []          # {pos: Vector2, h, r, pine}
 var rocks: Array = []          # {pos: Vector2, r}
-var loot_spots: Array = []     # {pos: Vector2, military}
+var loot_spots: Array = []     # {pos: Vector2, military, level?}
+var structures: Array = []     # {kind, pos: Vector2, rot (0 or 90), level, col} containers, silos, towers...
+var obstacles: Array = []      # {pos: Vector2, half: Vector2} footprints of structures
+var fields: Array = []         # Rect2 crop fields next to farms
 var river_amp := 0.0
 var river_phase := 0.0
 var river_base := 0.0
@@ -139,7 +142,7 @@ func _towns() -> void:
 	var names := TOWN_NAMES.duplicate()
 	names.shuffle()
 	# Military base on the southern island.
-	var mil := {"name": "القاعدة العسكرية", "pos": south, "r": 120.0, "military": true}
+	var mil := {"name": "القاعدة العسكرية", "pos": south, "r": 120.0, "military": true, "kind": "military"}
 	for k in 300:
 		var p := south + Vector2(rng.randf_range(-90, 90), rng.randf_range(-40, 40))
 		if _land_around(p, 150.0):
@@ -160,7 +163,25 @@ func _towns() -> void:
 				ok = false
 				break
 		if not ok: continue
-		towns.append({"name": names.pop_back() if names.size() > 0 else "قرية", "pos": p, "r": r, "military": false})
+		towns.append({"name": names.pop_back() if names.size() > 0 else "قرية", "pos": p, "r": r, "military": false, "kind": "town"})
+	# Special places, joined to the road network like towns: factory yards and farms.
+	for spec in [["industrial", ["المنطقة الصناعية", "المصنع القديم"], 72.0], ["farm", ["مزرعة الزيتون", "مزرعة القمح", "مزرعة التلال"], 62.0]]:
+		var made := 0
+		var tries2 := 0
+		while made < spec[1].size() and tries2 < 3000:
+			tries2 += 1
+			var r: float = spec[2]
+			var p := Vector2(rng.randf_range(180, size - 180), rng.randf_range(180, channel_z(size * 0.5) - 90))
+			if not _land_around(p, r + 35.0): continue
+			if absf(p.y - river_z(p.x)) < r + 45.0: continue
+			var ok := true
+			for t in towns:
+				if p.distance_to(t.pos) < t.r + r + 140.0:
+					ok = false
+					break
+			if not ok: continue
+			towns.append({"name": spec[1][made], "pos": p, "r": r, "military": false, "kind": spec[0]})
+			made += 1
 	for t in towns:
 		flatten(t.pos, Vector2(t.r, t.r), 110.0, maxf(1.6, height_at(t.pos.x, t.pos.y) * 0.5))
 
@@ -202,26 +223,121 @@ func near_road(p: Vector2, pad: float) -> bool:
 	return false
 
 func _overlaps(c: Vector2, half: Vector2, pad: float) -> bool:
+	for o in obstacles:
+		if absf(c.x - o.pos.x) < half.x + o.half.x + pad and absf(c.y - o.pos.y) < half.y + o.half.y + pad:
+			return true
 	for b in buildings:
 		var bh: Vector2 = b.size * 0.5
 		if absf(c.x - b.pos.x) < half.x + bh.x + pad and absf(c.y - b.pos.y) < half.y + bh.y + pad:
 			return true
 	return false
 
-func _add_building(c: Vector2, sz: Vector2, military: bool) -> void:
+func _add_building(c: Vector2, sz: Vector2, military: bool, storeys := 1, kind := "house") -> void:
 	var floor_h := maxf(1.6, height_at(c.x, c.y))
-	flatten(c, sz * 0.5, 14.0, floor_h)
+	# Ground a little below the floor boards so it never shows through them.
+	flatten(c, sz * 0.5, 14.0, floor_h - 0.12)
 	# Door on one or two sides: 0 = -z, 1 = +x, 2 = +z, 3 = -x
 	var doors := [rng.randi_range(0, 3)]
 	if rng.randf() < 0.5:
 		doors.append((doors[0] + 2) % 4)
+	# Two-storey houses: the staircase runs along a wall without a door.
+	var stair := -1
+	if storeys > 1:
+		var free := [0, 1, 2, 3].filter(func(w): return not doors.has(w))
+		stair = free[rng.randi() % free.size()]
 	buildings.append({"pos": c, "size": sz, "floor": floor_h, "military": military, "doors": doors,
-		"tint": rng.randi_range(0, 4), "roof": rng.randi_range(0, 4)})
+		"tint": rng.randi_range(0, 4), "roof": rng.randi_range(0, 4), "storeys": storeys, "stair": stair, "kind": kind})
 	for k in rng.randi_range(2, 5 if military else 4):
 		loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.35, sz.x * 0.35), rng.randf_range(-sz.y * 0.35, sz.y * 0.35)), "military": military})
+	if storeys > 1:
+		for k in rng.randi_range(2, 3):
+			loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.25, sz.x * 0.25), rng.randf_range(-sz.y * 0.25, sz.y * 0.25)), "military": false, "level": 1})
+
+func _structure(kind: String, p: Vector2, half: Vector2, extra := {}) -> void:
+	var d := {"kind": kind, "pos": p, "rot": 0, "level": 0, "col": rng.randi_range(0, 4)}
+	d.merge(extra, true)
+	structures.append(d)
+	obstacles.append({"pos": p, "half": half})
+
+## Factory yard: two big warehouses, rows of shipping containers (some
+## stacked), a tall brick chimney and a water tower.
+func _industrial(t: Dictionary) -> void:
+	var c: Vector2 = t.pos
+	for k in 2:
+		var bc := c + Vector2(-17.0 + k * 34.0, -14.0)
+		_add_building(bc, Vector2(24, 14), false, 1, "warehouse")
+		buildings[-1].doors = [0, 2]
+	for row in 2:
+		for i in 5:
+			var p := c + Vector2(-22.0 + i * 8.5, 10.0 + row * 7.0)
+			if not is_land(p.x, p.y): continue
+			_structure("container", p, Vector2(3.1, 1.3))
+			if rng.randf() < 0.35:
+				structures.append({"kind": "container", "pos": p, "rot": 0, "level": 1, "col": rng.randi_range(0, 4)})
+	var ch := c + Vector2(34.0, 18.0)
+	if is_land(ch.x, ch.y): _structure("chimney", ch, Vector2(2.2, 2.2))
+	var wt := c + Vector2(-36.0, 20.0)
+	if is_land(wt.x, wt.y): _structure("water_tower", wt, Vector2(3.6, 3.6))
+	for k in 4:
+		loot_spots.append({"pos": c + Vector2(rng.randf_range(-25, 15), rng.randf_range(9, 19)), "military": false})
+
+## Farm: a red barn, the farmhouse, two grain silos, hay bales and fields.
+func _farm(t: Dictionary) -> void:
+	var c: Vector2 = t.pos
+	_add_building(c + Vector2(-8, -6), Vector2(16, 10), false, 1, "barn")
+	buildings[-1].doors = [0, 2]
+	var hs := Vector2(11, 9)
+	var hc := c + Vector2(16, 12)
+	if not _overlaps(hc, hs * 0.5, 4.0):
+		_add_building(hc, hs, false, 2 if rng.randf() < 0.6 else 1)
+	for k in 2:
+		var sp := c + Vector2(4.0 + k * 6.6, -12.0)
+		_structure("silo", sp, Vector2(3.0, 3.0))
+	for k in rng.randi_range(6, 10):
+		var hp := c + Vector2(rng.randf_range(-40, 40), rng.randf_range(18, 45))
+		if is_land(hp.x, hp.y) and not _overlaps(hp, Vector2(1, 1), 1.0):
+			_structure("hay", hp, Vector2(0.8, 0.8), {"rot": rng.randi_range(0, 1) * 90})
+	fields.append(Rect2(c + Vector2(-45, 15), Vector2(90, 40)))
+	fields.append(Rect2(c + Vector2(-50, -55), Vector2(40, 38)))
+
+## Gas stations by the roads: canopy over two pumps and a small shop.
+func _gas_stations() -> void:
+	var made := 0
+	var order := range(roads.size())
+	order.shuffle()
+	for i in order:
+		if made >= 3: break
+		var rd: Dictionary = roads[i]
+		var a: Vector2 = rd.a
+		var b: Vector2 = rd.b
+		if a.distance_to(b) < 300.0: continue
+		var dir := (b - a).normalized()
+		var side := Vector2(-dir.y, dir.x)
+		var mid := a.lerp(b, rng.randf_range(0.35, 0.65))
+		var c: Vector2 = mid + side * (rd.w * 0.5 + 9.0)
+		var shop: Vector2 = c + side * 11.0
+		if not (_land_around(c, 22.0) and _land_around(shop, 10.0)): continue
+		if absf(c.y - river_z(c.x)) < 50.0: continue
+		var near_town := false
+		for t in towns:
+			if c.distance_to(t.pos) < t.r + 60.0: near_town = true
+		if near_town or _overlaps(c, Vector2(7, 7), 4.0) or _overlaps(shop, Vector2(6, 5), 4.0): continue
+		var h := maxf(1.6, height_at(c.x, c.y))
+		flatten((c + shop) * 0.5, Vector2(14, 14), 16.0, h)
+		_structure("canopy", c, Vector2(5.5, 4.0), {"dir": dir})
+		var door := (1 if -side.x > 0 else 3) if absf(side.x) > absf(side.y) else (2 if -side.y > 0 else 0)
+		_add_building(shop, Vector2(9, 7), false, 1, "shop")
+		buildings[-1].doors = [door]
+		made += 1
 
 func _buildings() -> void:
 	for t in towns:
+		if t.get("kind", "town") == "industrial":
+			_industrial(t)
+			continue
+		if t.get("kind", "town") == "farm":
+			_farm(t)
+			continue
 		var count: int = 11 if t.military else rng.randi_range(5, 9)
 		var placed := 0
 		var attempts := 0
@@ -236,8 +352,10 @@ func _buildings() -> void:
 				continue
 			if _overlaps(c, half, 7.0): continue
 			if near_road(c, half.length() + 2.0): continue
-			_add_building(c, sz, t.military)
+			var storeys := 2 if not t.military and sz.x >= 10.0 and sz.y >= 8.5 and rng.randf() < 0.45 else 1
+			_add_building(c, sz, t.military, storeys)
 			placed += 1
+	_gas_stations()
 	# Lone houses in the countryside.
 	var lone := 0
 	var tries := 0
@@ -306,12 +424,32 @@ func mask_image(res: int) -> Image:
 	img.fill(Color(0, 0, 0, 0))
 	var k := res / size
 	for t in towns:
-		_disc(img, t.pos * k, (t.r + 25.0) * k, Color(0, 0, 1, 0), true)
+		if t.get("kind", "town") != "farm":
+			_disc(img, t.pos * k, (t.r + 25.0) * k, Color(0, 0, 1, 0), true)
+	for f in fields:
+		img.fill_rect(Rect2i(Vector2i(f.position * k), Vector2i(f.size * k)), Color(0, 1, 0, 0))
 	for f in 22:
 		var p := Vector2(rng.randf_range(100, size - 200), rng.randf_range(100, size - 200))
 		var s := Vector2(rng.randf_range(60, 140), rng.randf_range(50, 110))
 		if not (is_land(p.x, p.y) and is_land(p.x + s.x, p.y + s.y)) or height_at(p.x, p.y) > 30.0: continue
 		img.fill_rect(Rect2i(Vector2i(p * k), Vector2i(s * k)), Color(0, 1, 0, 0))
+	# Red 0.3: no grass under buildings and structures (roads use red >= 0.5).
+	var rects := []
+	for b in buildings:
+		rects.append([b.pos, b.size * 0.5 + Vector2(1.5, 1.5)])
+	for o in obstacles:
+		rects.append([o.pos, o.half + Vector2(0.5, 0.5)])
+	for r in rects:
+		var x0 := maxi(0, int((r[0].x - r[1].x) * k))
+		var x1 := mini(res - 1, int((r[0].x + r[1].x) * k) + 1)
+		var y0 := maxi(0, int((r[0].y - r[1].y) * k))
+		var y1 := mini(res - 1, int((r[0].y + r[1].y) * k) + 1)
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				var cur := img.get_pixel(x, y)
+				if cur.r < 0.3:
+					cur.r = 0.3
+					img.set_pixel(x, y, cur)
 	# Alpha: forest floor (leaf litter and moss) under and around the trees.
 	for t in trees:
 		_disc(img, t.pos * k, maxf(7.0 * k, 1.5), Color(0, 0, 0, 1), true)

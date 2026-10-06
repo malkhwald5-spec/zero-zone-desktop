@@ -7,6 +7,9 @@ const WALL_H := 3.4
 const WALL_T := 0.25
 const DOOR_W := 1.3
 const DOOR_H := 2.3
+const STOREY_H := WALL_H + 0.2   # floor to floor height in two-storey houses
+const STAIR_W := 1.1
+const STAIR_RUN := 5.2
 
 var island: Island
 var root: Node3D
@@ -19,6 +22,10 @@ var sun: DirectionalLight3D
 var grass: MultiMeshInstance3D
 var grass_mat: ShaderMaterial
 var grass_snap := 5.04
+## Window glass: blocks only the camera (layer 5), not people or bullets.
+const CAMERA_LAYER := 16
+var _glass_body: StaticBody3D
+var _lining: SurfaceTool        # inner plaster for brick houses (null otherwise)
 
 func _init(isl: Island, parent: Node3D) -> void:
 	island = isl
@@ -29,7 +36,7 @@ func steps() -> Array:
 	return [
 		[_textures, "جاري تجهيز التضاريس"], [_environment, "جاري تجهيز السماء"], [_terrain, "جاري بناء الأرض"],
 		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_trees, "جاري زراعة الغابات"],
-		[_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
+		[_structures, "جاري بناء المصانع والمزارع"], [_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
 		[_grass, "جاري تجهيز العشب"],
 	]
 
@@ -40,6 +47,7 @@ func build_all() -> void:
 	_water()
 	_buildings()
 	_trees()
+	_structures()
 	_rocks()
 	_bridges()
 	_power_lines()
@@ -105,6 +113,9 @@ func _environment() -> void:
 	env.volumetric_fog_density = 0.0012
 	env.volumetric_fog_albedo = Color(0.8, 0.85, 0.92)
 	env.volumetric_fog_length = 120.0
+	# Light scattered forward through the haze: soft glow and shafts towards the sun.
+	env.volumetric_fog_anisotropy = 0.55
+	env.fog_sun_scatter = 0.25
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	env.adjustment_contrast = 1.08
@@ -211,7 +222,7 @@ func _add_box(st: SurfaceTool, c: Vector3, sz: Vector3, col: Color) -> void:
 	st.set_color(col)
 	for f in faces:
 		st.set_normal(f[4])
-		for idx in [0, 1, 2, 0, 2, 3]:
+		for idx in [0, 2, 1, 0, 3, 2]:   # clockwise = front face in Godot
 			st.add_vertex(c + corners[f[idx]])
 
 func _shape(body: StaticBody3D, c: Vector3, sz: Vector3) -> void:
@@ -263,13 +274,19 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, trim: SurfaceTool, body: StaticB
 			_add_box(trim, at.call(mid, (y0 + y1) * 0.5), box_size.call(0.05, y1 - y0, 0.07), trim_col)
 			_add_box(trim, at.call(mid, y0 + (y1 - y0) * 0.62), box_size.call(u1 - u0, 0.05, 0.07), trim_col)
 			_add_box(glass, at.call(mid, (y0 + y1) * 0.5), box_size.call(u1 - u0, y1 - y0, 0.03), Color(0.2, 0.26, 0.3))
+			if _glass_body:
+				_shape(_glass_body, at.call(mid, (y0 + y1) * 0.5), box_size.call(u1 - u0, y1 - y0, WALL_T))
 	if cur < length: pieces.append([cur, length, 0.0, WALL_H])
+	# Brick houses are plastered inside: a thin lining on the inner face.
+	var inward := (Vector3(0, 0, -signf(origin.z)) if along_x else Vector3(-signf(origin.x), 0, 0)) * (WALL_T * 0.5 + 0.012)
 	for p in pieces:
 		var mid: float = (p[0] + p[1]) * 0.5
 		var c := origin + (Vector3(mid, (p[2] + p[3]) * 0.5, 0) if along_x else Vector3(0, (p[2] + p[3]) * 0.5, mid))
 		var sz := Vector3(p[1] - p[0], p[3] - p[2], WALL_T) if along_x else Vector3(WALL_T, p[3] - p[2], p[1] - p[0])
 		_add_box(st, c, sz, col)
 		_shape(body, c, sz)
+		if _lining:
+			_add_box(_lining, c + inward, Vector3(sz.x, sz.y, 0.02) if along_x else Vector3(0.02, sz.y, sz.z), Color("ddd5c4"))
 
 func _wall_shader(tex: String, tile: float, tint: float, grime: float, rough: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
@@ -323,14 +340,23 @@ func _buildings() -> void:
 		parent.add_child(node)
 		var body := StaticBody3D.new()
 		node.add_child(body)
+		_glass_body = StaticBody3D.new()
+		_glass_body.collision_layer = CAMERA_LAYER
+		_glass_body.collision_mask = 0
+		node.add_child(_glass_body)
 		var sts := {}
 		for k in ["wall", "glass", "roof", "trim", "stone", "floor", "brick"]:
 			var t := SurfaceTool.new()
 			t.begin(Mesh.PRIMITIVE_TRIANGLES)
 			sts[k] = t
+		var kind: String = b.get("kind", "house")
+		if kind == "warehouse" or kind == "barn":
+			_big_shed(node, body, b)
+			continue
 		# About a third of the houses are red brick, the rest painted plaster.
 		var brick: bool = not b.military and (b.tint + b.roof) % 3 == 0
 		var st: SurfaceTool = sts.brick if brick else sts.wall
+		_lining = sts.wall if brick else null
 		var sx: float = b.size.x
 		var sz: float = b.size.y
 		var hx := sx * 0.5
@@ -338,15 +364,27 @@ func _buildings() -> void:
 		var col: Color = Color("a9ada0") if b.military else (Color.WHITE if brick else tints[b.tint])
 		var tcol: Color = Color("5c5f58") if b.military else trims[(b.tint * 3 + b.roof) % trims.size()]
 		var doors: Array = b.doors
-		_wall(st, sts.glass, sts.trim, body, Vector3(-hx, 0, -hz + WALL_T * 0.5), true, sx, sx * 0.5 if doors.has(0) else -1.0, col, tcol)
-		_wall(st, sts.glass, sts.trim, body, Vector3(-hx, 0, hz - WALL_T * 0.5), true, sx, sx * 0.5 if doors.has(2) else -1.0, col, tcol)
-		_wall(st, sts.glass, sts.trim, body, Vector3(-hx + WALL_T * 0.5, 0, -hz), false, sz, sz * 0.5 if doors.has(3) else -1.0, col, tcol)
-		_wall(st, sts.glass, sts.trim, body, Vector3(hx - WALL_T * 0.5, 0, -hz), false, sz, sz * 0.5 if doors.has(1) else -1.0, col, tcol)
-		# Floor slab (wooden boards inside), ceiling slab
+		var storeys: int = b.get("storeys", 1)
+		for lv in storeys:
+			var y0 := lv * STOREY_H
+			# Doors only on the ground floor.
+			var dr: Array = doors if lv == 0 else []
+			_wall(st, sts.glass, sts.trim, body, Vector3(-hx, y0, -hz + WALL_T * 0.5), true, sx, sx * 0.5 if dr.has(0) else -1.0, col, tcol)
+			_wall(st, sts.glass, sts.trim, body, Vector3(-hx, y0, hz - WALL_T * 0.5), true, sx, sx * 0.5 if dr.has(2) else -1.0, col, tcol)
+			_wall(st, sts.glass, sts.trim, body, Vector3(-hx + WALL_T * 0.5, y0, -hz), false, sz, sz * 0.5 if dr.has(3) else -1.0, col, tcol)
+			_wall(st, sts.glass, sts.trim, body, Vector3(hx - WALL_T * 0.5, y0, -hz), false, sz, sz * 0.5 if dr.has(1) else -1.0, col, tcol)
+		var top_y := (storeys - 1) * STOREY_H + WALL_H
+		# Floor slab (wooden boards inside)
 		_add_box(sts.floor, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz), Color("b09070") if not b.military else Color("8a8a84"))
 		_shape(body, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz))
-		_add_box(st, Vector3(0, WALL_H + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2), col.darkened(0.25))
-		_shape(body, Vector3(0, WALL_H + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2))
+		if storeys > 1:
+			_upper_floor(sts, body, b, col, tcol)
+		if not b.military:
+			for lv in storeys:
+				_furnish(sts, body, b, lv, kind == "shop")
+		# Ceiling slab under the roof
+		_add_box(sts.wall, Vector3(0, top_y + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2), Color("d8d0c0") if brick else col.darkened(0.25))
+		_shape(body, Vector3(0, top_y + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2))
 		# Stone foundation down into the ground (hides gaps on slopes) and a
 		# half-metre stone base course on the outside of the walls.
 		_add_box(sts.stone, Vector3(0, -1.08, 0), Vector3(sx + 0.14, 2.1, sz + 0.14), Color.WHITE)
@@ -365,17 +403,26 @@ func _buildings() -> void:
 				else:
 					_add_box(sts.stone, Vector3(sgn * (hx + 0.04), 0.25, m), Vector3(0.08, 0.56, l), Color.WHITE)
 		# Gable roof (houses) or parapet (military)
-		if b.military:
+		if kind == "shop":
 			for side in [-1, 1]:
-				_add_box(st, Vector3(0, WALL_H + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
+				_add_box(st, Vector3(0, top_y + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
+				_add_box(st, Vector3(side * hx, top_y + 0.45, 0), Vector3(0.2, 0.5, sz + 0.2), col.darkened(0.15))
+			# Shop sign over the door side.
+			var dv: Vector2 = [Vector2(0, -1), Vector2(1, 0), Vector2(0, 1), Vector2(-1, 0)][doors[0]]
+			var sp := Vector3(dv.x * (hx + 0.15), top_y + 1.0, dv.y * (hz + 0.15))
+			_add_box(sts.trim, sp, Vector3(0.12, 1.0, sz * 0.7) if dv.x != 0.0 else Vector3(sx * 0.7, 1.0, 0.12), Color("c62f2f"))
+			_add_box(sts.trim, sp + Vector3(0, 0.2, 0), Vector3(0.14, 0.18, sz * 0.6) if dv.x != 0.0 else Vector3(sx * 0.6, 0.18, 0.14), Color("f2e6c8"))
+		elif b.military:
+			for side in [-1, 1]:
+				_add_box(st, Vector3(0, top_y + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
 		else:
 			var rh := 2.2 if sx > sz else 2.0
-			_gable(sts.roof, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz, roofs[b.roof])
-			_roof_shape(body, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz)
+			_gable(sts.roof, Vector3(0, top_y + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz, roofs[b.roof])
+			_roof_shape(body, Vector3(0, top_y + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz)
 			sts.roof.generate_normals()
 			# Brick chimney poking through the roof, off-centre along the ridge.
 			var cx := (hx * 0.45) * (1.0 if b.tint % 2 == 0 else -1.0)
-			var cpos := Vector3(cx, WALL_H + 1.6, hz * 0.2) if sx >= sz else Vector3(hx * 0.2, WALL_H + 1.6, cx * sz / sx)
+			var cpos := Vector3(cx, top_y + 1.6, hz * 0.2) if sx >= sz else Vector3(hx * 0.2, top_y + 1.6, cx * sz / sx)
 			_add_box(sts.brick, cpos, Vector3(0.6, 2.6, 0.6), Color.WHITE)
 			_add_box(sts.stone, cpos + Vector3(0, 1.35, 0), Vector3(0.72, 0.1, 0.72), Color.WHITE)
 		# One mesh per material (a SurfaceTool with no vertices cannot be committed).
@@ -389,6 +436,381 @@ func _buildings() -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			node.add_child(mi)
+
+## Furniture pieces: lists of boxes [u, y, d, size_u, size_y, size_d, surface, colour]
+## with u along the wall, d out from the wall into the room.
+const FURNITURE := {
+	"bed": [2.1, [[0, 0.22, 0.75, 2.0, 0.44, 1.4, "floor", "8a6a4a"], [0, 0.5, 0.75, 1.9, 0.14, 1.3, "trim", "e8e4dc"],
+		[0, 0.52, 0.75, 1.0, 0.16, 1.32, "trim", "5d7a9c"], [-0.98, 0.55, 0.75, 0.08, 1.1, 1.4, "floor", "6e5236"]]],
+	"sofa": [2.1, [[0, 0.22, 0.45, 2.0, 0.44, 0.9, "trim", "6b4a3a"], [0, 0.65, 0.1, 2.0, 0.6, 0.2, "trim", "5e4032"],
+		[-0.92, 0.45, 0.45, 0.18, 0.5, 0.9, "trim", "5e4032"], [0.92, 0.45, 0.45, 0.18, 0.5, 0.9, "trim", "5e4032"]]],
+	"table": [2.2, [[0, 0.74, 0.55, 1.4, 0.06, 0.85, "floor", "9a7650"], [-0.62, 0.36, 0.2, 0.07, 0.72, 0.07, "floor", "7a5a3a"],
+		[0.62, 0.36, 0.2, 0.07, 0.72, 0.07, "floor", "7a5a3a"], [-0.62, 0.36, 0.9, 0.07, 0.72, 0.07, "floor", "7a5a3a"],
+		[0.62, 0.36, 0.9, 0.07, 0.72, 0.07, "floor", "7a5a3a"], [-0.95, 0.45, 0.55, 0.42, 0.06, 0.42, "floor", "8a6a4a"],
+		[-1.14, 0.7, 0.55, 0.05, 0.55, 0.42, "floor", "8a6a4a"], [0.95, 0.45, 0.55, 0.42, 0.06, 0.42, "floor", "8a6a4a"],
+		[1.14, 0.7, 0.55, 0.05, 0.55, 0.42, "floor", "8a6a4a"]]],
+	"wardrobe": [1.3, [[0, 1.0, 0.3, 1.2, 2.0, 0.6, "floor", "7a5a3a"], [0, 1.0, 0.61, 0.02, 1.9, 0.02, "trim", "3a2a1a"]]],
+	"shelf": [1.3, [[0, 0.9, 0.2, 1.2, 1.8, 0.4, "floor", "8a6a4a"], [0, 0.6, 0.25, 1.0, 0.3, 0.3, "trim", "7a3030"],
+		[0, 1.25, 0.25, 0.9, 0.28, 0.3, "trim", "2f4f6f"]]],
+	"kitchen": [2.6, [[0, 0.45, 0.3, 2.4, 0.9, 0.6, "trim", "e6e2d8"], [0, 0.92, 0.31, 2.44, 0.05, 0.64, "trim", "4a4a4a"],
+		[0.6, 0.95, 0.3, 0.5, 0.02, 0.4, "trim", "9aa0a6"]]],
+	"fridge": [0.9, [[0, 0.9, 0.35, 0.75, 1.8, 0.7, "trim", "eeeeea"], [0.3, 1.2, 0.71, 0.04, 0.5, 0.03, "trim", "8a8a8a"]]],
+	"counter": [3.0, [[0, 0.5, 0.35, 2.8, 1.0, 0.7, "floor", "8a6a4a"], [0, 1.02, 0.36, 2.84, 0.05, 0.74, "trim", "5a5a5a"]]],
+}
+
+## Furniture along the walls of one storey, kept clear of doors, corners and
+## the staircase, and outside the middle of the room where the loot lies.
+func _furnish(sts: Dictionary, body: StaticBody3D, b: Dictionary, lv: int, shop: bool) -> void:
+	var sx: float = b.size.x
+	var sz: float = b.size.y
+	var hx := sx * 0.5 - WALL_T
+	var hz := sz * 0.5 - WALL_T
+	var y0 := lv * STOREY_H
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(b.pos.x * 31.0 + b.pos.y * 17.0) + lv * 101
+	var pool: Array = ["counter", "shelf", "shelf", "fridge"] if shop else \
+		(["bed", "wardrobe", "bed", "shelf", "sofa"] if lv == 1 else ["sofa", "table", "kitchen", "fridge", "shelf", "wardrobe", "table"])
+	for w in 4:
+		if b.get("stair", -1) == w: continue
+		var along_x := w == 0 or w == 2
+		var half := hx if along_x else hz
+		var spans := [[-half + 0.5, half - 0.5]]
+		if lv == 0 and b.doors.has(w):
+			spans = [[-half + 0.5, -DOOR_W * 0.5 - 0.7], [DOOR_W * 0.5 + 0.7, half - 0.5]]
+		# Keep the end next to the staircase free (its foot and its landing).
+		var sw: int = b.get("stair", -1)
+		var trim_hi := (along_x and sw == 1) or (not along_x and sw == 2)
+		var trim_lo := (along_x and sw == 3) or (not along_x and sw == 0)
+		for sp in spans:
+			if trim_hi: sp[1] = minf(sp[1], half - WorldBuilder.STAIR_W - 0.6)
+			if trim_lo: sp[0] = maxf(sp[0], -half + WorldBuilder.STAIR_W + 0.6)
+		for sp in spans:
+			var room: float = sp[1] - sp[0]
+			var options := pool.filter(func(k): return FURNITURE[k][0] <= room)
+			if options.is_empty() or rng.randf() < 0.2: continue
+			var key: String = options[rng.randi() % options.size()]
+			var length: float = FURNITURE[key][0]
+			var u0: float = rng.randf_range(sp[0] + length * 0.5, sp[1] - length * 0.5)
+			# Room-space position of (u along the wall, d away from it).
+			var place := func(u: float, y: float, d: float) -> Vector3:
+				match w:
+					0: return Vector3(u0 + u, y0 + y, -hz + d)
+					2: return Vector3(u0 + u, y0 + y, hz - d)
+					1: return Vector3(hx - d, y0 + y, u0 + u)
+					_: return Vector3(-hx + d, y0 + y, u0 + u)
+			var lo := Vector3(INF, INF, INF)
+			var hi := -lo
+			for part in FURNITURE[key][1]:
+				var c: Vector3 = place.call(part[0], part[1], part[2])
+				var size := Vector3(part[3], part[4], part[5]) if along_x else Vector3(part[5], part[4], part[3])
+				_add_box(sts[part[6]], c, size, Color(part[7]))
+				lo = lo.min(c - size * 0.5)
+				hi = hi.max(c + size * 0.5)
+			# One collision box round the whole piece (low pieces you can step over stay low).
+			_shape(body, (lo + hi) * 0.5, hi - lo)
+
+## Warehouse (corrugated metal, concrete floor, crates inside) or barn (red
+## boards, hay inside): tall walls, wide doors, open roof space.
+func _big_shed(node: Node3D, body: StaticBody3D, b: Dictionary) -> void:
+	var barn: bool = b.kind == "barn"
+	var sx: float = b.size.x
+	var sz: float = b.size.y
+	var hx := sx * 0.5
+	var hz := sz * 0.5
+	var wall_h := 5.6 if barn else 7.0
+	var door_w := 3.6 if barn else 4.4
+	var door_h := 4.0 if barn else 4.6
+	var wall_mat := _wall_shader("planks" if barn else "corrugated", 2.0, 0.0, 0.7, 0.85)
+	wall_mat.set_shader_parameter("tint", Color("b03c2c") if barn else [Color("c4cacd"), Color("98aab6"), Color("a8b39c")][b.tint % 3])
+	wall_mat.set_shader_parameter("metallic", 0.0 if barn else 0.15)
+	var roof_mat := StandardMaterial3D.new()
+	roof_mat.albedo_texture = load("res://assets/textures/corrugated_col.jpg")
+	roof_mat.normal_enabled = true
+	roof_mat.normal_texture = load("res://assets/textures/corrugated_nrm.jpg")
+	roof_mat.uv1_triplanar = true
+	roof_mat.uv1_scale = Vector3(0.5, 0.5, 0.5)
+	roof_mat.albedo_color = Color("c4b2a4") if barn else Color("d0d4d6")
+	roof_mat.metallic = 0.2
+	roof_mat.roughness = 0.6
+	var floor_mat := _wall_shader("concrete" if not barn else "wood", 3.0, 0.0, 0.0, 0.9)
+	var crate_mat := _wall_shader("wood", 1.5, 0.0, 0.0, 0.8)
+	var hay_mat := _hay_material()
+	var sts := {}
+	for k in ["wall", "roof", "floor", "crate", "hay", "trim"]:
+		var t := SurfaceTool.new()
+		t.begin(Mesh.PRIMITIVE_TRIANGLES)
+		sts[k] = t
+	var doors: Array = b.doors
+	for w in 4:
+		var along_x := w % 2 == 0
+		var length := sx if along_x else sz
+		var off := (-hz if w == 0 else hz) if along_x else (hx if w == 1 else -hx)
+		var inset := -signf(off) * WALL_T * 0.5
+		var spans := [[-length * 0.5, length * 0.5, 0.0, wall_h]]
+		if doors.has(w):
+			spans = [[-length * 0.5, -door_w * 0.5, 0.0, wall_h], [door_w * 0.5, length * 0.5, 0.0, wall_h], [-door_w * 0.5, door_w * 0.5, door_h, wall_h]]
+			# Door frame
+			for e in [-1.0, 1.0]:
+				var fp := Vector3(e * (door_w * 0.5 + 0.08), door_h * 0.5, off + inset) if along_x else Vector3(off + inset, door_h * 0.5, e * (door_w * 0.5 + 0.08))
+				_add_box(sts.trim, fp, Vector3(0.16, door_h, WALL_T + 0.12) if along_x else Vector3(WALL_T + 0.12, door_h, 0.16), Color("4a4440"))
+		for sp in spans:
+			var m: float = (sp[0] + sp[1]) * 0.5
+			var l: float = sp[1] - sp[0]
+			var y: float = (sp[2] + sp[3]) * 0.5
+			var hh: float = sp[3] - sp[2]
+			var cpos := Vector3(m, y, off + inset) if along_x else Vector3(off + inset, y, m)
+			var csz := Vector3(l, hh, WALL_T) if along_x else Vector3(WALL_T, hh, l)
+			_add_box(sts.wall, cpos, csz, Color.WHITE)
+			_shape(body, cpos, csz)
+	# Floor, foundation, and the gable roof (no ceiling: the roof space is open).
+	_add_box(sts.floor, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz), Color.WHITE)
+	_shape(body, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz))
+	_add_box(sts.floor, Vector3(0, -1.2, 0), Vector3(sx + 0.1, 1.8, sz + 0.1), Color.WHITE)
+	var rh := 3.6 if barn else 1.8
+	_gable(sts.roof, Vector3(0, wall_h, 0), sx + 0.6, sz + 0.6, rh, sx >= sz, Color.WHITE)
+	_roof_shape(body, Vector3(0, wall_h, 0), sx + 0.6, sz + 0.6, rh, sx >= sz)
+	# Gable ends closed with boards / sheets.
+	sts.roof.generate_normals()
+	# Cover inside: crate stacks in the warehouse, hay bales in the barn.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(b.pos.x * 7.0 + b.pos.y * 13.0)
+	for k in 5:
+		var p := Vector3(rng.randf_range(-hx + 2.0, hx - 2.0), 0, rng.randf_range(-hz + 2.0, hz - 2.0))
+		if absf(p.x) < door_w * 0.5 + 1.0: continue     # keep the doorway lane clear
+		if barn:
+			for j in rng.randi_range(1, 3):
+				var hb := Vector3(1.2, 0.9, 2.2)
+				var hp := p + Vector3(0, 0.45 + j * 0.9, 0)
+				_add_box(sts.hay, hp, hb, Color.WHITE)
+				_shape(body, hp, hb)
+		else:
+			var n := rng.randi_range(1, 3)
+			for j in n:
+				var cs := Vector3(1.4, 1.2, 1.4)
+				var cp := p + Vector3(rng.randf_range(-0.1, 0.1), 0.6 + j * 1.2 + 0.15, rng.randf_range(-0.1, 0.1))
+				_add_box(sts.crate, cp, cs, Color.WHITE)
+				_shape(body, cp, cs)
+			var pal := Vector3(1.6, 0.15, 1.6)
+			_add_box(sts.crate, p + Vector3(0, 0.075, 0), pal, Color.WHITE)
+	var mats := {"wall": wall_mat, "roof": roof_mat, "floor": floor_mat, "crate": crate_mat, "hay": hay_mat, "trim": _trim_mat()}
+	for k in sts:
+		var mesh: ArrayMesh = sts[k].commit()
+		if mesh == null or mesh.get_surface_count() == 0:
+			continue
+		mesh.surface_set_material(0, mats[k])
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		node.add_child(mi)
+
+var _hay_mat_cache: ShaderMaterial
+func _hay_material() -> ShaderMaterial:
+	if _hay_mat_cache == null:
+		_hay_mat_cache = _wall_shader("sand", 0.8, 0.0, 0.0, 1.0)
+		_hay_mat_cache.set_shader_parameter("tint", Color(1.0, 0.82, 0.45))
+	return _hay_mat_cache
+
+var _trim_mat_cache: StandardMaterial3D
+func _trim_mat() -> StandardMaterial3D:
+	if _trim_mat_cache == null:
+		_trim_mat_cache = StandardMaterial3D.new()
+		_trim_mat_cache.vertex_color_use_as_albedo = true
+		_trim_mat_cache.vertex_color_is_srgb = true
+		_trim_mat_cache.roughness = 0.6
+	return _trim_mat_cache
+
+# ---------- Containers, silos, chimneys, water towers, hay, gas stations ----------
+func _structures() -> void:
+	var parent := Node3D.new()
+	parent.name = "Structures"
+	root.add_child(parent)
+	var body := StaticBody3D.new()
+	parent.add_child(body)
+	var cont_cols := [Color("9c3a2c"), Color("2f5d86"), Color("3f6b45"), Color("b0702a"), Color("7a7f84")]
+	var cont_mats := []
+	for c in cont_cols:
+		var m := _wall_shader("corrugated", 1.2, 0.0, 0.5, 0.65)
+		m.set_shader_parameter("tint", c)
+		m.set_shader_parameter("metallic", 0.4)
+		cont_mats.append(m)
+	var metal := _wall_shader("corrugated", 1.6, 0.0, 0.4, 0.55)
+	metal.set_shader_parameter("tint", Color("c9cdd0"))
+	metal.set_shader_parameter("metallic", 0.5)
+	var brick := _wall_shader("brick", 1.3, 0.0, 0.6, 0.9)
+	var stone := _wall_shader("stone", 2.0, 0.0, 0.0, 0.9)
+	var white := StandardMaterial3D.new()
+	white.albedo_color = Color("ece9e2")
+	white.roughness = 0.5
+	var red := StandardMaterial3D.new()
+	red.albedo_color = Color("c62f2f")
+	red.roughness = 0.45
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color("2b2b2b")
+	dark.roughness = 0.6
+	for st in island.structures:
+		var p2: Vector2 = st.pos
+		var g := island.height_at(p2.x, p2.y)
+		var node := Node3D.new()
+		node.position = Vector3(p2.x, g, p2.y)
+		parent.add_child(node)
+		match st.kind:
+			"container":
+				var size := Vector3(6.06, 2.59, 2.44)
+				var y: float = 2.59 * st.level + 1.295
+				_mesh_box(node, Vector3(0, y, 0), size, cont_mats[st.col])
+				for e in [-1.0, 1.0]:
+					_mesh_box(node, Vector3(e * 3.0, y, 0), Vector3(0.12, 2.6, 2.46), dark)   # end frames / doors
+				_shape(body, node.position + Vector3(0, y, 0), size)
+			"silo":
+				_mesh_cyl(node, Vector3(0, 6.0, 0), 2.8, 2.8, 12.0, metal)
+				_mesh_cyl(node, Vector3(0, 13.0, 0), 0.35, 2.95, 2.0, metal)
+				_mesh_cyl(node, Vector3(0, 0.25, 0), 3.0, 3.0, 0.5, stone)
+				for k in 12:
+					_mesh_box(node, Vector3(2.9, 0.6 + k, 0), Vector3(0.05, 0.05, 0.5), dark)   # ladder rungs
+				_cyl_shape(body, node.position + Vector3(0, 6.5, 0), 2.9, 13.0)
+			"chimney":
+				_mesh_cyl(node, Vector3(0, 17.0, 0), 1.1, 1.9, 34.0, brick)
+				_mesh_cyl(node, Vector3(0, 33.6, 0), 1.3, 1.3, 0.8, stone)
+				_mesh_cyl(node, Vector3(0, 1.0, 0), 2.3, 2.3, 2.0, stone)
+				_cyl_shape(body, node.position + Vector3(0, 17.0, 0), 1.9, 34.0)
+			"water_tower":
+				for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					_mesh_box(node, Vector3(e.x * 2.2, 7.0, e.y * 2.2), Vector3(0.3, 14.0, 0.3), dark)
+					_shape(body, node.position + Vector3(e.x * 2.2, 7.0, e.y * 2.2), Vector3(0.3, 14.0, 0.3))
+				for hgt in [4.0, 9.0]:
+					_mesh_box(node, Vector3(0, hgt, -2.2), Vector3(4.4, 0.15, 0.15), dark)
+					_mesh_box(node, Vector3(0, hgt, 2.2), Vector3(4.4, 0.15, 0.15), dark)
+					_mesh_box(node, Vector3(-2.2, hgt, 0), Vector3(0.15, 0.15, 4.4), dark)
+					_mesh_box(node, Vector3(2.2, hgt, 0), Vector3(0.15, 0.15, 4.4), dark)
+				_mesh_cyl(node, Vector3(0, 16.25, 0), 3.2, 3.2, 4.5, metal)
+				_mesh_cyl(node, Vector3(0, 19.2, 0), 0.3, 3.35, 1.4, metal)
+				_cyl_shape(body, node.position + Vector3(0, 16.25, 0), 3.2, 4.5)
+			"hay":
+				var hm := MeshInstance3D.new()
+				var cm := CylinderMesh.new()
+				cm.top_radius = 0.75
+				cm.bottom_radius = 0.75
+				cm.height = 1.3
+				cm.radial_segments = 14
+				hm.mesh = cm
+				hm.material_override = _hay_material()
+				hm.position = Vector3(0, 0.72, 0)
+				hm.rotation = Vector3(0, deg_to_rad(st.rot), PI * 0.5)
+				node.add_child(hm)
+				_cyl_shape(body, node.position + Vector3(0, 0.75, 0), 0.75, 1.5)
+			"canopy":
+				var dir: Vector2 = st.get("dir", Vector2(1, 0))
+				node.rotation.y = -atan2(dir.y, dir.x)
+				for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					var pp := Vector3(e.x * 4.5, 2.3, e.y * 3.0)
+					_mesh_box(node, pp, Vector3(0.35, 4.6, 0.35), white)
+					_shape(body, node.transform * pp, Vector3(0.35, 4.6, 0.35))
+				_mesh_box(node, Vector3(0, 4.85, 0), Vector3(11.0, 0.5, 7.6), white)
+				_mesh_box(node, Vector3(0, 4.85, 0), Vector3(11.06, 0.22, 7.66), red)
+				for k in 2:
+					var pp := Vector3(-2.2 + k * 4.4, 0.85, 0)
+					_mesh_box(node, pp, Vector3(0.8, 1.7, 0.5), white)
+					_mesh_box(node, pp + Vector3(0, 0.9, 0), Vector3(0.84, 0.16, 0.54), red)
+					_mesh_box(node, pp + Vector3(0, 0.25, 0.27), Vector3(0.4, 0.3, 0.04), dark)
+					_shape(body, node.transform * pp, Vector3(0.8, 1.7, 0.5))
+				_mesh_box(node, Vector3(0, 0.08, 0), Vector3(10.5, 0.16, 3.0), stone)
+
+func _mesh_box(node: Node3D, pos: Vector3, size: Vector3, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.position = pos
+	node.add_child(mi)
+
+func _mesh_cyl(node: Node3D, pos: Vector3, r_top: float, r_bottom: float, h: float, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = r_top
+	cm.bottom_radius = r_bottom
+	cm.height = h
+	cm.radial_segments = 20
+	cm.rings = 1
+	mi.mesh = cm
+	mi.material_override = mat
+	mi.position = pos
+	node.add_child(mi)
+
+func _cyl_shape(body: StaticBody3D, pos: Vector3, r: float, h: float) -> void:
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = r
+	cyl.height = h
+	cs.shape = cyl
+	cs.position = pos
+	body.add_child(cs)
+
+## Second floor of a two-storey house: the floor slab with a stairwell hole,
+## a wooden staircase (ramp collision) along a wall without a door, a railing
+## round the stairwell and a ledge on the outside between the storeys.
+func _upper_floor(sts: Dictionary, body: StaticBody3D, b: Dictionary, col: Color, tcol: Color) -> void:
+	var sx: float = b.size.x
+	var sz: float = b.size.y
+	var hx := sx * 0.5
+	var hz := sz * 0.5
+	var w: int = b.stair
+	var along_x := w == 0 or w == 2
+	var length := sx if along_x else sz
+	var band := (-hz + WALL_T + STAIR_W * 0.5) if w == 0 else (hz - WALL_T - STAIR_W * 0.5) if w == 2 \
+		else (hx - WALL_T - STAIR_W * 0.5) if w == 1 else (-hx + WALL_T + STAIR_W * 0.5)
+	var start := -length * 0.5 + WALL_T + 1.2   # room to step on at the foot
+	# (along, y, across offset) -> building space
+	var at := func(a: float, y: float, c: float) -> Vector3:
+		return Vector3(a, y, band + c) if along_x else Vector3(band + c, y, a)
+	var size := func(da: float, dy: float, dc: float) -> Vector3:
+		return Vector3(da, dy, dc) if along_x else Vector3(dc, dy, da)
+	var steps := 16
+	var tread := STAIR_RUN / steps
+	var rise := STOREY_H / steps
+	for i in steps:
+		var hgt := (i + 1) * rise
+		_add_box(sts.floor, at.call(start + (i + 0.5) * tread, hgt * 0.5, 0.0), size.call(tread, hgt, STAIR_W), Color("a08060"))
+	var pts := PackedVector3Array()
+	for c in [-STAIR_W * 0.5, STAIR_W * 0.5]:
+		pts.append(at.call(start, 0.0, c))
+		pts.append(at.call(start + STAIR_RUN, STOREY_H, c))
+		pts.append(at.call(start + STAIR_RUN, 0.0, c))
+	var cps := ConvexPolygonShape3D.new()
+	cps.points = pts
+	var cs := CollisionShape3D.new()
+	cs.shape = cps
+	body.add_child(cs)
+	# Floor slab with the stairwell cut out (head room from 1.8 m along the stairs).
+	var y := STOREY_H - 0.1
+	var h0 := start + 1.8
+	var h1 := start + STAIR_RUN
+	var c0 := -STAIR_W * 0.5 - 0.05
+	var c1 := STAIR_W * 0.5 + 0.05
+	var lo := -length * 0.5 - 0.1
+	var hi := length * 0.5 + 0.1
+	var across := (sz if along_x else sx) * 0.5 + 0.1
+	var cmin := -across - band
+	var cmax := across - band
+	var pieces := [[lo, h0, cmin, cmax], [h1, hi, cmin, cmax], [h0, h1, cmin, c0], [h0, h1, c1, cmax]]
+	for pc in pieces:
+		if pc[1] - pc[0] < 0.01 or pc[3] - pc[2] < 0.01: continue
+		var ctr: Vector3 = at.call((pc[0] + pc[1]) * 0.5, y, (pc[2] + pc[3]) * 0.5)
+		var sz3: Vector3 = size.call(pc[1] - pc[0], 0.2, pc[3] - pc[2])
+		_add_box(sts.floor, ctr + Vector3(0, 0.001, 0), sz3, Color("b09070"))
+		_shape(body, ctr, sz3)
+	# Railing on the open side of the stairwell.
+	var side_c := c1 if absf(band + c1) < absf(band + c0) else c0
+	var rail_c: Vector3 = at.call((h0 + h1) * 0.5, STOREY_H + 0.5, side_c)
+	var rail_s: Vector3 = size.call(h1 - h0, 1.0, 0.06)
+	_add_box(sts.trim, rail_c + Vector3(0, 0.45, 0), size.call(h1 - h0, 0.08, 0.1), tcol)
+	for k in 5:
+		_add_box(sts.trim, at.call(h0 + (h1 - h0) * k / 4.0, STOREY_H + 0.5, side_c), size.call(0.06, 1.0, 0.06), tcol)
+	_shape(body, rail_c, rail_s)
+	# Ledge between the storeys on the outside.
+	_add_box(sts.stone, Vector3(0, STOREY_H - 0.05, -hz - 0.02), Vector3(sx + 0.2, 0.16, 0.16), Color.WHITE)
+	_add_box(sts.stone, Vector3(0, STOREY_H - 0.05, hz + 0.02), Vector3(sx + 0.2, 0.16, 0.16), Color.WHITE)
+	_add_box(sts.stone, Vector3(-hx - 0.02, STOREY_H - 0.05, 0), Vector3(0.16, 0.16, sz + 0.2), Color.WHITE)
+	_add_box(sts.stone, Vector3(hx + 0.02, STOREY_H - 0.05, 0), Vector3(0.16, 0.16, sz + 0.2), Color.WHITE)
 
 ## Collision for a gable roof, so you can land on it instead of inside it.
 func _roof_shape(body: StaticBody3D, base: Vector3, w: float, d: float, h: float, along_x: bool) -> void:
@@ -535,7 +957,7 @@ func _trees() -> void:
 	# cards); far chunks swap to the cheap solid crowns.
 	pine_mesh = _with_lods(pine_mesh)
 	leafy_mesh = _with_lods(leafy_mesh)
-	var near_d: float = [160.0, 240.0, 320.0, 420.0, 520.0][Game.quality_level()]
+	var near_d: float = [160.0, 240.0, 320.0, 450.0, 650.0][Game.quality_level()]
 	var bark_mat := trunk_mat.duplicate() as StandardMaterial3D
 	bark_mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
 	var leaf_mat := ShaderMaterial.new()
@@ -828,8 +1250,8 @@ func _grass() -> void:
 	grass_mat.set_shader_parameter("grass_c", load("res://assets/textures/grass_col.jpg"))
 	grass_mat.set_shader_parameter("tuft", load("res://assets/textures/grass_tuft.png"))
 	var lv := Game.quality_level()
-	var spacing: float = [0.8, 0.75, 0.55, 0.52, 0.5][lv]
-	var radius: float = [30.0, 32.0, 40.0, 48.0, 55.0][lv]
+	var spacing: float = [0.8, 0.75, 0.55, 0.5, 0.42][lv]
+	var radius: float = [30.0, 32.0, 40.0, 52.0, 70.0][lv]
 	grass_snap = spacing * 12.0
 	grass_mat.set_shader_parameter("radius", radius)
 	var xforms := []

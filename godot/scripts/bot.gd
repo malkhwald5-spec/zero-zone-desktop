@@ -303,6 +303,10 @@ func _wants_loot() -> bool:
 
 func _useful(it: Node3D) -> bool:
 	var data: Dictionary = it.get_meta("data")
+	# Bots do not climb stairs: skip loot on upper floors.
+	var ip := it.global_position
+	if ip.y - world.island.height_at(ip.x, ip.z) > 2.5:
+		return false
 	if data.kind == "weapon":
 		return not armed() or TIER.get(data.id, 0) > TIER.get(weapon_id, 0)
 	if data.kind == "ammo":

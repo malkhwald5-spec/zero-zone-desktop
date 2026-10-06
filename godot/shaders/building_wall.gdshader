@@ -12,6 +12,8 @@ uniform float tint_amount = 1.0;    // 0 = texture colour only, 1 = multiplied b
 uniform float grime = 1.0;
 uniform float bump = 1.0;
 uniform float roughness = 0.9;
+uniform vec3 tint : source_color = vec3(1.0);
+uniform float metallic = 0.0;
 
 varying vec3 lpos;
 varying vec3 lnrm;
@@ -34,7 +36,7 @@ void fragment() {
 		uv = lpos.xy; t = vec3(1, 0, 0); b = vec3(0, 1, 0);
 	}
 	uv = uv / tile * vec2(1.0, -1.0);
-	vec3 col = texture(albedo_tex, uv).rgb * mix(vec3(1.0), COLOR.rgb, tint_amount);
+	vec3 col = texture(albedo_tex, uv).rgb * mix(vec3(1.0), COLOR.rgb, tint_amount) * tint;
 	float wall_x = lpos.x + lpos.z;
 	float ground = 1.0 - smoothstep(0.0, 1.3, lpos.y);
 	float splash = texture(grime_noise, vec2(wall_x * 0.7, lpos.y * 0.9)).r;
@@ -43,6 +45,7 @@ void fragment() {
 	col = mix(col, col * vec3(0.8, 0.78, 0.72), smoothstep(0.6, 0.85, streak) * grime * 0.3 * (1.0 - ground));
 	ALBEDO = col;
 	ROUGHNESS = roughness;
+	METALLIC = metallic;
 	SPECULAR = 0.35;
 	vec2 n = texture(normal_tex, uv).rg * 2.0 - 1.0;
 	vec3 bent = normalize(lnrm + (t * n.x + b * n.y) * bump);

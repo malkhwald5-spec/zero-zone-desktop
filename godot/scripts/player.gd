@@ -100,7 +100,7 @@ func _ready() -> void:
 	spring = SpringArm3D.new()
 	spring.spring_length = 3.2
 	spring.margin = 0.25
-	spring.collision_mask = 1
+	spring.collision_mask = 1 | WorldBuilder.CAMERA_LAYER
 	spring.position = Vector3(0.6, 0, 0)
 	spring.add_excluded_object(get_rid())
 	cam_pivot.add_child(spring)
@@ -545,7 +545,16 @@ func _update_camera(delta: float) -> void:
 	spring.spring_length = lerpf(spring.spring_length, length, minf(1.0, delta * 12.0))
 	if state == "ground" and head.y < Island.WATER + 1.5:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
+	# The over-the-shoulder offset must not poke through a wall next to you
+	# (the camera arm cannot see a wall it starts inside of).
+	if shoulder > 0.0 and state == "ground":
+		var side := cam_rig.global_transform.basis.x
+		var q := PhysicsRayQueryParameters3D.create(head, head + side * (shoulder + 0.3), 1 | WorldBuilder.CAMERA_LAYER, [get_rid()])
+		var hit := get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty():
+			shoulder = maxf(0.0, head.distance_to(hit.position) - 0.3)
 	spring.position.x = lerpf(spring.position.x, shoulder, minf(1.0, delta * 12.0))
+	if spring.position.x > shoulder: spring.position.x = shoulder
 	var fov := 70.0 / zoom
 	if state == "fall":
 		fov += clampf((air_speed - 120.0) / 115.0, 0.0, 1.0) * 10.0      # speed rush
