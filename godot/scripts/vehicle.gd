@@ -231,7 +231,23 @@ func _effects(sp: float) -> void:
 	if not Game.settings.sound or DisplayServer.get_name() == "headless": return
 	if driver != null and _engine == null:
 		_engine = AudioStreamPlayer3D.new()
-		_engine.stream = engine_stream()
+		# Recorded engine (loop) if present, else the generated one; plus the
+		# starter rev as you get in.
+		var rec: AudioStreamOggVorbis = world_sound("engine_loop")
+		if rec:
+			rec.loop = true
+			_engine.stream = rec
+		else:
+			_engine.stream = engine_stream()
+		var start: AudioStream = world_sound("engine_start")
+		if start:
+			var sp3 := AudioStreamPlayer3D.new()
+			sp3.stream = start
+			sp3.unit_size = 8.0
+			sp3.volume_db = -2.0
+			add_child(sp3)
+			sp3.play()
+			sp3.finished.connect(sp3.queue_free)
 		_engine.unit_size = 8.0
 		_engine.max_distance = 160.0
 		_engine.volume_db = -4.0
@@ -249,6 +265,10 @@ func _effects(sp: float) -> void:
 		var load := absf(throttle)
 		_engine.pitch_scale = lerpf(_engine.pitch_scale, 0.75 + rev * 0.9 + _gear * 0.08 + load * 0.1, 0.2)
 		_engine.volume_db = lerpf(_engine.volume_db, -10.0 + load * 6.0, 0.1)
+
+## A recorded sound loaded by the world (null if missing).
+func world_sound(name: String) -> AudioStream:
+	return world._snd.get(name) if world and "_snd" in world else null
 
 ## Forward speed in m/s (positive when moving forward).
 func speed() -> float:

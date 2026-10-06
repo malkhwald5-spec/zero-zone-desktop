@@ -618,6 +618,7 @@ func _end_match(won: bool) -> void:
 func _process(delta: float) -> void:
 	if player == null: return
 	time += delta
+	_update_ambience(delta)
 	if plane_active:
 		plane_t += delta / plane_dur
 		plane.global_position = plane_position()
@@ -876,13 +877,43 @@ func _make_boom_sound() -> AudioStreamWAV:
 func sound_boom(pos: Vector3) -> void:
 	if not Game.settings.sound: return
 	var p := AudioStreamPlayer3D.new()
-	p.stream = _boom_stream
+	p.stream = _snd.get("explosion", _boom_stream)
 	p.unit_size = 40.0
-	p.max_distance = 900.0
+	p.max_distance = 1200.0
+	p.volume_db = 4.0
+	p.pitch_scale = randf_range(0.9, 1.05)
 	add_child(p)
 	p.global_position = pos
-	p.play()
+	var d := pos.distance_to(player.global_position) if player else 0.0
+	if d > 60.0:
+		get_tree().create_timer(d / SPEED_OF_SOUND).timeout.connect(func():
+			if is_instance_valid(p): p.play())
+	else:
+		p.play()
 	p.finished.connect(p.queue_free)
+
+## Birds and wind in the background: full on the ground outside, quieter
+## indoors and in a car, gone in the plane and while falling (the rushing
+## air takes over).
+func _update_ambience(delta: float) -> void:
+	if not Game.settings.sound or player == null or not _snd.has("ambience"): return
+	if _ambience == null:
+		_ambience = AudioStreamPlayer.new()
+		var st: AudioStreamOggVorbis = _snd.ambience
+		st.loop = true
+		_ambience.stream = st
+		_ambience.volume_db = -60.0
+		add_child(_ambience)
+		_ambience.play()
+	var target := -60.0
+	match player.state:
+		"ground":
+			target = -24.0 if building_at(Vector2(player.global_position.x, player.global_position.z)) >= 0 else -15.0
+		"vehicle":
+			target = -26.0
+		"chute":
+			target = -30.0
+	_ambience.volume_db = move_toward(_ambience.volume_db, target, delta * 20.0)
 
 var _sounds_playing := 0
 ## Recorded sounds (freesound.org, see README): assets/sounds/<name>.ogg
@@ -890,7 +921,9 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"auto_1", "auto_2", "auto_3", "auto_4", "auto_tail",
 	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click",
 	"step_concrete_1", "step_concrete_2", "step_concrete_3", "step_concrete_4", "step_concrete_5",
-	"step_grass_1", "step_grass_2", "step_grass_3", "step_grass_4", "step_grass_5", "step_grass_6", "step_grass_7", "step_grass_8"]
+	"step_grass_1", "step_grass_2", "step_grass_3", "step_grass_4", "step_grass_5", "step_grass_6", "step_grass_7", "step_grass_8",
+	"explosion", "engine_start", "engine_loop", "ambience"]
+var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
 const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95}

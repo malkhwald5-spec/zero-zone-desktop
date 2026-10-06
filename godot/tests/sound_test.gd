@@ -69,5 +69,10 @@ func _run() -> void:
 	# Far shots arrive late (300 m / 343 m/s) and ring for up to 2.6 s.
 	await wait(4.5)
 	check(world._sounds_playing <= 1, "finished sounds are cleaned up  playing=%d" % world._sounds_playing)
+	# Background birds and wind on the ground.
+	for i in 30:
+		world._update_ambience(0.1)
+	check(world._ambience != null and world._ambience.volume_db > -30.0 and world._ambience.stream.loop, "ambience loops on the ground  vol=%.1f" % (world._ambience.volume_db if world._ambience else -99.0))
+	world.sound_boom(p.global_position + Vector3(30, 0, 0))
 	print("SOUND TEST %s (%d failed)" % ["OK" if failed == 0 else "FAILED", failed])
 	tree.quit(failed)
