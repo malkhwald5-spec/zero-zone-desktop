@@ -312,6 +312,9 @@ func mask_image(res: int) -> Image:
 		var s := Vector2(rng.randf_range(60, 140), rng.randf_range(50, 110))
 		if not (is_land(p.x, p.y) and is_land(p.x + s.x, p.y + s.y)) or height_at(p.x, p.y) > 30.0: continue
 		img.fill_rect(Rect2i(Vector2i(p * k), Vector2i(s * k)), Color(0, 1, 0, 0))
+	# Alpha: forest floor (leaf litter and moss) under and around the trees.
+	for t in trees:
+		_disc(img, t.pos * k, maxf(7.0 * k, 1.5), Color(0, 0, 0, 1), true)
 	for rd in roads:
 		var a: Vector2 = rd.a * k
 		var b: Vector2 = rd.b * k
@@ -332,4 +335,4 @@ func _disc(img: Image, c: Vector2, r: float, col: Color, soft: bool) -> void:
 			if d > r: continue
 			var cur := img.get_pixel(x, y)
 			var a := 1.0 - smoothstep(r * 0.6, r, d) if soft else 1.0
-			img.set_pixel(x, y, Color(maxf(cur.r, col.r * a), maxf(cur.g, col.g * a), maxf(cur.b, col.b * a), 0))
+			img.set_pixel(x, y, Color(maxf(cur.r, col.r * a), maxf(cur.g, col.g * a), maxf(cur.b, col.b * a), maxf(cur.a, col.a * a)))

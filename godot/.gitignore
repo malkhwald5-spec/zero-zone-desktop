@@ -1,3 +1,5 @@
 .godot/
 *.import
 export/
+# Texture import settings are kept: mipmaps + GPU compression (see README).
+!assets/textures/*.import

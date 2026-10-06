@@ -79,6 +79,24 @@ func _run() -> void:
 	p.pitch = -0.02
 	await wait(1.5)
 	await shot("gfx_forest")
+	# Pine wood: the densest pine spot, seen from just outside it.
+	var pbest: Vector2 = c
+	var pbest_n := 0
+	for k in 80:
+		var t: Dictionary = world.island.trees[randi() % world.island.trees.size()]
+		if not t.pine: continue
+		var n := 0
+		for t2 in world.island.trees:
+			if t2.pine and t.pos.distance_to(t2.pos) < 30.0: n += 1
+		if n > pbest_n:
+			pbest_n = n
+			pbest = t.pos
+	var pp := pbest + Vector2(22, -14)
+	p.global_position = Vector3(pp.x, world.ground_height(Vector3(pp.x, 0, pp.y)) + 0.5, pp.y)
+	p.yaw = atan2(-(pbest - pp).x, -(pbest - pp).y)
+	p.pitch = 0.05
+	await wait(1.5)
+	await shot("gfx_pines")
 	# Coast: walk from the island centre outwards until the ground reaches the sea.
 	var centre := Vector2(world.island.size * 0.5, world.island.size * 0.45)
 	var dir := Vector2(1, 0.3).normalized()

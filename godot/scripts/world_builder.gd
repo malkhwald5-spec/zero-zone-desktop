@@ -64,8 +64,13 @@ func _textures() -> void:
 
 # ---------- Sky, sun, post-processing ----------
 func _environment() -> void:
+	# Real photographed sky (ambientCG DaySkyHDRI063B, CC0) lined up with the sun.
 	var sky_mat := ShaderMaterial.new()
-	sky_mat.shader = load("res://shaders/sky.gdshader")
+	sky_mat.shader = load("res://shaders/sky_photo.gdshader")
+	sky_mat.set_shader_parameter("pano", load("res://assets/textures/sky_day.jpg"))
+	sky_mat.set_shader_parameter("photo_sun", Vector2(0.502, 0.403))
+	sky_mat.set_shader_parameter("energy", 1.15)
+	sky_mat.set_shader_parameter("haze", Color(0.7, 0.77, 0.84))
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_256
@@ -106,7 +111,7 @@ func _environment() -> void:
 	root.add_child(we)
 
 	sun = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-42, -35, 0)
+	sun.rotation_degrees = Vector3(-34, -35, 0)
 	sun.light_energy = 2.2
 	sun.light_color = Color(1.0, 0.94, 0.84)
 	sun.shadow_enabled = true
@@ -132,7 +137,7 @@ func _terrain() -> void:
 	mat.set_shader_parameter("noise_b", noise_b)
 	mat.set_shader_parameter("map_size", s)
 	mat.set_shader_parameter("texel", 1.0 / float(Island.N - 1))
-	for t in ["grass", "dirt", "sand", "rock", "asphalt"]:
+	for t in ["grass", "dirt", "sand", "rock", "asphalt", "forest", "moss"]:
 		mat.set_shader_parameter(t + "_c", load("res://assets/textures/%s_col.jpg" % t))
 		mat.set_shader_parameter(t + "_n", load("res://assets/textures/%s_nrm.jpg" % t))
 	mat.set_shader_parameter("concrete_c", load("res://assets/textures/concrete_col.jpg"))
@@ -471,10 +476,33 @@ func _trees() -> void:
 	var leafy_mesh := _leafy_mesh()
 	leafy_mesh.surface_set_material(0, fol)
 
-	# Trees go into 512 m chunks so the renderer can cull whole chunks off screen
-	# and pick a lower mesh LOD for far ones.
+	# Trees go into 256 m chunks so the renderer can cull whole chunks off screen.
+	# Near chunks use the detailed trees (real trunk, branches and photo leaf
+	# cards); far chunks swap to the cheap solid crowns.
 	pine_mesh = _with_lods(pine_mesh)
 	leafy_mesh = _with_lods(leafy_mesh)
+	var near_d: float = [160.0, 240.0, 320.0, 420.0, 520.0][Game.quality_level()]
+	var bark_mat := trunk_mat.duplicate() as StandardMaterial3D
+	bark_mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
+	var leaf_mat := ShaderMaterial.new()
+	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
+	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
+	var needle_mat := ShaderMaterial.new()
+	needle_mat.shader = load("res://shaders/leaf_card.gdshader")
+	needle_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/pine_branch.png"))
+	needle_mat.set_shader_parameter("translucency", 0.3)
+	needle_mat.set_shader_parameter("sway", 0.6)
+	var near_meshes := {}
+	for v in 2:
+		var bl := TreeModels.broadleaf(3 + v * 17)
+		bl.surface_set_material(0, bark_mat)
+		bl.surface_set_material(1, leaf_mat)
+		near_meshes["bl%d" % v] = bl
+		var pn := TreeModels.pine(5 + v * 23)
+		pn.surface_set_material(0, bark_mat)
+		pn.surface_set_material(1, needle_mat)
+		near_meshes["pn%d" % v] = pn
+	var near_tints := [Color(0.82, 0.86, 0.8), Color(0.72, 0.84, 0.7), Color(0.92, 0.88, 0.66), Color(0.7, 0.8, 0.74), Color(0.86, 0.82, 0.62)]
 	var chunks := {}
 	var body := StaticBody3D.new()
 	body.name = "TreeBodies"
@@ -482,9 +510,9 @@ func _trees() -> void:
 	var pine_cols := [Color("23401f"), Color("2a4a24"), Color("1f3a20"), Color("30502a")]
 	var leaf_cols := [Color("3f6a26"), Color("4a7228"), Color("557a2e"), Color("3a5f24"), Color("6a7a2c")]
 	for t in island.trees:
-		var key := Vector2i(int(t.pos.x / 512.0), int(t.pos.y / 512.0))
+		var key := Vector2i(int(t.pos.x / 256.0), int(t.pos.y / 256.0))
 		if not chunks.has(key):
-			chunks[key] = {"trunk": [], "pine": [], "leaf": []}
+			chunks[key] = {"trunk": [], "pine": [], "leaf": [], "bl0": [], "bl1": [], "pn0": [], "pn1": []}
 		var ch: Dictionary = chunks[key]
 		var g := island.height_at(t.pos.x, t.pos.y) - 0.3
 		var p := Vector3(t.pos.x, g, t.pos.y)
@@ -492,12 +520,18 @@ func _trees() -> void:
 		var trunk_h := h * (0.4 if t.pine else 0.55)
 		ch.trunk.append([Transform3D(Basis.from_scale(Vector3(t.r, trunk_h, t.r)), p + Vector3(0, trunk_h * 0.5, 0)), Color.WHITE])
 		var rot := Basis(Vector3.UP, t.shade * TAU)
+		var variant := int(t.shade * 997.0) % 2
+		var tint: Color = near_tints[int(t.shade * 31.0) % near_tints.size()]
+		var k := h / 10.0
+		var near_x := Transform3D(rot.scaled(Vector3(k, k * (0.92 + fmod(t.shade * 5.0, 1.0) * 0.16), k)), p + Vector3(0, 0.3, 0))
 		if t.pine:
 			var w := h * (0.55 + fmod(t.shade * 13.0, 1.0) * 0.15)
 			ch.pine.append([Transform3D(rot.scaled(Vector3(w, h * 0.85, w)), p + Vector3(0, h * 0.18, 0)), pine_cols[int(t.shade * 7) % 4]])
+			ch["pn%d" % variant].append([near_x, tint])
 		else:
 			var w := h * (0.62 + fmod(t.shade * 7.0, 1.0) * 0.2)
 			ch.leaf.append([Transform3D(rot.scaled(Vector3(w, w * 0.85, w)), p + Vector3(0, h * 0.68, 0)), leaf_cols[int(t.shade * 11) % 5]])
+			ch["bl%d" % variant].append([near_x, tint])
 		var cs := CollisionShape3D.new()
 		var cyl := CylinderShape3D.new()
 		cyl.radius = t.r + 0.1
@@ -506,6 +540,7 @@ func _trees() -> void:
 		cs.position = p + Vector3(0, 2.0, 0)
 		body.add_child(cs)
 	var meshes := {"trunk": trunk, "pine": pine_mesh, "leaf": leafy_mesh}
+	meshes.merge(near_meshes)
 	for key in chunks:
 		for kind in meshes:
 			var list: Array = chunks[key][kind]
@@ -516,8 +551,15 @@ func _trees() -> void:
 				if kind != "trunk": mm.set_instance_color(i, list[i][1])
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = mm
-			if kind == "trunk":
-				mmi.visibility_range_end = 900.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+			if near_meshes.has(kind):
+				mmi.visibility_range_end = near_d
+				mmi.visibility_range_end_margin = 40.0
+			else:
+				mmi.visibility_range_begin = near_d
+				mmi.visibility_range_begin_margin = 40.0
+				if kind == "trunk":
+					mmi.visibility_range_end = 900.0
 			root.add_child(mmi)
 
 ## Adds automatic LOD levels to a generated mesh.
@@ -608,29 +650,22 @@ func _bridges() -> void:
 
 # ---------- Grass patch around the player ----------
 func _grass() -> void:
-	# One clump = four thin curved blades, each a tapered three-segment strip.
+	# One clump = three crossed cards with a photo grass tuft (real blades).
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var brng := RandomNumberGenerator.new()
 	brng.seed = 21
-	for k in 4:
-		var off := Vector3(brng.randf_range(-0.14, 0.14), 0, brng.randf_range(-0.14, 0.14))
-		var ang := brng.randf() * TAU
-		var side := Vector3(cos(ang), 0, sin(ang))
-		var lean := Vector3(-sin(ang), 0, cos(ang)) * brng.randf_range(0.12, 0.3)
-		var h := brng.randf_range(0.4, 0.7)
-		var w := brng.randf_range(0.035, 0.05)
-		var pts := []
-		for j in 4:
-			var t := j / 3.0
-			var c := off + Vector3(0, h * t, 0) + lean * t * t
-			pts.append([c - side * w * (1.0 - t), c + side * w * (1.0 - t), t])
-		for j in 3:
-			var a0: Array = pts[j]
-			var a1: Array = pts[j + 1]
-			for v in [[a0[0], a0[2]], [a0[1], a0[2]], [a1[1], a1[2]], [a0[0], a0[2]], [a1[1], a1[2]], [a1[0], a1[2]]]:
-				st.set_uv(Vector2(0.5, 1.0 - v[1]))
-				st.add_vertex(v[0])
+	for k in 3:
+		var ang := k * PI / 3.0 + brng.randf_range(-0.2, 0.2)
+		var side := Vector3(cos(ang), 0, sin(ang)) * 0.36
+		var off := Vector3(brng.randf_range(-0.08, 0.08), 0, brng.randf_range(-0.08, 0.08))
+		var h := brng.randf_range(0.4, 0.5)
+		var lean := Vector3(-sin(ang), 0, cos(ang)) * brng.randf_range(-0.08, 0.08)
+		var c := [off - side, off + side, off + side + Vector3(0, h, 0) + lean, off - side + Vector3(0, h, 0) + lean]
+		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+		for i in [0, 1, 2, 0, 2, 3]:
+			st.set_uv(uv[i])
+			st.add_vertex(c[i])
 	var blade := st.commit()
 	grass_mat = ShaderMaterial.new()
 	grass_mat.shader = load("res://shaders/grass.gdshader")
@@ -639,8 +674,9 @@ func _grass() -> void:
 	grass_mat.set_shader_parameter("noise_a", noise_a)
 	grass_mat.set_shader_parameter("map_size", island.size)
 	grass_mat.set_shader_parameter("grass_c", load("res://assets/textures/grass_col.jpg"))
+	grass_mat.set_shader_parameter("tuft", load("res://assets/textures/grass_tuft.png"))
 	var lv := Game.quality_level()
-	var spacing: float = [0.6, 0.6, 0.42, 0.42, 0.42][lv]
+	var spacing: float = [0.8, 0.75, 0.55, 0.52, 0.5][lv]
 	var radius: float = [30.0, 32.0, 40.0, 48.0, 55.0][lv]
 	grass_snap = spacing * 12.0
 	grass_mat.set_shader_parameter("radius", radius)

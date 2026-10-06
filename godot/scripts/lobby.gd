@@ -89,13 +89,16 @@ func _build_scene() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
 	var env := Environment.new()
-	# Sunset sky with clouds (same shader as the match, warm colours).
+	# Real photographed sunset (ambientCG EveningSkyHDRI032A, CC0), sun lined up
+	# with the scene's sun light.
 	var sky_mat := ShaderMaterial.new()
-	sky_mat.shader = load("res://shaders/sky.gdshader")
-	sky_mat.set_shader_parameter("zenith", Color(0.2, 0.24, 0.42))
-	sky_mat.set_shader_parameter("horizon", Color(1.0, 0.62, 0.36))
-	sky_mat.set_shader_parameter("ground", Color(0.5, 0.38, 0.32))
-	sky_mat.set_shader_parameter("cloud_cover", 0.38)
+	sky_mat.shader = load("res://shaders/sky_photo.gdshader")
+	sky_mat.set_shader_parameter("pano", load("res://assets/textures/sky_sunset.jpg"))
+	sky_mat.set_shader_parameter("photo_sun", Vector2(0.499, 0.465))
+	sky_mat.set_shader_parameter("energy", 1.2)
+	sky_mat.set_shader_parameter("sun_boost", 2.0)
+	sky_mat.set_shader_parameter("haze", Color("e9a878"))
+	sky_mat.set_shader_parameter("haze_amount", 0.15)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
@@ -132,6 +135,7 @@ func _build_scene() -> void:
 	var fill := DirectionalLight3D.new()
 	fill.light_color = Color("8fa2d8")
 	fill.light_energy = 0.35
+	fill.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	add_child(fill)
 	fill.look_at_from_position(Vector3(10, 6, 20), Vector3.ZERO)
 	Game.apply_quality(env, sun)
