@@ -8,9 +8,27 @@ extends SceneTree
 ## Animation name -> FBX file name in assets/incoming/ (missing files are skipped;
 ## animations already in the library are kept).
 const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload": "reloading",
-	"rifle_run": "rifle_run", "walk": "walking", "strafe_a": "strafe", "strafe_b": "strafe_(2)",
-	"fall": "Falling", "crouch_fwd": "Walk_Crouching_Forward", "crouch_right": "Walk_Crouching_Right",
-	"crouch_left": "Crouch_Walk_Strafe_Left"}
+	"rifle_run": "rifle_run", "walk": "walking", "fall": "Falling",
+	# Rifle 8-way locomotion: f, fl, fr, l, r, b, bl, br.
+	"walk_f": "walk_forward", "walk_fl": "walk_forward_left", "walk_fr": "walk_forward_right", "walk_l": "walk_left",
+	"walk_r": "walk_right", "walk_b": "walk_backward", "walk_bl": "walk_backward_left", "walk_br": "walk_backward_right",
+	"run_f": "run_forward", "run_fl": "run_forward_left", "run_fr": "run_forward_right", "run_l": "run_left",
+	"run_r": "run_right", "run_b": "run_backward", "run_bl": "run_backward_left", "run_br": "run_backward_right",
+	"sprint_f": "sprint_forward", "sprint_fl": "sprint_forward_left", "sprint_fr": "sprint_forward_right",
+	"crouch_f": "walk_crouching_forward", "crouch_fl": "walk_crouching_forward_left", "crouch_fr": "walk_crouching_forward_right",
+	"crouch_l": "walk_crouching_left", "crouch_r": "walk_crouching_right", "crouch_b": "walk_crouching_backward",
+	"crouch_bl": "walk_crouching_backward_left", "crouch_br": "walk_crouching_backward_right",
+	"idle": "idle", "idle_aim": "idle_aiming", "idle_crouch": "idle_crouching", "idle_crouch_aim": "idle_crouching_aiming",
+	"jump_up": "jump_up", "jump_loop": "jump_loop", "jump_down": "jump_down",
+	"death_front": "death_from_the_front", "death_back": "death_from_the_back", "death_right": "death_from_right",
+	"death_head": "death_from_front_headshot", "death_back_head": "death_from_back_headshot",
+	"death_crouch": "death_crouching_headshot_front", "death_walk": "walking_to_dying",
+	"toss": "toss_grenade", "hit": "hit_reaction", "prone_fire": "prone_firing", "prone_reload": "prone_reloading"}
+## Played once (not looped).
+const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
+	"death_back_head", "death_crouch", "death_walk"]
+## Old names replaced by the 8-way set.
+const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 const OUT := "res://assets/anims/mixamo_anims.res"
 const FPS := 30.0
 
@@ -44,6 +62,8 @@ func _init() -> void:
 	var t_rest := _rest_rot(tsk)
 	var t_rest_g := _globals(tsk, t_rest)
 	var lib: AnimationLibrary = load(OUT) if ResourceLoader.exists(OUT) else AnimationLibrary.new()
+	for k in DROP:
+		if lib.has_animation(k): lib.remove_animation(k)
 	for key in SRC:
 		var path := "res://assets/incoming/%s.fbx" % SRC[key]
 		if not ResourceLoader.exists(path): continue
@@ -66,7 +86,7 @@ func _init() -> void:
 		var ratio := t_h / s_h
 		var out := Animation.new()
 		out.length = src.length
-		out.loop_mode = Animation.LOOP_LINEAR
+		out.loop_mode = Animation.LOOP_NONE if key in ONCE else Animation.LOOP_LINEAR
 		# Map target bone -> source bone index by name.
 		var map := {}
 		for i in tsk.get_bone_count():
@@ -115,7 +135,9 @@ func _init() -> void:
 			var w := Q * (Vector3(0, hp.y, 0) * ratio)
 			w = Vector3(rest_w.x, w.y, rest_w.z)
 			out.position_track_insert_key(pos_tr, t, C.inverse() * w / t_scale)
-		var drift := Q * (end_pos - start_pos)
+		var drift := Q * (end_pos - start_pos) * ratio
+		# Ground speed of the clip (m/s): used to match steps to the real speed.
+		out.set_meta("speed", Vector2(drift.x, drift.z).length() / maxf(src.length, 0.01))
 		print(key, " len=%.2f frames=%d drift=%s ratio=%.2f" % [src.length, frames, str(drift.snapped(Vector3.ONE * 0.01)), ratio])
 		lib.add_animation(key, out)
 		sc.free()

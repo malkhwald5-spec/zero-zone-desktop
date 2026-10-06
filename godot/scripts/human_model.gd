@@ -82,6 +82,7 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 	canopy.add_child(lmi)
 	_play("Idle", 1.0)
 	ap.advance(randf() * 1.5)
+	set_process(false)
 
 func _mat(key: String, c: Color, rough := 0.6, metal := 0.0) -> StandardMaterial3D:
 	if not _mats.has(key):
@@ -353,42 +354,95 @@ static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
 func wave(seconds: float) -> void:
 	_wave = seconds
 
+const DEATHS := ["death_front", "death_back", "death_right", "death_head", "death_back_head"]
+var death_anim := ""            # pick a specific death ("death_crouch", "death_walk"...); "" = random
+var vel_y := 0.0                # vertical speed (jump / fall animations)
+var _action := ""
+var _action_t := 0.0
+var _action_speed := 1.0
+
+## Plays a whole-body action once ("toss" = grenade throw) for `seconds`.
+func play_action(name: String, seconds: float) -> void:
+	var a: Animation = ap.get_animation("mx/" + name)
+	if a == null: return
+	_action = name
+	_action_t = seconds
+	_action_speed = a.length / seconds
+	_anim = ""
+	ap.play("mx/" + name, 0.1)
+
+## Direction of travel relative to facing, in eight sectors.
+func _dir8() -> String:
+	if move_local.length() < 0.05: return "f"
+	var k := wrapi(int(round(atan2(move_local.x, move_local.y) / (PI / 4.0))), 0, 8)
+	return ["f", "fr", "r", "br", "b", "bl", "l", "fl"][k]
+
+## Locomotion clip with its playback speed matched to the real ground speed.
+func _play_moving(name: String, speed: float) -> void:
+	var a: Animation = ap.get_animation(name)
+	var clip_speed: float = a.get_meta("speed", 2.0) if a else 2.0
+	_play(name, clampf(speed / maxf(clip_speed, 0.3), 0.4, 2.2))
+
+## Dead: keep playing the death animation until it ends (owners stop calling set_pose).
+func _process(delta: float) -> void:
+	if _anim.begins_with("mx/death") and ap.current_animation_position < ap.current_animation_length:
+		ap.advance(delta)
+	else:
+		set_process(false)
+
 func _play(name: String, speed_scale: float) -> void:
 	if _anim != name:
-		ap.play(name, 0.2)
+		# Cross-fade time runs at the clip's speed: keep it ~0.2 s of real time.
+		ap.play(name, clampf(0.2 * absf(speed_scale), 0.0, 0.4))
 		_anim = name
 	ap.speed_scale = speed_scale
 
 ## pose: "stand" | "crouch" | "prone" | "fall" | "chute" | "dead"
 func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -> void:
-	# Base animation from the ground speed and direction.
-	var sideways := absf(move_local.x) > absf(move_local.y) * 1.2
+	# One-shot action (grenade toss) takes over the whole body for a moment.
+	if _action_t > 0.0:
+		_action_t -= delta
+		_play("mx/" + _action, _action_speed)
+		ap.advance(delta)
+		gun.visible = false
+		body.position = Vector3.ZERO
+		body.rotation = Vector3.ZERO
+		canopy.visible = false
+		return
+	if pose == "dead":
+		# A death animation plays once by itself (see _process) and stays down.
+		if not _anim.begins_with("mx/death"):
+			_play("mx/" + (death_anim if death_anim != "" else DEATHS[randi() % DEATHS.size()]), 1.0)
+			set_process(true)
+		gun.visible = false
+		canopy.visible = false
+		body.position = Vector3.ZERO
+		body.rotation = Vector3.ZERO
+		return
+	# Base animation from the ground speed and its direction (8-way rifle set).
+	var dir := _dir8()
 	if pose == "stand" and speed > 0.3:
-		if sideways and speed < 4.5:
-			# Sidestep: right and left strafes (their stride lengths differ).
-			if move_local.x > 0.0: _play("mx/strafe_a", speed / 3.6)
-			else: _play("mx/strafe_b", speed / 3.1)
-		elif speed > 4.0:
-			_play("mx/rifle_run" if armed else "Run", speed / (3.45 if armed else 5.2))
-		elif armed:
-			_play("Walk", (speed / 1.5) * (-1.0 if move_local.y < -0.2 else 1.0))
-		else:
-			_play("mx/walk", (speed / 1.09) * (-1.0 if move_local.y < -0.2 else 1.0))
+		var set := "walk_"
+		if sprinting and dir in ["f", "fl", "fr"]: set = "sprint_"
+		elif speed > 3.2: set = "run_"
+		_play_moving("mx/" + set + dir, speed)
 	elif pose == "crouch" and speed > 0.3:
-		# Real crouch-walk cycles (forward/back, left, right).
-		if sideways:
-			if move_local.x > 0.0: _play("mx/crouch_right", speed / 2.23)
-			else: _play("mx/crouch_left", speed / 1.21)
-		else:
-			_play("mx/crouch_fwd", (speed / 2.23) * (-1.0 if move_local.y < -0.2 else 1.0))
+		_play_moving("mx/crouch_" + dir, speed)
+	elif pose == "crouch":
+		_play("mx/idle_crouch_aim" if aiming else "mx/idle_crouch", 1.0)
 	elif pose == "airborne":
-		_play("mx/fall", 1.0)
+		_play("mx/jump_up" if vel_y > 1.0 else ("mx/fall" if vel_y < -9.0 else "mx/jump_loop"), 1.0)
 	elif pose == "prone" and speed > 0.3:
 		_play("Walk", speed / 0.8)
+	elif pose == "prone":
+		if reload_p >= 0.0: _play("mx/prone_reload", 6.4 / 2.4)
+		else: _play("mx/prone_fire", 1.0 if recoil > 0.3 else 0.06)
 	elif pose == "stand" and armed and reload_p >= 0.0:
 		_play("mx/reload", 1.4)
 	elif pose == "stand" and armed and aiming:
-		_play("mx/fire" if recoil > 0.3 else "mx/aim_idle", 1.0)
+		_play("mx/fire" if recoil > 0.3 else "mx/idle_aim", 1.0)
+	elif pose == "stand" and armed:
+		_play("mx/idle", 1.0)
 	else:
 		_play("Idle", 1.0)
 	ap.advance(delta)
@@ -404,21 +458,12 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:
 		"crouch":
-			if _anim.begins_with("mx/crouch"):
-				_gun_drop = -0.42        # the animation already crouches the body
-			else:
-				body.position.y = -0.48
-				_leg("Left", Vector3(-0.14, 0.05, -0.32))
-				_leg("Right", Vector3(0.16, 0.05, 0.18))
+			_gun_drop = -0.42        # the animations crouch the body
 		"prone":
-			# Lying face down; the walk cycle becomes a crawl.
-			body.rotation.x = -PI / 2
-			body.position = Vector3(0, 0.22, 0.9)
-		"dead":
-			body.rotation.x = PI / 2
-			body.position = Vector3(0, 0.25, -0.9)
-			_arm("Left", Vector3(-0.8, 1.5, 0.2), Vector3(0, 0, 1))
-			_arm("Right", Vector3(0.8, 1.5, 0.2), Vector3(0, 0, 1))
+			if not _anim.begins_with("mx/prone"):
+				# Crawling: the walk cycle turned face down.
+				body.rotation.x = -PI / 2
+				body.position = Vector3(0, 0.22, 0.9)
 		"fall":
 			# Belly to earth (arms and legs spread) blending into a head-down
 			# dive (arms along the body, legs together). Turned about the hips.

@@ -474,6 +474,20 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 		else:
 			world.effects.impact(end, hit.normal, false)
 
+## Which way to fall: by stance, movement and where the shot came from.
+func _death_anim(attacker: Node, head: bool) -> String:
+	if stance == "crouch": return "death_crouch"
+	if stance == "prone": return "death_front"
+	if Vector2(velocity.x, velocity.z).length() > 3.0: return "death_walk"
+	if attacker is Node3D:
+		var to: Vector3 = (attacker.global_position - global_position)
+		var fwd := -model.global_basis.z
+		var front := to.dot(fwd) > 0.0
+		if head: return "death_head" if front else "death_back_head"
+		if absf(to.normalized().dot(model.global_basis.x)) > 0.75: return "death_right"
+		return "death_front" if front else "death_back"
+	return ""
+
 func on_ground() -> bool:
 	return state == "ground" or state == "vehicle"
 
@@ -487,6 +501,7 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 		damaged.emit((attacker.global_position - global_position).normalized())
 	if health <= 0.0:
 		health = 0.0
+		model.death_anim = _death_anim(attacker, _head)
 		state = "dead"
 		firing = false
 		world.on_actor_killed(self, attacker)
@@ -561,6 +576,7 @@ func _update_model(delta: float) -> void:
 	else:
 		model.transform = Transform3D(Basis(Vector3.UP, ry), Vector3.ZERO)
 	model.dive = dive
+	model.vel_y = velocity.y
 	model.aiming = aiming and state == "ground"
 	model.sprinting = is_sprinting and state == "ground"
 	model.aim_pitch = pitch + 0.1
@@ -577,7 +593,7 @@ func _update_model(delta: float) -> void:
 		"ground":
 			pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
 			# Falling off a roof or a cliff: arms and legs flail.
-			if velocity.y < -5.0 and not is_on_floor(): pose = "airborne"
+			if not is_on_floor() and (velocity.y < -5.0 or velocity.y > 1.5): pose = "airborne"
 	var sp := Vector2(velocity.x, velocity.z).length()
 	var fwd := Vector3(-sin(ry), 0, -cos(ry))
 	var rgt := Vector3(cos(ry), 0, -sin(ry))
@@ -750,6 +766,7 @@ func release_throw() -> void:
 	g.global_position = throw_origin()
 	g.linear_velocity = throw_velocity()
 	g.angular_velocity = Vector3(randf(), randf(), randf()) * 6.0
+	model.play_action("toss", 1.1)
 
 # ---------- Vehicles ----------
 func enter_vehicle(v: Vehicle) -> void:

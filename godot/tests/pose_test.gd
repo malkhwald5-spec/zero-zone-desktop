@@ -44,7 +44,7 @@ func _ready() -> void:
 	add_child(cam)
 	cam.look_at_from_position(Vector3(0, 2.4, 15.0), Vector3(0, 1.0, 0))
 	cam.current = true
-	for f in 30:
+	for f in 75:
 		for i in POSES.size():
 			if POSES[i][4].has("reload_p"): models[i].reload_p = POSES[i][4].reload_p
 			models[i].set_pose(POSES[i][0], POSES[i][1], POSES[i][2], 1.0 / 30.0, f / 30.0)

@@ -110,6 +110,7 @@ func _die(attacker: Node) -> void:
 	dead = true
 	state = "dead"
 	collision_layer = 0
+	if Vector2(velocity.x, velocity.z).length() > 3.0: model.death_anim = "death_walk"
 	velocity = Vector3.ZERO
 	model.set_pose("dead", 0.0, false, 0.016, 0.0)
 	world.on_actor_killed(self, attacker)
@@ -439,6 +440,7 @@ func _maybe_throw() -> void:
 	g.kind = "frag"
 	g.thrower = self
 	world.add_child(g)
+	if not far: model.play_action("toss", 1.1)
 	g.global_position = from
 	g.linear_velocity = v
 
