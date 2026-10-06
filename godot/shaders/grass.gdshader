@@ -24,7 +24,7 @@ void vertex() {
 	float h = textureLod(heightmap, (uv * 512.0 + 0.5) / 513.0, 0.0).r;
 	vec4 m = textureLod(maskmap, uv, 0.0);
 	float d = distance(base.xz, center.xz);
-	float keep = (1.0 - smoothstep(radius * 0.6, radius, d)) * step(2.4, h) * (1.0 - step(0.25, m.r)) * (1.0 - step(0.5, m.b)) * (1.0 - step(0.5, m.g) * 0.4) * (1.0 - smoothstep(0.3, 0.9, m.a) * 0.7);
+	float keep = (1.0 - smoothstep(radius * 0.6, radius, d)) * step(2.4, h) * (1.0 - step(0.25, m.r)) * (1.0 - step(0.5, m.b) * step(0.56, textureLod(noise_a, base.xz / 37.0, 0.0).r)) * (1.0 - step(0.5, m.g) * 0.4) * (1.0 - smoothstep(0.3, 0.9, m.a) * 0.7);
 	tip = 1.0 - UV.y;
 	tint = textureLod(noise_a, base.xz / 31.0, 0.0).r;
 	dry = textureLod(noise_a, base.xz / 97.0 + 0.3, 0.0).r;

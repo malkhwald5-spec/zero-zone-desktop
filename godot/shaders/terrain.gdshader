@@ -69,7 +69,7 @@ void fragment() {
 	vec3 dirt = tcol(dirt_c, wpos.xz, 3.5, k);
 	vec3 sand = tcol(sand_c, wpos.xz, 4.0, k);
 	vec3 asphalt = tcol(asphalt_c, wpos.xz, 5.0, k) * 0.85;
-	vec3 paved = tcol(concrete_c, wpos.xz, 6.0, k) * 0.7;
+	vec3 paved = tcol(concrete_c, wpos.xz, 6.0, k) * 0.55;
 	// Rock: triplanar so steep slopes are not stretched.
 	vec3 tw = pow(abs(wn), vec3(4.0));
 	tw /= (tw.x + tw.y + tw.z);
@@ -95,7 +95,9 @@ void fragment() {
 	col = mix(col, dirt, w_dirt);
 	col = mix(col, litter, w_forest);
 	col = mix(col, field, w_field);
-	col = mix(col, mix(dirt, paved, 0.65), w_town);
+	// Towns: yards of trampled grass and dirt, with paved patches.
+	float paved_k = smoothstep(0.5, 0.62, n1);
+	col = mix(col, mix(mix(grass, dirt, 0.5), paved, paved_k), w_town);
 	col = mix(col, rock, w_rock);
 	col = mix(col, sand, w_sand);
 	col = mix(col, wet, w_wet);

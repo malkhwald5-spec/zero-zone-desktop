@@ -62,6 +62,18 @@ func _run() -> void:
 	p.pitch = -0.08
 	await wait(1.5)
 	await shot("gfx_town")
+	# Close look at a house front (frames, brick, chimney, base course).
+	var hb: Dictionary = world.island.buildings[0]
+	for b in world.island.buildings:
+		if not b.military:
+			hb = b
+			break
+	var hp: Vector2 = hb.pos + Vector2(hb.size.x * 0.3, -hb.size.y * 0.5 - 9.0)
+	p.global_position = Vector3(hp.x, world.ground_height(Vector3(hp.x, 0, hp.y)) + 0.3, hp.y)
+	p.yaw = PI
+	p.pitch = 0.12
+	await wait(1.5)
+	await shot("gfx_house")
 	# Forest / hills: the densest tree spot.
 	var best: Vector2 = c
 	var best_n := 0

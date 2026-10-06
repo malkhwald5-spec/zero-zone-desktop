@@ -29,7 +29,8 @@ func steps() -> Array:
 	return [
 		[_textures, "جاري تجهيز التضاريس"], [_environment, "جاري تجهيز السماء"], [_terrain, "جاري بناء الأرض"],
 		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_trees, "جاري زراعة الغابات"],
-		[_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_grass, "جاري تجهيز العشب"],
+		[_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
+		[_grass, "جاري تجهيز العشب"],
 	]
 
 func build_all() -> void:
@@ -41,6 +42,7 @@ func build_all() -> void:
 	_trees()
 	_rocks()
 	_bridges()
+	_power_lines()
 	_grass()
 
 func _noise_tex(freq: float, seed_v: int) -> NoiseTexture2D:
@@ -199,19 +201,6 @@ func _water() -> void:
 	root.add_child(floor_mi)
 
 # ---------- Buildings ----------
-func _wall_material() -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.vertex_color_use_as_albedo = true
-	m.vertex_color_is_srgb = true
-	m.albedo_texture = load("res://assets/textures/plaster_col.jpg")
-	m.normal_enabled = true
-	m.normal_texture = load("res://assets/textures/plaster_nrm.jpg")
-	m.normal_scale = 0.8
-	m.uv1_triplanar = true
-	m.uv1_scale = Vector3(0.33, 0.33, 0.33)  # one tile = 3 m
-	m.roughness = 0.92
-	return m
-
 func _add_box(st: SurfaceTool, c: Vector3, sz: Vector3, col: Color) -> void:
 	var h := sz * 0.5
 	var corners := [
@@ -234,7 +223,8 @@ func _shape(body: StaticBody3D, c: Vector3, sz: Vector3) -> void:
 	body.add_child(cs)
 
 ## Wall along local X (length L) at local z, with door/window openings.
-func _wall(st: SurfaceTool, glass: SurfaceTool, body: StaticBody3D, origin: Vector3, along_x: bool, length: float, door_at: float, col: Color) -> void:
+## Window and door openings get painted frames, sills and glazing bars (trim).
+func _wall(st: SurfaceTool, glass: SurfaceTool, trim: SurfaceTool, body: StaticBody3D, origin: Vector3, along_x: bool, length: float, door_at: float, col: Color, trim_col: Color) -> void:
 	var openings := []   # [start, end, bottom, top]
 	if door_at >= 0.0:
 		openings.append([door_at - DOOR_W * 0.5, door_at + DOOR_W * 0.5, 0.0, DOOR_H])
@@ -245,6 +235,11 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, body: StaticBody3D, origin: Vect
 		if c < 1.2 or c > length - 1.2: continue
 		openings.append([c - 0.6, c + 0.6, 1.0, 2.2])
 	openings.sort_custom(func(a, b): return a[0] < b[0])
+	# Local wall coordinates (u along the wall, y up, depth across it) to building space.
+	var at := func(u: float, y: float) -> Vector3:
+		return origin + (Vector3(u, y, 0) if along_x else Vector3(0, y, u))
+	var box_size := func(du: float, dy: float, depth: float) -> Vector3:
+		return Vector3(du, dy, depth) if along_x else Vector3(depth, dy, du)
 	var pieces := []   # [start, end, bottom, top]
 	var cur := 0.0
 	for o in openings:
@@ -252,11 +247,22 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, body: StaticBody3D, origin: Vect
 		if o[2] > 0.0: pieces.append([o[0], o[1], 0.0, o[2]])
 		pieces.append([o[0], o[1], o[3], WALL_H])
 		cur = o[1]
-		if o[2] > 0.0:
-			# Window glass (visual only)
-			var gc: float = (o[0] + o[1]) * 0.5
-			var gpos := origin + (Vector3(gc, (o[2] + o[3]) * 0.5, 0) if along_x else Vector3(0, (o[2] + o[3]) * 0.5, gc))
-			_add_box(glass, gpos, Vector3(o[1] - o[0], o[3] - o[2], 0.05) if along_x else Vector3(0.05, o[3] - o[2], o[1] - o[0]), Color(0.2, 0.3, 0.38))
+		var u0: float = o[0]
+		var u1: float = o[1]
+		var y0: float = o[2]
+		var y1: float = o[3]
+		var mid := (u0 + u1) * 0.5
+		var fd := WALL_T + 0.1      # frames stick out 5 cm on both faces
+		var fw := 0.09
+		_add_box(trim, at.call(u0 - fw * 0.5, (y0 + y1) * 0.5), box_size.call(fw, y1 - y0, fd), trim_col)
+		_add_box(trim, at.call(u1 + fw * 0.5, (y0 + y1) * 0.5), box_size.call(fw, y1 - y0, fd), trim_col)
+		_add_box(trim, at.call(mid, y1 + fw * 0.5), box_size.call(u1 - u0 + fw * 2.0, fw, fd), trim_col)
+		if y0 > 0.0:
+			# Sill, glazing bars and the glass itself (visual only).
+			_add_box(trim, at.call(mid, y0 - 0.03), box_size.call(u1 - u0 + 0.24, 0.07, WALL_T + 0.26), trim_col.darkened(0.1))
+			_add_box(trim, at.call(mid, (y0 + y1) * 0.5), box_size.call(0.05, y1 - y0, 0.07), trim_col)
+			_add_box(trim, at.call(mid, y0 + (y1 - y0) * 0.62), box_size.call(u1 - u0, 0.05, 0.07), trim_col)
+			_add_box(glass, at.call(mid, (y0 + y1) * 0.5), box_size.call(u1 - u0, y1 - y0, 0.03), Color(0.2, 0.26, 0.3))
 	if cur < length: pieces.append([cur, length, 0.0, WALL_H])
 	for p in pieces:
 		var mid: float = (p[0] + p[1]) * 0.5
@@ -265,12 +271,32 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, body: StaticBody3D, origin: Vect
 		_add_box(st, c, sz, col)
 		_shape(body, c, sz)
 
+func _wall_shader(tex: String, tile: float, tint: float, grime: float, rough: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/building_wall.gdshader")
+	m.set_shader_parameter("albedo_tex", load("res://assets/textures/%s_col.jpg" % tex))
+	m.set_shader_parameter("normal_tex", load("res://assets/textures/%s_nrm.jpg" % tex))
+	m.set_shader_parameter("grime_noise", noise_b)
+	m.set_shader_parameter("tile", tile)
+	m.set_shader_parameter("tint_amount", tint)
+	m.set_shader_parameter("grime", grime)
+	m.set_shader_parameter("roughness", rough)
+	return m
+
 func _buildings() -> void:
-	var wall_mat := _wall_material()
+	var plaster_mat := _wall_shader("plaster", 3.0, 1.0, 1.0, 0.92)
+	var brick_mat := _wall_shader("brick", 1.3, 0.35, 0.8, 0.9)
+	var stone_mat := _wall_shader("stone", 2.2, 0.0, 0.6, 0.95)
+	var floor_mat := _wall_shader("wood", 2.0, 0.5, 0.0, 0.75)
+	var trim_mat := StandardMaterial3D.new()
+	trim_mat.vertex_color_use_as_albedo = true
+	trim_mat.vertex_color_is_srgb = true
+	trim_mat.roughness = 0.6
 	var glass_mat := StandardMaterial3D.new()
 	glass_mat.vertex_color_use_as_albedo = true
-	glass_mat.roughness = 0.05
-	glass_mat.metallic = 0.6
+	glass_mat.roughness = 0.04
+	glass_mat.metallic = 0.0
+	glass_mat.metallic_specular = 1.0
 	var roof_mat := StandardMaterial3D.new()
 	roof_mat.vertex_color_use_as_albedo = true
 	roof_mat.vertex_color_is_srgb = true
@@ -280,9 +306,11 @@ func _buildings() -> void:
 	roof_mat.uv1_triplanar = true
 	roof_mat.uv1_scale = Vector3(0.4, 0.4, 0.4)
 	roof_mat.roughness = 0.8
-	var tints := [Color("e9e0cc"), Color("dcc9a8"), Color("efe8dc"), Color("d2c2ad"), Color("e2d3bd")]
+	var tints := [Color("cfc4ac"), Color("c4ad88"), Color("d6cfc2"), Color("b8a68e"), Color("a9b4a4")]
 	# Multiplies the terracotta tile texture: natural tiles, darker, grey-brown, red, weathered.
 	var roofs := [Color("ffffff"), Color("c9b6a6"), Color("a8a8ae"), Color("f2c8b8"), Color("b8b8a0")]
+	# Painted window and door frames: white, cream, dark brown, green, blue-grey.
+	var trims := [Color("f0ece4"), Color("e4dcc8"), Color("4a3828"), Color("4d5e48"), Color("5a6878")]
 	var parent := Node3D.new()
 	parent.name = "Buildings"
 	root.add_child(parent)
@@ -295,43 +323,69 @@ func _buildings() -> void:
 		parent.add_child(node)
 		var body := StaticBody3D.new()
 		node.add_child(body)
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		var gl := SurfaceTool.new()
-		gl.begin(Mesh.PRIMITIVE_TRIANGLES)
-		var rf := SurfaceTool.new()
-		rf.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var sts := {}
+		for k in ["wall", "glass", "roof", "trim", "stone", "floor", "brick"]:
+			var t := SurfaceTool.new()
+			t.begin(Mesh.PRIMITIVE_TRIANGLES)
+			sts[k] = t
+		# About a third of the houses are red brick, the rest painted plaster.
+		var brick: bool = not b.military and (b.tint + b.roof) % 3 == 0
+		var st: SurfaceTool = sts.brick if brick else sts.wall
 		var sx: float = b.size.x
 		var sz: float = b.size.y
 		var hx := sx * 0.5
 		var hz := sz * 0.5
-		var col: Color = Color("a9ada0") if b.military else tints[b.tint]
+		var col: Color = Color("a9ada0") if b.military else (Color.WHITE if brick else tints[b.tint])
+		var tcol: Color = Color("5c5f58") if b.military else trims[(b.tint * 3 + b.roof) % trims.size()]
 		var doors: Array = b.doors
-		_wall(st, gl, body, Vector3(-hx, 0, -hz + WALL_T * 0.5), true, sx, sx * 0.5 if doors.has(0) else -1.0, col)
-		_wall(st, gl, body, Vector3(-hx, 0, hz - WALL_T * 0.5), true, sx, sx * 0.5 if doors.has(2) else -1.0, col)
-		_wall(st, gl, body, Vector3(-hx + WALL_T * 0.5, 0, -hz), false, sz, sz * 0.5 if doors.has(3) else -1.0, col)
-		_wall(st, gl, body, Vector3(hx - WALL_T * 0.5, 0, -hz), false, sz, sz * 0.5 if doors.has(1) else -1.0, col)
-		# Floor slab, ceiling slab
-		_add_box(st, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz), Color("8a7356") if not b.military else Color("6f706a"))
+		_wall(st, sts.glass, sts.trim, body, Vector3(-hx, 0, -hz + WALL_T * 0.5), true, sx, sx * 0.5 if doors.has(0) else -1.0, col, tcol)
+		_wall(st, sts.glass, sts.trim, body, Vector3(-hx, 0, hz - WALL_T * 0.5), true, sx, sx * 0.5 if doors.has(2) else -1.0, col, tcol)
+		_wall(st, sts.glass, sts.trim, body, Vector3(-hx + WALL_T * 0.5, 0, -hz), false, sz, sz * 0.5 if doors.has(3) else -1.0, col, tcol)
+		_wall(st, sts.glass, sts.trim, body, Vector3(hx - WALL_T * 0.5, 0, -hz), false, sz, sz * 0.5 if doors.has(1) else -1.0, col, tcol)
+		# Floor slab (wooden boards inside), ceiling slab
+		_add_box(sts.floor, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz), Color("b09070") if not b.military else Color("8a8a84"))
 		_shape(body, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz))
 		_add_box(st, Vector3(0, WALL_H + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2), col.darkened(0.25))
 		_shape(body, Vector3(0, WALL_H + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2))
-		# Foundation down into the ground (hides gaps on slopes)
-		_add_box(st, Vector3(0, -1.2, 0), Vector3(sx + 0.1, 1.8, sz + 0.1), Color("6e6658"))
+		# Stone foundation down into the ground (hides gaps on slopes) and a
+		# half-metre stone base course on the outside of the walls.
+		_add_box(sts.stone, Vector3(0, -1.08, 0), Vector3(sx + 0.14, 2.1, sz + 0.14), Color.WHITE)
+		for w in 4:
+			var along := w % 2 == 0
+			var length := sx if along else sz
+			var sgn := -1.0 if w == 0 or w == 3 else 1.0
+			var spans := [[-length * 0.5, length * 0.5]]
+			if doors.has(w):
+				spans = [[-length * 0.5, -DOOR_W * 0.5 - 0.1], [DOOR_W * 0.5 + 0.1, length * 0.5]]
+			for sp in spans:
+				var m: float = (sp[0] + sp[1]) * 0.5
+				var l: float = sp[1] - sp[0]
+				if along:
+					_add_box(sts.stone, Vector3(m, 0.25, sgn * (hz + 0.04)), Vector3(l + (0.16 if not doors.has(w) else 0.0), 0.56, 0.08), Color.WHITE)
+				else:
+					_add_box(sts.stone, Vector3(sgn * (hx + 0.04), 0.25, m), Vector3(0.08, 0.56, l), Color.WHITE)
 		# Gable roof (houses) or parapet (military)
 		if b.military:
 			for side in [-1, 1]:
 				_add_box(st, Vector3(0, WALL_H + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
 		else:
-			_gable(rf, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, 2.2 if sx > sz else 2.0, sx >= sz, roofs[b.roof])
-			_roof_shape(body, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, 2.2 if sx > sz else 2.0, sx >= sz)
-			rf.generate_normals()
+			var rh := 2.2 if sx > sz else 2.0
+			_gable(sts.roof, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz, roofs[b.roof])
+			_roof_shape(body, Vector3(0, WALL_H + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz)
+			sts.roof.generate_normals()
+			# Brick chimney poking through the roof, off-centre along the ridge.
+			var cx := (hx * 0.45) * (1.0 if b.tint % 2 == 0 else -1.0)
+			var cpos := Vector3(cx, WALL_H + 1.6, hz * 0.2) if sx >= sz else Vector3(hx * 0.2, WALL_H + 1.6, cx * sz / sx)
+			_add_box(sts.brick, cpos, Vector3(0.6, 2.6, 0.6), Color.WHITE)
+			_add_box(sts.stone, cpos + Vector3(0, 1.35, 0), Vector3(0.72, 0.1, 0.72), Color.WHITE)
 		# One mesh per material (a SurfaceTool with no vertices cannot be committed).
-		for pair in [[st, wall_mat], [gl, glass_mat], [rf, roof_mat]]:
-			var mesh: ArrayMesh = pair[0].commit()
+		var mats := {"wall": plaster_mat, "brick": brick_mat, "glass": glass_mat, "roof": roof_mat,
+			"trim": trim_mat, "stone": stone_mat, "floor": floor_mat}
+		for k in sts:
+			var mesh: ArrayMesh = sts[k].commit()
 			if mesh == null or mesh.get_surface_count() == 0:
 				continue
-			mesh.surface_set_material(0, pair[1])
+			mesh.surface_set_material(0, mats[k])
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			node.add_child(mi)
@@ -647,6 +701,104 @@ func _bridges() -> void:
 			mi.position = part[0]
 			node.add_child(mi)
 			_shape(node, part[0], part[1])
+
+# ---------- Power lines along the roads ----------
+func _power_lines() -> void:
+	var wood := StandardMaterial3D.new()
+	wood.albedo_texture = load("res://assets/textures/wood_col.jpg")
+	wood.albedo_color = Color("8a7a6a")
+	wood.normal_enabled = true
+	wood.normal_texture = load("res://assets/textures/wood_nrm.jpg")
+	wood.uv1_scale = Vector3(1.0, 4.0, 1.0)
+	wood.roughness = 0.95
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.1
+	pole.bottom_radius = 0.15
+	pole.height = 9.0
+	pole.radial_segments = 6
+	pole.rings = 1
+	st.append_from(pole, 0, Transform3D(Basis(), Vector3(0, 4.5, 0)))
+	var arm := BoxMesh.new()
+	arm.size = Vector3(1.8, 0.12, 0.12)
+	st.append_from(arm, 0, Transform3D(Basis(), Vector3(0, 8.4, 0)))
+	var ins := CylinderMesh.new()
+	ins.top_radius = 0.04
+	ins.bottom_radius = 0.06
+	ins.height = 0.2
+	ins.radial_segments = 6
+	for x in [-0.8, 0.0, 0.8]:
+		st.append_from(ins, 0, Transform3D(Basis(), Vector3(x, 8.56, 0)))
+	var pole_mesh := st.commit()
+	pole_mesh.surface_set_material(0, wood)
+	var wire_mat := StandardMaterial3D.new()
+	wire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wire_mat.albedo_color = Color(0.08, 0.08, 0.08)
+	var body := StaticBody3D.new()
+	body.name = "PowerPoles"
+	root.add_child(body)
+	var xforms := []
+	var wires := SurfaceTool.new()
+	wires.begin(Mesh.PRIMITIVE_LINES)
+	for rd in island.roads:
+		var a: Vector2 = rd.a
+		var b: Vector2 = rd.b
+		var dir := (b - a).normalized()
+		var side: Vector2 = Vector2(-dir.y, dir.x) * (rd.w * 0.5 + 3.0)
+		var length := a.distance_to(b)
+		var prev: Array = []
+		var d := 30.0
+		while d < length - 30.0:
+			var q: Vector2 = a + dir * d + side
+			d += 40.0
+			var free := island.height_at(q.x, q.y) > 1.2
+			for bld in island.buildings:
+				if free and q.distance_to(bld.pos) < maxf(bld.size.x, bld.size.y) * 0.75 + 2.0:
+					free = false
+			if not free:
+				prev = []
+				continue
+			var g := island.height_at(q.x, q.y) - 0.4
+			var basis := Basis(Vector3.UP, -atan2(dir.y, dir.x) + PI * 0.5)
+			xforms.append(Transform3D(basis, Vector3(q.x, g, q.y)))
+			var cs := CollisionShape3D.new()
+			var cyl := CylinderShape3D.new()
+			cyl.radius = 0.16
+			cyl.height = 9.0
+			cs.shape = cyl
+			cs.position = Vector3(q.x, g + 4.5, q.y)
+			body.add_child(cs)
+			var tips := []
+			for x in [-0.8, 0.0, 0.8]:
+				tips.append(Vector3(q.x, g + 8.66, q.y) + basis * Vector3(x, 0, 0))
+			if not prev.is_empty():
+				for k in 3:
+					# Sagging wire as a few straight pieces.
+					var p0: Vector3 = prev[k]
+					var p1: Vector3 = tips[k]
+					var last := p0
+					for i in range(1, 7):
+						var t := i / 6.0
+						var p := p0.lerp(p1, t) - Vector3(0, 4.0 * t * (1.0 - t) * 1.1, 0)
+						wires.add_vertex(last)
+						wires.add_vertex(p)
+						last = p
+			prev = tips
+	if xforms.is_empty():
+		return
+	var mm := _multimesh(pole_mesh, xforms.size(), false)
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	root.add_child(mmi)
+	var wm := wires.commit()
+	wm.surface_set_material(0, wire_mat)
+	var wmi := MeshInstance3D.new()
+	wmi.mesh = wm
+	wmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(wmi)
 
 # ---------- Grass patch around the player ----------
 func _grass() -> void:

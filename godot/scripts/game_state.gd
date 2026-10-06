@@ -157,16 +157,24 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 		env.glow_enabled = lv >= 1
 		env.volumetric_fog_enabled = lv >= 2
 		env.ssil_enabled = lv >= 3
-		env.ssr_enabled = false
-		env.sdfgi_enabled = false
+		# Reflections in windows and wet surfaces from HDR up; real bounced
+		# light (rooms lit by daylight through windows) on Ultra only.
+		env.ssr_enabled = lv >= 3
+		env.ssr_max_steps = 48
+		env.sdfgi_enabled = lv >= 4
+		env.sdfgi_use_occlusion = true
+		env.sdfgi_cascades = 4
+		env.sdfgi_min_cell_size = 0.4
 	if sun:
 		sun.shadow_enabled = lv >= 1
 		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 300.0, 400.0][lv]
 		sun.light_angular_distance = 0.5 if lv == 4 else 0.0
 	var vp := get_viewport()
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_2X, Viewport.MSAA_4X][lv]
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_DISABLED, Viewport.MSAA_2X][lv]
 	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if lv <= 1 else Viewport.SCREEN_SPACE_AA_DISABLED
+	# Temporal AA from HDR up: smooths the shimmer of leaves, grass and wires.
+	vp.use_taa = lv >= 3
 	# "سلس" draws the 3D scene at 80% and sharpens it back up (like the mobile game).
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if lv == 0 else Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = 0.8 if lv == 0 else 1.0
