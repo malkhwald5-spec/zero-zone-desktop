@@ -1,0 +1,76 @@
+# Builds the Windows version on GitHub's servers and publishes it on the
+# Releases page (files there may be up to 2 GB, unlike 100 MB in the repo).
+# Download link: https://github.com/<owner>/<repo>/releases/latest/download/ZeroZone-Windows.zip
+name: Build Windows
+
+on:
+  push:
+    branches: [main, claude/game-development-y3uzmu]
+    paths: ["godot/**", ".github/workflows/build-windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-windows
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+  RELEASE_TAG: game-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Download Godot and export templates
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          curl -sSfL -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip && rm godot.zip
+          curl -sSfL -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q -j templates.tpz "templates/windows_release_x86_64*" "templates/windows_debug_x86_64*" "templates/version.txt" -d templates
+          rm templates.tpz
+
+      - name: Install templates
+        run: |
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$dest"
+          cp ~/godot/templates/* "$dest/"
+
+      - name: Import assets
+        run: |
+          G=~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64
+          $G --headless --path godot --import || true
+          $G --headless --path godot --import
+
+      - name: Export Windows build
+        run: |
+          mkdir -p out
+          ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 --headless --path godot --export-release "Windows Desktop" "$PWD/out/ZeroZone.exe"
+          test -s out/ZeroZone.exe
+          cd out && zip -9 -q ZeroZone-Windows.zip ZeroZone.exe && ls -la
+
+      - name: Publish to the Releases page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Zero Zone — Windows build from ${GITHUB_SHA::7} ($(date -u +%Y-%m-%d)). Unzip and run ZeroZone.exe."
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "Zero Zone (Windows)" --notes "$notes" --target "$GITHUB_SHA" --latest
+          else
+            gh release edit "$RELEASE_TAG" --notes "$notes" --latest
+          fi
+          gh release upload "$RELEASE_TAG" out/ZeroZone-Windows.zip --clobber
