@@ -480,6 +480,12 @@ func _shoot(e: Node3D) -> void:
 		q.exclude = [get_rid()]
 		var hit := get_world_3d().direct_space_state.intersect_ray(q)
 		var end: Vector3 = hit.position if hit else origin + dir * range_m
+		if i == 0 and hit.get("collider") != world.player and world.player.state != "dead":
+			# Bullet passing within a few metres of the player's head: whizz.
+			var head: Vector3 = world.player.global_position + Vector3(0, 1.5, 0)
+			var close := Geometry3D.get_closest_point_to_segment(head, origin, end)
+			if close.distance_to(head) < 3.0 and close.distance_to(origin) > 8.0:
+				world.sound_flyby(close)
 		if i == 0 and not far:
 			model.recoil = 1.0
 			world.effects.tracer(model.muzzle_position() if model.visible and model.weapon_node else origin + Vector3(0, -0.15, 0), end)

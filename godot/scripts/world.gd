@@ -62,6 +62,8 @@ func _build() -> void:
 	add_child(effects)
 	_shot_stream = _make_shot_sound()
 	_boom_stream = _make_boom_sound()
+	for k in SOUNDS:
+		_snd[k] = load("res://assets/sounds/%s.ogg" % k)
 	_spawn_loot()
 	_spawn_vehicles()
 	_make_plane()
@@ -883,24 +885,87 @@ func sound_boom(pos: Vector3) -> void:
 	p.finished.connect(p.queue_free)
 
 var _sounds_playing := 0
+## Recorded sounds (freesound.org, see README): assets/sounds/<name>.ogg
+const SOUNDS := ["shot_rifle", "shot_rifle_b", "shot_far", "flyby_1", "flyby_2", "flyby_3",
+	"reload_rifle", "reload_bolt", "bolt_cycle", "dry_click"]
+const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95}
+const SPEED_OF_SOUND := 343.0
+var _snd := {}
 
 func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 	if not Game.settings.sound: return
-	# Far shots are inaudible anyway; and cap how many play at once.
-	if not own and (_sounds_playing >= 14 or pos.distance_to(player.global_position) > 450.0): return
+	var d := pos.distance_to(player.global_position)
+	# Cap how many play at once; past ~700 m nothing is heard anyway.
+	if not own and (_sounds_playing >= 14 or d > 700.0): return
+	var far := not own and d > 160.0
+	var stream: AudioStream = _snd.get("shot_far" if far else ("shot_rifle" if randf() < 0.6 else "shot_rifle_b"), _shot_stream)
+	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
 	_sounds_playing += 1
-	var p := AudioStreamPlayer3D.new()
-	p.stream = _shot_stream
-	p.unit_size = 25.0
-	p.max_distance = 600.0
-	p.volume_db = -4.0 if own else 0.0
-	p.pitch_scale = {"pistol": 1.3, "smg": 1.4, "shotgun": 0.7, "ar": 1.0, "sr": 0.75, "lmg": 0.95}.get(cls, 1.0) * randf_range(0.95, 1.05)
-	add_child(p)
-	p.global_position = pos
-	p.play()
+	var p
+	if own:
+		# Your own gun: straight into the ears, not placed in the world.
+		var p2 := AudioStreamPlayer.new()
+		p2.stream = stream
+		p2.volume_db = -3.0
+		p2.pitch_scale = pitch
+		p = p2
+		add_child(p2)
+		p2.play()
+		if cls == "sr":
+			sound_local("bolt_cycle", 0.35)
+	else:
+		var p3 := AudioStreamPlayer3D.new()
+		p3.stream = stream
+		p3.unit_size = 30.0 if not far else 120.0
+		p3.max_distance = 900.0
+		p3.volume_db = 2.0 if cls in ["sr", "lmg"] else 0.0
+		p3.pitch_scale = pitch
+		p = p3
+		add_child(p3)
+		p3.global_position = pos
+		# Sound travels at 343 m/s: far shots are heard after you see them.
+		if d > 60.0:
+			get_tree().create_timer(d / SPEED_OF_SOUND).timeout.connect(func():
+				if is_instance_valid(p3): p3.play())
+		else:
+			p3.play()
 	p.finished.connect(func():
 		_sounds_playing -= 1
 		p.queue_free())
+
+## A bullet passing close to you: the crack/whizz right by your head.
+func sound_flyby(pos: Vector3) -> void:
+	if not Game.settings.sound: return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = _snd.get(["flyby_1", "flyby_2", "flyby_3"][randi() % 3])
+	if p.stream == null: return
+	p.unit_size = 4.0
+	p.volume_db = 2.0
+	p.pitch_scale = randf_range(0.92, 1.1)
+	add_child(p)
+	p.global_position = pos
+	p.play()
+	p.finished.connect(p.queue_free)
+
+## Your own non-positional sounds (reload, bolt, empty click), optionally delayed.
+func sound_local(name: String, delay := 0.0, pitch := 1.0) -> void:
+	if not Game.settings.sound or not _snd.has(name): return
+	var p := AudioStreamPlayer.new()
+	p.stream = _snd[name]
+	p.volume_db = -4.0
+	p.pitch_scale = pitch
+	add_child(p)
+	if delay > 0.0:
+		get_tree().create_timer(delay).timeout.connect(func():
+			if is_instance_valid(p): p.play())
+	else:
+		p.play()
+	p.finished.connect(p.queue_free)
+
+## Length of a loaded sound in seconds (0 if missing).
+func sound_length(name: String) -> float:
+	var st: AudioStream = _snd.get(name)
+	return st.get_length() if st else 0.0
 
 # ---------- Map texture (rendered once from above) ----------
 func _capture_map() -> void:

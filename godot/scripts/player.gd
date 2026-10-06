@@ -254,6 +254,11 @@ func start_reload() -> void:
 	var s: Dictionary = slots[active]
 	if s.mag >= w.mag or ammo[w.ammo] <= 0: return
 	reload_t = w.reload
+	# Reload sound stretched a little to fit this gun's reload time.
+	var snd := "reload_bolt" if w.cls in ["sr", "shotgun"] else "reload_rifle"
+	var length: float = world.sound_length(snd)
+	if length > 0.0:
+		world.sound_local(snd, 0.0, clampf(length / float(w.reload), 0.85, 1.35))
 
 func give_weapon(id: String, mag: int) -> void:
 	var cls: String = Game.WEAPONS[id].cls
@@ -422,6 +427,12 @@ func _try_fire() -> void:
 		return
 	var s: Dictionary = slots[active]
 	if s.mag <= 0:
+		if ammo[w.ammo] <= 0:
+			# Out of ammo: the trigger just clicks.
+			world.sound_local("dry_click")
+			fire_cd = 0.35
+			firing = false
+			return
 		start_reload()
 		return
 	s.mag -= 1
