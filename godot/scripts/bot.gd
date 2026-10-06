@@ -5,7 +5,7 @@ extends CharacterBody3D
 ## moves into the safe zone in time. Far from the player it thinks less often.
 
 const GRAVITY := 18.0
-const TIER := {"p92": 1, "ump": 2, "s1897": 2, "m416": 3, "akm": 3, "kar98": 3, "awm": 4, "m249": 4, "groza": 4}
+const TIER := {"p92": 1, "ump": 2, "s1897": 2, "m416": 3, "akm": 3, "mp44": 3, "kar98": 3, "awm": 4, "m249": 4, "groza": 4}
 
 var world: Node
 var display_name := "خصم"

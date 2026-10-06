@@ -13,7 +13,26 @@ var kind := "frag"            # frag | smoke
 var thrower: Node = null
 var _t := 0.0
 
-static var _mesh: SphereMesh
+static var _models := {}
+
+## Grenade model (Fab: pineapple frag, smoke canister), all surfaces merged.
+static func model_mesh(kind: String) -> Mesh:
+	if _models.has(kind): return _models[kind]
+	var scene: Node3D = load("res://assets/models/grenades/%s.fbx" % ("frag" if kind == "frag" else "smoke")).instantiate()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for node in scene.find_children("*", "MeshInstance3D", true, false):
+		var mi: MeshInstance3D = node
+		var m: Mesh = mi.mesh
+		# The models sit off-centre in their files: centre them on the origin, base at y = 0.
+		var ab: AABB = mi.transform * mi.get_aabb()
+		var xf: Transform3D = Transform3D(Basis.IDENTITY, Vector3(-ab.get_center().x, -ab.position.y, -ab.get_center().z)) * mi.transform
+		for i in m.get_surface_count():
+			st.append_from(m, i, xf)
+	scene.free()
+	var mesh := st.commit()
+	_models[kind] = mesh
+	return mesh
 static var _mats := {}
 
 func _ready() -> void:
@@ -32,18 +51,15 @@ func _ready() -> void:
 	sh.radius = 0.07
 	cs.shape = sh
 	add_child(cs)
-	if _mesh == null:
-		_mesh = SphereMesh.new()
-		_mesh.radius = 0.07
-		_mesh.height = 0.16
 	if not _mats.has(kind):
 		var m := StandardMaterial3D.new()
 		m.albedo_color = Color("3d4a2c") if kind == "frag" else Color("8a8f94")
 		m.roughness = 0.6
 		_mats[kind] = m
 	var mi := MeshInstance3D.new()
-	mi.mesh = _mesh
+	mi.mesh = model_mesh(kind)
 	mi.material_override = _mats[kind]
+	mi.position.y = -0.065
 	add_child(mi)
 
 func _physics_process(delta: float) -> void:

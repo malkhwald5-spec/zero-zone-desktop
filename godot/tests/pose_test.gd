@@ -5,7 +5,7 @@ extends Node3D
 var out := "user://"
 var models := []
 # [pose, speed, armed, weapon, extra settings]
-const POSES := [["stand", 1.2, false, "", {}], ["stand", 0.0, true, "m416", {}], ["stand", 0.0, true, "akm", {"aiming": true}],
+const POSES := [["stand", 1.2, false, "", {}], ["stand", 0.0, true, "mp44", {"aiming": true}], ["stand", 0.0, true, "akm", {"aiming": true}],
 	["stand", 0.0, true, "kar98", {"aiming": true, "aim_pitch": 0.5}], ["stand", 6.5, true, "m416", {"sprinting": true}],
 	["stand", 0.0, true, "ump", {"reload_p": 0.25}], ["crouch", 1.2, true, "s1897", {"aiming": true}],
 	["prone", 0.0, true, "m249", {}], ["stand", 0.0, true, "p92", {"aiming": true}], ["fall", 0.0, false, "", {}], ["dead", 0.0, false, "", {}]]

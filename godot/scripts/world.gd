@@ -215,7 +215,7 @@ func _box(sz: Vector3) -> BoxMesh:
 	return b
 
 # ---------- Loot ----------
-const LOOT_TABLE := [["p92", 6], ["ump", 5], ["s1897", 4], ["m416", 4], ["akm", 4], ["kar98", 1.2]]
+const LOOT_TABLE := [["p92", 6], ["ump", 5], ["s1897", 4], ["m416", 4], ["akm", 4], ["mp44", 2.5], ["kar98", 1.2]]
 
 func _pick_weapon(military: bool) -> String:
 	var total := 0.0
@@ -306,11 +306,10 @@ func _pickup_look(data: Dictionary) -> Array:
 					tint = [Color.WHITE, Color("7a6648"), Color("5a5a3c"), Color("3a3a32")][data.lvl]
 			mat.albedo_color = tint
 		elif data.kind == "throw":
-			var sp2 := SphereMesh.new()
-			sp2.radius = 0.08
-			sp2.height = 0.17
-			mesh = sp2
-			mat.albedo_color = Color("3d4a2c") if data.id == "frag" else Color("8a8f94")
+			mesh = Grenade.model_mesh(data.id)
+			mat.albedo_color = Color("3d4a2c") if data.id == "frag" else Color("6f7a6a")
+			mat.metallic = 0.3
+			mat.roughness = 0.55
 		else:
 			mesh = _box(Vector3(0.22, 0.12, 0.16))
 			mat.albedo_color = {"bandage": Color("e8e2d6"), "firstaid": Color("f2f2f2"), "medkit": Color("d93a3a"), "drink": Color("2f86d6"), "pills": Color("e8b23a")}[data.id]

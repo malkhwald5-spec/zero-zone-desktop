@@ -129,6 +129,14 @@ static func _imported(id: String) -> Array:
 			# Barrel along +X, butt at -X, trigger near x = -0.29.
 			return [POLY + "bolt_action_rifle_7_62/bolt_action_rifle_7_62.gltf", ["bullet"],
 				Transform3D(Basis(Vector3.UP, PI / 2), Vector3(0, -0.01, -0.24)), Vector3(0, -0.06, -0.36), -0.86, "bolt_action_rifle_7_62_scope"]
+		"akm":
+			# Fab AK-47: barrel towards +Z (turned round), butt at z = -0.37, pistol grip near z = -0.04.
+			return ["res://assets/models/weapons/ak47/ak47.glb", [],
+				Transform3D(Basis(Vector3.UP, PI), Vector3(-0.013, 0.0, -0.036)), Vector3(0, -0.05, -0.27), -0.56, ""]
+		"mp44":
+			# Fab MP44 (centimetres): butt at z = +0.37 m, muzzle at -0.57 m.
+			return ["res://assets/models/weapons/mp44/mp44.glb", [],
+				Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.025), Vector3(0.002, -0.025, -0.07)), Vector3(0, -0.05, -0.3), -0.64, ""]
 		"p92":
 			return [POLY + "service_pistol/service_pistol.gltf", ["_b", "magazine", "bullet"],
 				Transform3D(Basis(Vector3.UP, PI / 2), Vector3(0, 0.02, -0.03)), Vector3(0, -0.05, 0.0), -0.2, ""]
