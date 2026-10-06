@@ -50,7 +50,8 @@ var settings := {
 	"sound": true,
 	"difficulty": "normal",
 }
-var profile := {"name": "", "outfit": 0, "clan": "", "owned": [0, 1, 2]}
+const LOLA := 10            # WARDROBE index of the Lola character (the default look)
+var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA]}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0}
 ## Lobby economy: gold earned in matches, season-pass XP, claimed mail/rewards.
 var wallet := {"gold": 0, "zc": 0, "xp": 0, "claimed": [], "mail_read": false}
@@ -89,11 +90,15 @@ func load_data() -> void:
 			var target: Dictionary = get(key)
 			for k in data[key]:
 				target[k] = data[key][k]
+	# v3: Lola became the default character; switch older saves to her once.
+	if int(data.get("save_version", 1)) < 3:
+		profile.outfit = LOLA
+		if not profile.owned.has(LOLA): profile.owned.append(LOLA)
 
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"save_version": 2, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 3, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]

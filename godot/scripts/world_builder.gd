@@ -1267,6 +1267,7 @@ func _grass() -> void:
 	for i in xforms.size():
 		mm.set_instance_transform(i, xforms[i])
 	grass = MultiMeshInstance3D.new()
+	grass.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # snaps along with the player
 	grass.multimesh = mm
 	grass.material_override = grass_mat
 	grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

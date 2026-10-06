@@ -53,6 +53,8 @@ pointing/emulate_touch_from_mouse=true
 
 [physics]
 
+common/physics_interpolation=true
+
 3d/physics_engine="Jolt Physics"
 
 common/physics_ticks_per_second=60
@@ -68,3 +70,9 @@ anti_aliasing/quality/screen_space_aa=1
 lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
 environment/defaults/default_clear_color=Color(0.55, 0.7, 0.85, 1)
+
+[internationalization]
+
+; The UI is laid out left-to-right; on an Arabic Windows the engine would
+; otherwise mirror every screen (Arabic text itself still reads right-to-left).
+rendering/root_node_layout_direction=1

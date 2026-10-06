@@ -10,13 +10,16 @@ func wait(sec: float) -> void:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
+		# --locale=ar: an Arabic Windows (used to mirror the whole layout).
+		if a.begins_with("--locale="): TranslationServer.set_locale(a.substr(9))
+		if a.begins_with("--quality="): Game.settings.quality = a.substr(10)
 	_run.call_deferred()
 
 func _run() -> void:
 	var tree := get_tree()
 	reparent(tree.root)
 	tree.current_scene = null
-	for i in [0, Game.WARDROBE.size() - 2, Game.WARDROBE.size() - 1]:
+	for i in [Game.LOLA, 0, Game.WARDROBE.size() - 2]:
 		Game.profile.outfit = i
 		tree.change_scene_to_file("res://scenes/lobby.tscn")
 		await wait(2.5)

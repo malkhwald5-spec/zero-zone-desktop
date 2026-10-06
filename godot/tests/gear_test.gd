@@ -190,8 +190,11 @@ func _run() -> void:
 	# A bot nearby goes for it.
 	var b4: Bot = world.bots[3]
 	# Only this bot: others nearby would pull it into a fight.
+	# Frozen bots can still be seen and fought, so move them well out of sight.
 	for ob in world.bots:
-		if ob != b4: ob.set_physics_process(false)
+		if ob != b4:
+			ob.set_physics_process(false)
+			ob.global_position = ad.global_position + Vector3(3000, 0, 3000)
 	b4.state = "ground"
 	b4.weapon_id = "ump"
 	b4.reserve = 100

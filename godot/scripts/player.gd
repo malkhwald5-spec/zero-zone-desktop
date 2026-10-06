@@ -94,6 +94,8 @@ func _ready() -> void:
 
 	cam_rig = Node3D.new()
 	cam_rig.top_level = true
+	# Moved every rendered frame from the interpolated body position instead.
+	cam_rig.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(cam_rig)
 	cam_pivot = Node3D.new()
 	cam_rig.add_child(cam_pivot)
@@ -213,6 +215,7 @@ func interact() -> void:
 
 func jump_from_plane() -> void:
 	state = "fall"
+	reset_physics_interpolation()
 	velocity = world.plane_velocity() * 0.5
 	dive = 0.0
 	message.emit("W مع النظر لتحت = غوص أسرع (234 كم/س) — W مع النظر لقدام = طيران لبعيد")
@@ -359,6 +362,7 @@ func _land() -> void:
 	velocity = Vector3.ZERO
 	var p: Vector3 = world.safe_landing(global_position)
 	global_position = p
+	reset_physics_interpolation()
 	message.emit("اجمع الأسلحة بسرعة!")
 
 func _ground(delta: float) -> void:
@@ -563,14 +567,13 @@ func _update_camera(delta: float) -> void:
 	if aiming and state == "ground":
 		length = 0.0 if zoom >= 3.0 else 1.5
 		shoulder = 0.0 if zoom >= 3.0 else 0.45
-	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
-	cam_rig.rotation = Vector3(0, yaw, 0)
+	# Where the camera looks from, relative to the body (applied every rendered
+	# frame in _process, so it is smooth at any frame rate and the mouse reacts
+	# at once).
+	_cam_offset = head - (vehicle.global_position if state == "vehicle" else global_position)
 	shake = move_toward(shake, 0.0, delta * 1.5)
-	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
-	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, 0) + sh
 	spring.spring_length = lerpf(spring.spring_length, length, minf(1.0, delta * 12.0))
-	if state == "ground" and head.y < Island.WATER + 1.5:
-		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
+	_cam_low_water = state == "ground" and head.y < Island.WATER + 1.5
 	# The over-the-shoulder offset must not poke through a wall next to you
 	# (the camera arm cannot see a wall it starts inside of).
 	if shoulder > 0.0 and state == "ground":
@@ -588,6 +591,21 @@ func _update_camera(delta: float) -> void:
 	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
 	_update_wind()
 	model.visible = not (aiming and zoom >= 3.0 and state == "ground") and state != "plane"
+
+var _cam_offset := Vector3(0, 1.6, 0)
+var _cam_low_water := false
+
+func _process(delta: float) -> void:
+	if cam_rig == null: return
+	var body: Node3D = vehicle if state == "vehicle" and is_instance_valid(vehicle) else self
+	var head := body.get_global_transform_interpolated().origin + _cam_offset
+	head.y = maxf(head.y, Island.WATER + 0.6)
+	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
+	cam_rig.rotation = Vector3(0, yaw, 0)
+	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
+	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, 0) + sh
+	if _cam_low_water:
+		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 
 func scoped() -> bool:
 	return aiming and state == "ground" and float(weapon().get("zoom", 1.0)) >= 3.0
@@ -831,6 +849,7 @@ func exit_vehicle() -> void:
 	if world.is_deep(out): out = v.global_position + side * 1.9
 	out.y = maxf(world.ground_height(out), v.global_position.y - 0.5) + 0.3
 	global_position = out
+	reset_physics_interpolation()
 	velocity = Vector3.ZERO
 	shape_node.disabled = false
 	if state != "dead": state = "ground"

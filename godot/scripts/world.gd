@@ -77,6 +77,7 @@ func _build() -> void:
 	player.pitch = -0.5
 	_spawn_bots()
 	zone = Zone.new()
+	zone.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # animated in _process
 	add_child(zone)
 	zone.setup(self)
 	hud = Hud.new()
@@ -131,6 +132,7 @@ func _make_plane() -> void:
 	plane_to = Vector3(c.x + d.x, Player.PLANE_ALT, c.y + d.y)
 	plane_dur = plane_from.distance_to(plane_to) / 90.0
 	plane = _plane_model()
+	plane.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(plane)
 	plane.look_at_from_position(plane_from, plane_to, Vector3.UP)
 

@@ -114,8 +114,14 @@ func _build_scene() -> void:
 	env.fog_enabled = true
 	env.fog_light_color = Color("e9a878")
 	env.fog_sun_scatter = 0.2
-	env.fog_density = 0.0007
-	env.fog_aerial_perspective = 0.6
+	env.fog_density = 0.00025
+	env.fog_aerial_perspective = 0.35
+	# Thin warm haze only (the quality presets switch volumetric fog on, and
+	# its default thickness turned the whole lobby into a dust storm).
+	env.volumetric_fog_density = 0.006
+	env.volumetric_fog_albedo = Color("f0c8a0")
+	env.volumetric_fog_length = 40.0
+	env.volumetric_fog_anisotropy = 0.6
 	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12

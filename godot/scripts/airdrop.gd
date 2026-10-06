@@ -28,6 +28,7 @@ static func _mat(key: String, c: Color, emit := 0.0) -> StandardMaterial3D:
 	return _mats[key]
 
 func _ready() -> void:
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # animated in _process
 	# Crate: blue box with red bands (easy to spot from far).
 	var box := MeshInstance3D.new()
 	var bm := BoxMesh.new()
