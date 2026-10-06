@@ -355,71 +355,115 @@ func _anchor(c: Control, preset: int, offset: Vector2) -> void:
 	c.position += offset
 
 func _chip(text: String, cb: Callable, col := Color.WHITE, bg := Color(0, 0, 0, 0.45)) -> Button:
-	var b := UiKit.button(text, cb, Vector2(0, 30), UiKit.style(bg, 3, Color(1, 1, 1, 0.12), 1, 6), 13, col)
+	var b := UiKit.button(text, cb, Vector2(0, 34), UiKit.style(bg, 17, Color(1, 1, 1, 0.14), 1, 12), 15, col)
+	return b
+
+## Button with a drawn icon: either beside the text (pill) or above it (tab).
+func _icon_button(icon: String, text: String, cb: Callable, size: Vector2, icon_above := false, bg := Color(0, 0, 0, 0.45), icon_col := Color.WHITE, radius := 17) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = size
+	b.focus_mode = Control.FOCUS_NONE
+	b.text = ""
+	var st := UiKit.style(bg, radius, Color(1, 1, 1, 0.14) if bg.a > 0.0 else Color(0, 0, 0, 0), 1 if bg.a > 0.0 else 0, 4)
+	b.add_theme_stylebox_override("normal", st)
+	var hv := st.duplicate()
+	hv.bg_color = Color(bg.r, bg.g, bg.b, minf(bg.a + 0.2, 1.0)) if bg.a > 0.0 else Color(1, 1, 1, 0.08)
+	b.add_theme_stylebox_override("hover", hv)
+	b.add_theme_stylebox_override("pressed", hv)
+	b.pressed.connect(cb)
+	var lbl := UiKit.label(text, 14 if icon_above else 16, Color.WHITE, UiKit.bold(), 3)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(lbl)
+	b.set_meta("label", lbl)
+	b.draw.connect(func():
+		var sz := b.size
+		if icon_above:
+			Icons.draw(b, icon, Vector2(sz.x * 0.5, sz.y * 0.36), sz.y * 0.2, icon_col)
+		else:
+			Icons.draw(b, icon, Vector2(sz.y * 0.5 + 2, sz.y * 0.5), sz.y * 0.3, icon_col))
+	b.resized.connect(func():
+		var sz := b.size
+		lbl.size = Vector2(sz.x, 22)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		if icon_above:
+			lbl.position = Vector2(0, sz.y * 0.62)
+		else:
+			lbl.position = Vector2(sz.y * 0.5, sz.y * 0.5 - 12)
+			lbl.size.x = sz.x - sz.y * 0.5 - 6)
 	return b
 
 func _top_left() -> void:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
-	_anchor(box, Control.PRESET_TOP_LEFT, Vector2(16, 12))
+	box.add_theme_constant_override("separation", 10)
+	_anchor(box, Control.PRESET_TOP_LEFT, Vector2(18, 14))
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 12)
 	box.add_child(row)
 	var av := Button.new()
-	av.custom_minimum_size = Vector2(60, 60)
-	av.add_theme_stylebox_override("normal", UiKit.style(Color("2f3a4c"), 2, Color("c9d2de"), 2, 0))
-	av.add_theme_stylebox_override("hover", UiKit.style(Color("3a475c"), 2, Color.WHITE, 2, 0))
-	av.add_theme_stylebox_override("pressed", UiKit.style(Color("3a475c"), 2, Color.WHITE, 2, 0))
+	av.custom_minimum_size = Vector2(72, 72)
+	av.add_theme_stylebox_override("normal", UiKit.style(Color("2f3a4c"), 4, Color("e8edf4"), 2, 0))
+	av.add_theme_stylebox_override("hover", UiKit.style(Color("3a475c"), 4, Color.WHITE, 2, 0))
+	av.add_theme_stylebox_override("pressed", UiKit.style(Color("3a475c"), 4, Color.WHITE, 2, 0))
 	av.add_theme_font_override("font", UiKit.bold())
-	av.add_theme_font_size_override("font_size", 28)
+	av.add_theme_font_size_override("font_size", 32)
 	av.pressed.connect(func(): _open("cards"))
 	labels.avatar = av
 	row.add_child(av)
 	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", UiKit.style(Color("1d6fd8"), 3, Color.WHITE, 1, 2))
+	badge.add_theme_stylebox_override("panel", UiKit.style(Color("1d6fd8"), 4, Color.WHITE, 1, 3))
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var lvl := UiKit.label("", 11, Color.WHITE, UiKit.bold(), 0)
+	var lvl := UiKit.label("", 12, Color.WHITE, UiKit.bold(), 0)
 	badge.add_child(lvl)
-	badge.position = Vector2(-4, 44)
+	badge.position = Vector2(-6, -6)
 	av.add_child(badge)
 	labels.level_badge = lvl
 	var who := VBoxContainer.new()
-	who.add_theme_constant_override("separation", 2)
-	labels.name = UiKit.label("", 19, Color.WHITE, UiKit.bold())
+	who.add_theme_constant_override("separation", 4)
+	labels.name = UiKit.label("", 22, Color.WHITE, UiKit.bold())
 	who.add_child(labels.name)
 	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 6)
-	chips.add_child(_chip("👥 العشيرة", func(): _open("clan")))
-	chips.add_child(_chip("🏠 المنزل", func(): _toast("المنزل قريباً… نجهّزه للموسم الجاي")))
+	chips.add_theme_constant_override("separation", 8)
+	chips.add_child(_icon_button("clan", "العشيرة", func(): _open("clan"), Vector2(118, 34)))
+	chips.add_child(_icon_button("home", "المنزل", func(): _toast("المنزل قريباً… نجهّزه للموسم الجاي"), Vector2(104, 34)))
 	who.add_child(chips)
 	row.add_child(who)
-	var bell := _chip("🔔", func(): _open("mail"))
-	bell.custom_minimum_size = Vector2(52, 34)
+	# Side column: mail bell and friends, like the mobile lobby.
+	var side := VBoxContainer.new()
+	side.add_theme_constant_override("separation", 8)
+	box.add_child(side)
+	var bell := _icon_button("bell", "", func(): _open("mail"), Vector2(72, 40), false, Color(0, 0, 0, 0.5), Color("ffd34d"), 6)
+	labels.bell = bell.get_meta("label")
 	bell.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	labels.bell = bell
-	box.add_child(bell)
+	side.add_child(bell)
+	var fr := _icon_button("friends", "0/1", func(): _toast("اللعب فردي حالياً — الفرق قريباً"), Vector2(72, 40), false, Color(0, 0, 0, 0.5), Color.WHITE, 6)
+	fr.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	side.add_child(fr)
 
 func _top_center() -> void:
 	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 2)
+	tabs.add_theme_constant_override("separation", 0)
 	_anchor(tabs, Control.PRESET_CENTER_TOP, Vector2(0, 14))
 	for tb in [["الرئيسية", ""], ["المتجر", "shop"], ["الفعاليات", "events"]]:
 		var key: String = tb[1]
 		var on := key == ""
-		var st := UiKit.style(Color(1, 1, 1, 0.85) if on else Color(0, 0, 0, 0.4), 2, Color(1, 1, 1, 0.3), 1, 6)
-		var b := UiKit.button(tb[0], func(): if key != "": _open(key), Vector2(92, 30), st, 13, Color("1b1b1b") if on else Color.WHITE)
+		var st := UiKit.style(Color(1, 1, 1, 0.92) if on else Color(0, 0, 0, 0.45), 3, Color(1, 1, 1, 0.35), 1, 6)
+		var b := UiKit.button(tb[0], func(): if key != "": _open(key), Vector2(116, 36), st, 15, Color("1b1b1b") if on else Color.WHITE)
+		b.add_theme_font_override("font", UiKit.bold())
 		tabs.add_child(b)
 
 func _top_right() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	_anchor(row, Control.PRESET_TOP_RIGHT, Vector2(-16, 14))
-	row.add_child(_chip("👑 VIP", func(): _open("season"), Color("ffd34d")))
-	labels.gold = _chip("", func(): _open("shop"), Color.WHITE)
-	row.add_child(labels.gold)
-	labels.zc = _chip("", func(): _open("season"), Color.WHITE)
-	row.add_child(labels.zc)
-	row.add_child(_chip("⚙", func(): _open("settings")))
+	_anchor(row, Control.PRESET_TOP_RIGHT, Vector2(-18, 14))
+	row.add_child(_icon_button("crown", "PRIME", func(): _open("season"), Vector2(104, 36), false, Color(0, 0, 0, 0.5), Color("ffd34d")))
+	var g := _icon_button("coin", "", func(): _open("shop"), Vector2(110, 36), false, Color(0, 0, 0, 0.5))
+	labels.gold = g.get_meta("label")
+	row.add_child(g)
+	var z := _icon_button("gem", "", func(): _open("season"), Vector2(110, 36), false, Color(0, 0, 0, 0.5))
+	labels.zc = z.get_meta("label")
+	row.add_child(z)
+	row.add_child(_icon_button("plus", "", func(): _open("shop"), Vector2(36, 36), false, Color("ffd34d"), UiKit.INK, 18))
+	row.add_child(_icon_button("gear", "", func(): _open("settings"), Vector2(36, 36), false, Color(0, 0, 0, 0.5), Color.WHITE, 18))
 
 func _card(size: Vector2, top: Color, bottom: Color, cb: Callable) -> Button:
 	var b := Button.new()
@@ -453,121 +497,128 @@ func _place(parent: Control, c: Control, pos: Vector2) -> Control:
 func _right_column() -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)
-	_anchor(col, Control.PRESET_TOP_RIGHT, Vector2(-16, 60))
+	_anchor(col, Control.PRESET_TOP_RIGHT, Vector2(-18, 64))
 	# Season pass card.
-	var pass_card := _card(Vector2(190, 120), Color("2a1838"), Color("8a1f35"), func(): _open("season"))
-	_place(pass_card, UiKit.label("ZERO PASS", 22, Color.WHITE, UiKit.italic()), Vector2(10, 4))
-	_place(pass_card, UiKit.label(Game.SEASON_NAME, 12, Color("ffb0c0")), Vector2(10, 36))
+	var pass_card := _card(Vector2(236, 132), Color("2a1838"), Color("8a1f35"), func(): _open("season"))
+	pass_card.draw.connect(func(): Icons.draw(pass_card, "trophy", Vector2(200, 40), 22, Color(1, 0.84, 0.3, 0.9)))
+	_place(pass_card, UiKit.label("ZERO PASS", 26, Color.WHITE, UiKit.italic()), Vector2(12, 4))
+	_place(pass_card, UiKit.label(Game.SEASON_NAME, 13, Color("ffb0c0")), Vector2(12, 42))
 	var lv := PanelContainer.new()
-	lv.add_theme_stylebox_override("panel", UiKit.style(UiKit.YELLOW, 2, Color(0, 0, 0, 0), 0, 4))
-	var lvl := UiKit.label("", 18, UiKit.INK, UiKit.bold(), 0)
+	lv.add_theme_stylebox_override("panel", UiKit.style(UiKit.YELLOW, 3, Color(0, 0, 0, 0), 0, 5))
+	var lvl := UiKit.label("", 20, UiKit.INK, UiKit.bold(), 0)
 	lv.add_child(lvl)
 	labels.pass_level = lvl
-	_place(pass_card, lv, Vector2(124, 78))
+	_place(pass_card, lv, Vector2(160, 86))
 	var bar := ProgressBar.new()
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(104, 6)
-	bar.add_theme_stylebox_override("background", UiKit.style(Color(0, 0, 0, 0.5), 2, Color(0, 0, 0, 0), 0, 0))
-	bar.add_theme_stylebox_override("fill", UiKit.style(UiKit.YELLOW, 2, Color(0, 0, 0, 0), 0, 0))
+	bar.custom_minimum_size = Vector2(136, 8)
+	bar.add_theme_stylebox_override("background", UiKit.style(Color(0, 0, 0, 0.5), 3, Color(0, 0, 0, 0), 0, 0))
+	bar.add_theme_stylebox_override("fill", UiKit.style(UiKit.YELLOW, 3, Color(0, 0, 0, 0), 0, 0))
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	labels.pass_bar = bar
-	_place(pass_card, bar, Vector2(10, 92))
+	_place(pass_card, bar, Vector2(12, 100))
 	col.add_child(pass_card)
 	# Yellow crate / shop strip.
 	var strip := HBoxContainer.new()
-	strip.add_theme_constant_override("separation", 2)
-	for it in [["🎁", "crate"], ["🛒", "shop"]]:
-		var key: String = it[1]
-		var b := UiKit.button(it[0], func(): _open(key), Vector2(94, 46), UiKit.style(UiKit.YELLOW, 2, Color(0, 0, 0, 0), 0, 4), 24, UiKit.INK)
-		strip.add_child(b)
+	strip.add_theme_constant_override("separation", 4)
+	strip.add_child(_icon_button("crate", "الصناديق", func(): _open("crate"), Vector2(116, 58), true, UiKit.YELLOW, UiKit.INK, 4))
+	strip.add_child(_icon_button("cart", "المتجر", func(): _open("shop"), Vector2(116, 58), true, UiKit.YELLOW, UiKit.INK, 4))
+	for b in strip.get_children(): (b.get_meta("label") as Label).add_theme_color_override("font_color", UiKit.INK)
+	for b in strip.get_children(): (b.get_meta("label") as Label).add_theme_constant_override("outline_size", 0)
 	col.add_child(strip)
-	# Two small offer cards.
+	# Two offer cards.
 	var offers := HBoxContainer.new()
 	offers.add_theme_constant_override("separation", 4)
-	var sale := _card(Vector2(93, 52), Color("f5f5f5"), Color("cfd6de"), func(): _open("shop"))
-	_place(sale, UiKit.label("عروض", 15, Color("c62828"), UiKit.bold(), 0), Vector2(8, 4))
+	var sale := _card(Vector2(116, 62), Color("f5f5f5"), Color("cfd6de"), func(): _open("shop"))
+	_place(sale, UiKit.label("عروض", 17, Color("c62828"), UiKit.bold(), 0), Vector2(10, 4))
 	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", UiKit.style(Color("e53935"), 2, Color(0, 0, 0, 0), 0, 2))
-	badge.add_child(UiKit.label("NEW", 10, Color.WHITE, UiKit.bold(), 0))
-	_place(sale, badge, Vector2(52, 4))
-	_place(sale, UiKit.label("SALE", 12, Color("1b1b1b"), UiKit.bold(), 0), Vector2(8, 26))
+	badge.add_theme_stylebox_override("panel", UiKit.style(Color("e53935"), 3, Color(0, 0, 0, 0), 0, 3))
+	badge.add_child(UiKit.label("NEW", 11, Color.WHITE, UiKit.bold(), 0))
+	_place(sale, badge, Vector2(66, 6))
+	_place(sale, UiKit.label("SALE", 14, Color("1b1b1b"), UiKit.bold(), 0), Vector2(10, 32))
 	offers.add_child(sale)
-	var zp := _card(Vector2(93, 52), Color("f5f5f5"), Color("cfd6de"), func(): _open("missions"))
-	_place(zp, UiKit.label("المهام", 15, Color("1b1b1b"), UiKit.bold(), 0), Vector2(8, 4))
-	var mlabel := UiKit.label("", 11, Color("2d6fb8"), null, 0)
+	var zp := _card(Vector2(116, 62), Color("f5f5f5"), Color("cfd6de"), func(): _open("missions"))
+	zp.draw.connect(func(): Icons.draw(zp, "tasks", Vector2(94, 20), 11, Color("2d6fb8")))
+	_place(zp, UiKit.label("المهام", 17, Color("1b1b1b"), UiKit.bold(), 0), Vector2(10, 4))
+	var mlabel := UiKit.label("", 12, Color("2d6fb8"), null, 0)
 	labels.missions_hint = mlabel
-	_place(zp, mlabel, Vector2(8, 28))
+	_place(zp, mlabel, Vector2(10, 34))
 	offers.add_child(zp)
 	col.add_child(offers)
-	var ev := _card(Vector2(190, 46), Color("f5f5f5"), Color("d9dde3"), func(): _open("events"))
-	_place(ev, UiKit.label("الفعاليات", 17, Color("1b1b1b"), UiKit.bold(), 0), Vector2(70, 6))
-	_place(ev, UiKit.label("🌙", 22, Color.WHITE, null, 0), Vector2(10, 4))
+	var ev := _icon_button("calendar", "الفعاليات", func(): _open("events"), Vector2(236, 54), false, Color(0.96, 0.96, 0.96, 0.95), Color("c62828"), 4)
+	(ev.get_meta("label") as Label).add_theme_color_override("font_color", Color("1b1b1b"))
+	(ev.get_meta("label") as Label).add_theme_constant_override("outline_size", 0)
 	col.add_child(ev)
 
 func _bottom_left() -> void:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
-	_anchor(box, Control.PRESET_BOTTOM_LEFT, Vector2(16, -22))
+	box.add_theme_constant_override("separation", 8)
+	_anchor(box, Control.PRESET_BOTTOM_LEFT, Vector2(18, -22))
 	var auto := CheckBox.new()
 	auto.text = "مطابقة تلقائية"
 	auto.button_pressed = true
-	auto.add_theme_font_size_override("font_size", 13)
-	auto.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.45), 2, Color(1, 1, 1, 0.1), 1, 4))
+	auto.add_theme_font_size_override("font_size", 14)
+	auto.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.5), 3, Color(1, 1, 1, 0.12), 1, 6))
 	box.add_child(auto)
-	var mode := _card(Vector2(230, 62), Color(0, 0, 0, 0.6), Color(0, 0, 0, 0.75), func(): _open("mode"))
+	var mode := _card(Vector2(264, 72), Color(0, 0, 0, 0.62), Color(0, 0, 0, 0.78), func(): _open("mode"))
 	var thumb := TextureRect.new()
 	thumb.texture = UiKit.gradient(Color("3f7a5a"), Color("2c6d8f"))
 	thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	thumb.custom_minimum_size = Vector2(74, 54)
-	thumb.size = Vector2(74, 54)
+	thumb.custom_minimum_size = Vector2(84, 62)
+	thumb.size = Vector2(84, 62)
 	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_place(mode, thumb, Vector2(4, 4))
-	_place(mode, UiKit.label("8×8", 18, Color.WHITE, UiKit.bold()), Vector2(22, 14))
-	_place(mode, UiKit.label("منظور الشخص الثالث", 14, Color.WHITE, UiKit.bold(), 0), Vector2(84, 4))
+	_place(mode, thumb, Vector2(5, 5))
+	thumb.draw.connect(func(): Icons.draw(thumb, "globe", Vector2(42, 31), 20, Color(1, 1, 1, 0.9)))
+	_place(mode, UiKit.label("منظور الشخص الثالث", 16, Color.WHITE, UiKit.bold(), 0), Vector2(96, 6))
 	var ml := UiKit.label("", 12, Color(1, 1, 1, 0.8), null, 0)
 	labels.mode = ml
-	_place(mode, ml, Vector2(84, 30))
+	_place(mode, ml, Vector2(96, 38))
 	box.add_child(mode)
-	var start := UiKit.yellow_button("انطلاق", _start, Vector2(230, 80), 40)
+	var start := UiKit.yellow_button("انطلاق", _start, Vector2(264, 92), 46)
+	start.pivot_offset = Vector2(132, 46)
+	labels.start = start
 	box.add_child(start)
-	var status := UiKit.label("", 11, Color(1, 1, 1, 0.75), null, 3)
+	var status := UiKit.label("", 12, Color(1, 1, 1, 0.75), null, 3)
 	labels.status = status
 	box.add_child(status)
 
 func _bottom_bar() -> void:
 	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 0)
-	_anchor(bar, Control.PRESET_BOTTOM_RIGHT, Vector2(-16, -30))
-	var items := [["العشيرة", "clan"], ["البريد", "mail"], ["المهام", "missions"], ["الموسم", "season"], ["ورشة العمل", "workshop"], ["البطاقات", "cards"], ["المخزون", "inventory"]]
+	bar.add_theme_constant_override("separation", 2)
+	_anchor(bar, Control.PRESET_BOTTOM_RIGHT, Vector2(-18, -12))
+	var items := [["العشيرة", "clan", "clan"], ["البريد", "mail", "mail"], ["المهام", "missions", "tasks"], ["الموسم", "season", "trophy"],
+		["ورشة العمل", "workshop", "wrench"], ["البطاقات", "cards", "card"], ["المخزون", "inventory", "shirt"]]
 	for it in items:
 		var key: String = it[1]
-		var b := UiKit.button(it[0], func(): _open(key), Vector2(0, 40), UiKit.style(Color(0, 0, 0, 0.0), 0, Color(0, 0, 0, 0), 0, 12), 16)
-		b.add_theme_font_override("font", UiKit.bold())
+		var b := _icon_button(it[2], it[0], func(): _open(key), Vector2(92, 66), true, Color(0, 0, 0, 0.0), Color.WHITE, 6)
 		bar.add_child(b)
-		labels["bar_" + key] = b
-	bar.add_child(UiKit.button("︿", func(): _toast("كل القوائم ظاهرة"), Vector2(40, 40), UiKit.style(Color(0, 0, 0, 0), 0, Color(0, 0, 0, 0), 0, 4), 18))
-	# Small action icons above the bar.
+		labels["bar_" + key] = b.get_meta("label")
+	# Small round action icons above the bar.
 	var icons := HBoxContainer.new()
 	icons.add_theme_constant_override("separation", 10)
-	_anchor(icons, Control.PRESET_BOTTOM_RIGHT, Vector2(-20, -80))
-	for ic in [["؟", func(): _open("help")], ["👋", func(): soldier.wave(2.2)], ["⛶", func(): _toggle_fullscreen()]]:
-		icons.add_child(UiKit.button(ic[0], ic[1], Vector2(38, 34), UiKit.style(Color(0, 0, 0, 0.35), 17, Color(1, 1, 1, 0.2), 1, 2), 16))
+	_anchor(icons, Control.PRESET_BOTTOM_RIGHT, Vector2(-22, -92))
+	for ic in [["question", func(): _open("help")], ["hand", func(): soldier.wave(2.2)], ["expand", func(): _toggle_fullscreen()]]:
+		icons.add_child(_icon_button(ic[0], "", ic[1], Vector2(40, 40), false, Color(0, 0, 0, 0.45), Color.WHITE, 20))
 	# Darkened strip behind the bar.
 	var strip := TextureRect.new()
-	strip.texture = UiKit.gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.55))
+	strip.texture = UiKit.gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.65))
 	strip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	strip.stretch_mode = TextureRect.STRETCH_SCALE
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(strip)
 	root.move_child(strip, 0)
 	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	strip.offset_top = -90
+	strip.offset_top = -110
 
 func _toggle_fullscreen() -> void:
 	var w := get_window()
 	w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
 
 func _tick_ui(_delta: float) -> void:
+	# The start button breathes gently.
+	if labels.has("start"):
+		var k := 1.0 + sin(t * 3.0) * 0.025
+		labels.start.scale = Vector2(k, k)
 	if labels.has("status"):
 		var now := Time.get_time_dict_from_system()
 		labels.status.text = "📶 عالية الدقة  الشرق الأوسط   %02d:%02d   %s" % [now.hour, now.minute, Game.VERSION]
@@ -576,16 +627,16 @@ func _refresh() -> void:
 	labels.name.text = Game.player_name()
 	labels.avatar.text = Game.player_name().left(1)
 	labels.level_badge.text = str(Game.level())
-	labels.gold.text = "🪙 G %d" % int(Game.wallet.gold)
-	labels.zc.text = "💎 ZC %d  +" % int(Game.wallet.zc)
+	labels.gold.text = "%d" % int(Game.wallet.gold)
+	labels.zc.text = "ZC %d" % int(Game.wallet.zc)
 	labels.pass_level.text = " %d ›" % Game.pass_level()
 	labels.pass_bar.value = float(int(Game.wallet.xp) % Game.PASS_XP) / Game.PASS_XP * 100.0
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
-	labels.mode.text = "جزيرة الصفر | كلاسيكي - فردي | %s" % d
+	labels.mode.text = "كلاسيكي - فردي | %s" % d
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()
 	labels.missions_hint.text = ("%d جاهزة!" % ready) if ready > 0 else "متاح الآن"
 	var unread := not bool(Game.wallet.mail_read)
-	labels.bell.text = "🔔 1" if unread else "🔔"
+	labels.bell.text = "1" if unread else ""
 	labels.bar_mail.text = "البريد •" if unread else "البريد"
 
 func _start() -> void:
