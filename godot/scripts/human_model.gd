@@ -8,6 +8,7 @@ extends Node3D
 ## The model faces -Z like the rest of the game.
 
 const SCENE := preload("res://assets/models/soldier.glb")
+const MIXAMO := preload("res://assets/anims/mixamo_anims.res")
 
 var body: Node3D              # the imported model; tilted/lowered for poses
 var sk: Skeleton3D
@@ -23,6 +24,7 @@ var aim_pitch := 0.0          # look up/down (radians): bends the upper body
 var reload_p := -1.0          # reload progress 0..1 (-1 = not reloading)
 var recoil := 0.0             # kick from the last shot (decays here)
 var _gun_xf := Transform3D()  # smoothed weapon pose (model space)
+var move_local := Vector2.ZERO  # ground velocity relative to facing: x = right, y = forward (m/s)
 var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 ## Skydive / parachute controls, set by the owner each frame.
 var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
@@ -49,6 +51,8 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 	ap.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	for a in ["Idle", "Walk", "Run"]:
 		ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
+	# Mixamo rifle moves (aim, fire, reload, run, strafe), retargeted to this skeleton.
+	ap.add_animation_library("mx", MIXAMO)
 	_skel_scale = sk.get_parent().scale.x
 	for i in sk.get_bone_count():
 		_bone[sk.get_bone_name(i).replace("mixamorig_", "")] = i
@@ -356,12 +360,27 @@ func _play(name: String, speed_scale: float) -> void:
 
 ## pose: "stand" | "crouch" | "prone" | "fall" | "chute" | "dead"
 func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -> void:
-	# Base animation: walk/run cycle from the ground speed.
-	if pose in ["stand", "crouch"] and speed > 0.3:
-		if speed > 4.0 and pose == "stand": _play("Run", speed / 5.2)
-		else: _play("Walk", speed / (1.5 if pose == "stand" else 1.0))
+	# Base animation from the ground speed and direction.
+	var sideways := absf(move_local.x) > absf(move_local.y) * 1.2
+	if pose == "stand" and speed > 0.3:
+		if sideways and speed < 4.5:
+			# Sidestep: right and left strafes (their stride lengths differ).
+			if move_local.x > 0.0: _play("mx/strafe_a", speed / 3.6)
+			else: _play("mx/strafe_b", speed / 3.1)
+		elif speed > 4.0:
+			_play("mx/rifle_run" if armed else "Run", speed / (3.45 if armed else 5.2))
+		elif armed:
+			_play("Walk", (speed / 1.5) * (-1.0 if move_local.y < -0.2 else 1.0))
+		else:
+			_play("mx/walk", (speed / 1.09) * (-1.0 if move_local.y < -0.2 else 1.0))
+	elif pose == "crouch" and speed > 0.3:
+		_play("Walk", speed / 1.0)
 	elif pose == "prone" and speed > 0.3:
 		_play("Walk", speed / 0.8)
+	elif pose == "stand" and armed and reload_p >= 0.0:
+		_play("mx/reload", 1.4)
+	elif pose == "stand" and armed and aiming:
+		_play("mx/fire" if recoil > 0.3 else "mx/aim_idle", 1.0)
 	else:
 		_play("Idle", 1.0)
 	ap.advance(delta)
@@ -516,6 +535,7 @@ func _bend_spine(pose: String) -> void:
 	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
 	var twist := -0.3 if _cls != "pistol" and not sprinting else 0.0
+	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload"): twist = 0.0   # already bladed
 	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
 		if not _bone.has(bn): continue
 		var i: int = _bone[bn]

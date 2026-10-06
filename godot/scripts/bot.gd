@@ -204,6 +204,7 @@ func _ground(delta: float) -> void:
 	_pose_dt += delta
 	if _frame % every == 0 and model.visible:
 		var sp := Vector2(velocity.x, velocity.z).length()
+		model.move_local = Vector2(velocity.dot(Vector3(cos(yaw), 0, -sin(yaw))), velocity.dot(Vector3(-sin(yaw), 0, -cos(yaw))))
 		var t: Node3D = target if is_instance_valid(target) else null
 		model.aiming = t != null and mode == "fight"
 		model.sprinting = sp > 5.0 and not model.aiming

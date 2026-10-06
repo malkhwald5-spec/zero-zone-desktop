@@ -576,6 +576,9 @@ func _update_model(delta: float) -> void:
 		"vehicle": pose = "drive"
 		"ground": pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
 	var sp := Vector2(velocity.x, velocity.z).length()
+	var fwd := Vector3(-sin(ry), 0, -cos(ry))
+	var rgt := Vector3(cos(ry), 0, -sin(ry))
+	model.move_local = Vector2(velocity.dot(rgt), velocity.dot(fwd))
 	model.set_pose(pose, sp, active >= 0, delta, Time.get_ticks_msec() / 1000.0)
 
 ## Rushing wind while skydiving, softer flapping under the canopy, engine drone in the plane.

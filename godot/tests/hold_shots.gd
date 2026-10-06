@@ -49,6 +49,14 @@ func _run() -> void:
 	await wait(1.0)
 	await shot("hold_aim")
 	p.aiming = false
+	p.touch_move = Vector2(1, 0)
+	await wait(0.8)
+	await shot("hold_strafe")
+	p.touch_move = Vector2(0, 1)
+	await wait(1.0)
+	await shot("hold_run")
+	p.touch_move = Vector2.ZERO
+	await wait(0.5)
 	p.sprinting = true
 	p.touch_move = Vector2(0, 1)
 	await wait(1.2)
