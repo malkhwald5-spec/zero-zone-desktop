@@ -267,7 +267,10 @@ func _think() -> void:
 			if mode != "loot" or goal.distance_to(loot_item.global_position) > 1.0:
 				_go(loot_item.global_position)
 			mode = "loot"
-			if global_position.distance_to(loot_item.global_position) < 1.8:
+			# Flat distance: items on top of a supply crate sit a metre up and the
+			# crate itself stops the bot about a metre from them.
+			var to_item: Vector3 = loot_item.global_position - global_position
+			if Vector2(to_item.x, to_item.z).length() < 2.2 and absf(to_item.y) < 2.0:
 				world.bot_take(self, loot_item)
 				loot_item = null
 			return

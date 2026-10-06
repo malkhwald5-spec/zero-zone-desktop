@@ -89,33 +89,34 @@ func _build_scene() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
 	var env := Environment.new()
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color("6a7aa0")
-	sky_mat.sky_horizon_color = Color("f2ae74")
-	sky_mat.sky_curve = 0.2
-	sky_mat.ground_horizon_color = Color("e9a06c")
-	sky_mat.ground_bottom_color = Color("5a4a4a")
-	sky_mat.sun_angle_max = 25.0
-	sky_mat.sun_curve = 0.08
+	# Sunset sky with clouds (same shader as the match, warm colours).
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = load("res://shaders/sky.gdshader")
+	sky_mat.set_shader_parameter("zenith", Color(0.2, 0.24, 0.42))
+	sky_mat.set_shader_parameter("horizon", Color(1.0, 0.62, 0.36))
+	sky_mat.set_shader_parameter("ground", Color(0.5, 0.38, 0.32))
+	sky_mat.set_shader_parameter("cloud_cover", 0.38)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.55
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.05
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 1.1
 	env.glow_enabled = true
-	env.glow_intensity = 0.7
-	env.glow_bloom = 0.08
+	env.glow_intensity = 0.5
+	env.glow_bloom = 0.04
 	env.ssao_enabled = true
 	env.fog_enabled = true
-	env.fog_light_color = Color("e7a473")
-	env.fog_sun_scatter = 0.15
-	env.fog_density = 0.0022
-	env.fog_aerial_perspective = 0.3
+	env.fog_light_color = Color("e9a878")
+	env.fog_sun_scatter = 0.2
+	env.fog_density = 0.0007
+	env.fog_aerial_perspective = 0.6
+	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.08
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.06
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -136,9 +137,11 @@ func _build_scene() -> void:
 	Game.apply_quality(env, sun)
 
 	# Rooftop: concrete floor with stains, low brick parapets, stair house.
-	var floor_mat := _mat(Color("b49a86"), 0.95)
-	floor_mat.albedo_texture = _tiles()
-	floor_mat.uv1_scale = Vector3(15, 10, 1)
+	var floor_mat := _mat(Color("c9b6a6"), 0.95)
+	floor_mat.albedo_texture = load("res://assets/textures/concrete_col.jpg")
+	floor_mat.normal_enabled = true
+	floor_mat.normal_texture = load("res://assets/textures/concrete_nrm.jpg")
+	floor_mat.uv1_scale = Vector3(8, 6, 1)
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(30, 20)
 	_mesh(pm, floor_mat, Vector3(0, 0, -2))
@@ -303,6 +306,7 @@ func _car(pos: Vector3, yaw: float) -> void:
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
 	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
+	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
 	soldier.rotation.y = PI    # face the camera
 	holder.add_child(soldier)
@@ -748,8 +752,12 @@ func _page_inventory(body: VBoxContainer) -> void:
 		card.add_child(hb)
 		var sw := Control.new()
 		sw.custom_minimum_size = Vector2(46, 76)
+		var style: String = w[4] if w.size() > 4 else ""
 		sw.draw.connect(func():
-			sw.draw_circle(Vector2(23, 8), 7, Color("d9a77f"))
+			if style == "panda":
+				sw.draw_circle(Vector2(16, 3), 4, Color.BLACK)
+				sw.draw_circle(Vector2(30, 3), 4, Color.BLACK)
+			sw.draw_circle(Vector2(23, 8), 7, Color.WHITE if style == "panda" else (Color("e8b84a") if style == "gold" else Color("d9a77f")))
 			sw.draw_rect(Rect2(8, 16, 30, 28), w[1])
 			sw.draw_rect(Rect2(10, 44, 12, 30), w[2])
 			sw.draw_rect(Rect2(24, 44, 12, 30), w[2]))

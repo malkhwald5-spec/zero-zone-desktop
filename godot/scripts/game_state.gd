@@ -26,7 +26,8 @@ const WEAPONS := {
 }
 const AMMO_NAMES := {"9mm": "9 ملم", "556": "5.56 ملم", "762": "7.62 ملم", "12g": "خرطوش 12", "300": ".300 ماغنوم"}
 
-## Wardrobe items: [name, shirt colour, pants colour, price in gold (0 = owned from start)].
+## Wardrobe items: [name, shirt colour, pants colour, price in gold (0 = owned from start), style].
+## Style "" = plain uniform tint, "gold" = gold-plated armour, "panda" = panda mask.
 const WARDROBE := [
 	["أزرق المدينة", Color("2d6fb8"), Color("3a4250"), 0],
 	["زيتي الصحراء", Color("3f5f3a"), Color("6b5f45"), 0],
@@ -36,6 +37,8 @@ const WARDROBE := [
 	["رمال ذهبية", Color("c9b48a"), Color("7a6a4c"), 300],
 	["ليلة القمر", Color("5e3a7a"), Color("2b2433"), 600],
 	["الثلج", Color("e6e8ea"), Color("9aa3ab"), 500],
+	["المحارب الذهبي", Color("d9a53a"), Color("8a6420"), 1500, "gold"],
+	["الباندا", Color("f2f2f0"), Color("2f4a72"), 1200, "panda"],
 ]
 
 var settings := {
@@ -93,6 +96,10 @@ func save_data() -> void:
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
+
+func outfit_style() -> String:
+	var w: Array = WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)]
+	return w[4] if w.size() > 4 else ""
 
 func pants_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][2]

@@ -350,6 +350,73 @@ static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
 	_gear_cache[key] = mesh
 	return mesh
 
+var _style := ""
+var _panda: Node3D
+
+## Outfit style: "gold" plates the armour in gold, "panda" adds a panda mask.
+func set_style(style: String) -> void:
+	if style == _style: return
+	_style = style
+	for mi in sk.get_children():
+		if mi is MeshInstance3D and mi.mesh and mi.material_override is StandardMaterial3D:
+			var m: StandardMaterial3D = (mi.material_override as StandardMaterial3D).duplicate()
+			if style == "gold":
+				m.albedo_color = Color(1.0, 0.86, 0.5)
+				m.metallic = 0.9
+				m.roughness = 0.28
+			mi.material_override = m
+	if _panda:
+		_panda.queue_free()
+		_panda = null
+	if style == "panda":
+		var att := BoneAttachment3D.new()
+		att.bone_name = sk.get_bone_name(_bone.Head)
+		sk.add_child(att)
+		_panda = att
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = panda_mesh()
+		mesh.scale = Vector3.ONE / _skel_scale
+		att.add_child(mesh)
+
+## Panda mask: white head with black ears, eye patches and nose (bone space, +Z = face).
+static var _panda_mesh: ArrayMesh
+static func panda_mesh() -> ArrayMesh:
+	if _panda_mesh: return _panda_mesh
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var parts := [[0.135, Vector3(0, 0.1, 0.015), Vector3(1.0, 0.95, 1.0), Color(0.95, 0.95, 0.93)],
+		[0.05, Vector3(-0.095, 0.215, -0.005), Vector3(1, 1, 0.6), Color(0.07, 0.07, 0.07)],
+		[0.05, Vector3(0.095, 0.215, -0.005), Vector3(1, 1, 0.6), Color(0.07, 0.07, 0.07)],
+		[0.04, Vector3(-0.048, 0.115, 0.122), Vector3(1.0, 1.3, 0.5), Color(0.07, 0.07, 0.07)],
+		[0.04, Vector3(0.048, 0.115, 0.122), Vector3(1.0, 1.3, 0.5), Color(0.07, 0.07, 0.07)],
+		[0.012, Vector3(-0.044, 0.12, 0.142), Vector3.ONE, Color(0.9, 0.9, 0.9)],
+		[0.012, Vector3(0.044, 0.12, 0.142), Vector3.ONE, Color(0.9, 0.9, 0.9)],
+		[0.022, Vector3(0, 0.07, 0.148), Vector3(1.2, 0.8, 0.8), Color(0.05, 0.05, 0.05)],
+		[0.06, Vector3(0, 0.055, 0.105), Vector3(1.2, 0.8, 0.8), Color(0.9, 0.9, 0.88)]]
+	for pt in parts:
+		var sph := SphereMesh.new()
+		sph.radius = pt[0]
+		sph.height = pt[0] * 2.0
+		sph.radial_segments = 16
+		sph.rings = 8
+		var tmp := SurfaceTool.new()
+		tmp.create_from(sph, 0)
+		var arr := tmp.commit_to_arrays()
+		var cols := PackedColorArray()
+		cols.resize(arr[Mesh.ARRAY_VERTEX].size())
+		cols.fill(pt[3])
+		arr[Mesh.ARRAY_COLOR] = cols
+		var am := ArrayMesh.new()
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		st.append_from(am, 0, Transform3D(Basis.from_scale(pt[2]), pt[1]))
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.roughness = 0.85
+	st.set_material(m)
+	_panda_mesh = st.commit()
+	return _panda_mesh
+
 ## Lobby emote.
 func wave(seconds: float) -> void:
 	_wave = seconds

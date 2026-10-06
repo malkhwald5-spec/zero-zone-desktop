@@ -166,7 +166,7 @@ func _match_audit() -> void:
 	var seen := false
 	for i in 40:
 		await wait(0.1)
-		if b2.sees_player: seen = true
+		if (b2.target == p): seen = true
 	print("ENGAGE bot_sees=%s player_hp %.0f -> %.0f bot_mag=%d" % [seen, hp_e, p.health, b2.mag])
 	p.health = 100.0
 	# Let the match run, watching bots, health, performance and node count.
@@ -182,7 +182,7 @@ func _match_audit() -> void:
 		fps_sum += Engine.get_frames_per_second()
 		fps_n += 1
 		for b in world.bots:
-			if b.sees_player: bot_shots_seen += 1
+			if b.target == p: bot_shots_seen += 1
 		if p.state == "dead": break
 	var stuck := 0
 	var underground := 0
