@@ -87,7 +87,7 @@ func _ready() -> void:
 	floor_snap_length = 0.4
 	floor_max_angle = deg_to_rad(50)
 
-	model = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
+	model = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
 	model.set_style(Game.outfit_style())
 	add_child(model)
 	_refresh_gear()

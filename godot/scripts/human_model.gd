@@ -44,21 +44,37 @@ var _wave := 0.0
 var _skel_scale := 0.01
 var _mats := {}
 
-func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"), _pants: Color = Color("33373d")) -> void:
-	body = SCENE.instantiate()
+## Characters: the armoured soldier, or Lola (a realistic Mixamo human).
+const CHARACTERS := {
+	"soldier": {"scene": "res://assets/models/soldier.glb", "anims": "res://assets/anims/mixamo_anims.res", "turn": 0.0, "scale": 1.0, "tint": true},
+	"lola": {"scene": "res://assets/models/lola/lola.fbx", "anims": "res://assets/anims/mixamo_lola.res", "turn": PI, "scale": 0.92, "tint": false},
+}
+var character := "soldier"
+var _u := 1.0                   # gear offsets are in centimetres of bone space; this converts
+
+func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"), _pants: Color = Color("33373d"), who := "soldier") -> void:
+	character = who if CHARACTERS.has(who) else "soldier"
+	var cdef: Dictionary = CHARACTERS[character]
+	# body: the posed/tilted node; the model inside is turned to face -Z and sized.
+	body = Node3D.new()
 	add_child(body)
-	sk = body.find_child("Skeleton3D", true, false)
-	ap = body.get_node("AnimationPlayer")
+	var inst: Node3D = (SCENE if character == "soldier" else load(cdef.scene)).instantiate()
+	inst.rotation.y = cdef.turn
+	inst.scale = Vector3.ONE * cdef.scale
+	body.add_child(inst)
+	sk = inst.find_child("Skeleton3D", true, false)
+	ap = inst.find_child("AnimationPlayer", true, false)
 	ap.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	for a in ["Idle", "Walk", "Run"]:
-		ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
+		if ap.has_animation(a): ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	# Mixamo rifle moves (aim, fire, reload, run, strafe), retargeted to this skeleton.
-	ap.add_animation_library("mx", MIXAMO)
-	_skel_scale = sk.get_parent().scale.x
+	ap.add_animation_library("mx", MIXAMO if character == "soldier" else load(cdef.anims))
+	_skel_scale = sk.get_parent().scale.x if sk.get_parent() is Node3D and sk.get_parent() != inst else 1.0
+	_u = 0.01 / _skel_scale
 	for i in sk.get_bone_count():
 		_bone[sk.get_bone_name(i).replace("mixamorig_", "")] = i
 	# Tint the uniform with the outfit colour (keeps the texture detail).
-	for mi in sk.get_children():
+	for mi in (sk.get_children() if cdef.tint else []):
 		if mi is MeshInstance3D and mi.mesh:
 			var m: Material = mi.mesh.surface_get_material(0)
 			if m is StandardMaterial3D:
@@ -196,7 +212,7 @@ func _build_gear() -> void:
 	helmet = MeshInstance3D.new()
 	helmet.mesh = gear_mesh("helmet", 2)
 	helmet.scale = Vector3.ONE / _skel_scale * 1.08
-	helmet.position = Vector3(0, 7.5, 0.8)
+	helmet.position = Vector3(0, 7.5, 0.8) * _u
 	helmet.material_override = _mat("helmet", Color("5a7a4a"), 0.5)
 	_helmet_att.add_child(helmet)
 	_pack_att = BoneAttachment3D.new()
@@ -205,7 +221,7 @@ func _build_gear() -> void:
 	pack = MeshInstance3D.new()
 	pack.mesh = gear_mesh("pack", 2)
 	pack.scale = Vector3.ONE / _skel_scale
-	pack.position = Vector3(0, 4.0, -15.0)
+	pack.position = Vector3(0, 4.0, -15.0) * _u
 	pack.material_override = _mat("pack", Color("5a4a2e"), 0.9)
 	_pack_att.add_child(pack)
 
@@ -358,6 +374,8 @@ func set_style(style: String) -> void:
 	if style == _style: return
 	_style = style
 	for mi in sk.get_children():
+		if mi is MeshInstance3D and mi.mesh and mi.material_override == null and mi.mesh.surface_get_material(0) is StandardMaterial3D:
+			mi.material_override = mi.mesh.surface_get_material(0)
 		if mi is MeshInstance3D and mi.mesh and mi.material_override is StandardMaterial3D:
 			var m: StandardMaterial3D = (mi.material_override as StandardMaterial3D).duplicate()
 			if style == "gold":
@@ -457,7 +475,11 @@ func _process(delta: float) -> void:
 	else:
 		set_process(false)
 
+## The soldier's own clips; other characters use the Mixamo equivalents.
+const FALLBACK := {"Idle": "mx/idle", "Walk": "mx/walk_f", "Run": "mx/run_f"}
+
 func _play(name: String, speed_scale: float) -> void:
+	if not ap.has_animation(name) and FALLBACK.has(name): name = FALLBACK[name]
 	if _anim != name:
 		# Cross-fade time runs at the clip's speed: keep it ~0.2 s of real time.
 		ap.play(name, clampf(0.2 * absf(speed_scale), 0.0, 0.4))

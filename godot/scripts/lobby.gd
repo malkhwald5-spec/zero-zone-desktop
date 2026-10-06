@@ -305,7 +305,7 @@ func _car(pos: Vector3, yaw: float) -> void:
 
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
-	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color())
+	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
 	soldier.rotation.y = PI    # face the camera

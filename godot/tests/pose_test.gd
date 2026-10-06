@@ -31,7 +31,7 @@ func _ready() -> void:
 	floor_mi.mesh = pm
 	add_child(floor_mi)
 	for i in POSES.size():
-		var m := HumanModel.new(Color("2d6fb8"), Color("f2a900"))
+		var m := HumanModel.new(Color("2d6fb8"), Color("f2a900"), Color("33373d"), "lola" if OS.get_cmdline_user_args().has("--lola") else "soldier")
 		add_child(m)
 		m.position = Vector3(i * 2.0 - 10.0, 0, 0)
 		m.rotation.y = PI - 0.6      # three-quarter view from the front

@@ -29,7 +29,9 @@ const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back
 	"death_back_head", "death_crouch", "death_walk"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
-const OUT := "res://assets/anims/mixamo_anims.res"
+var OUT := "res://assets/anims/mixamo_anims.res"
+## Character to retarget onto (-- --target=res://... --out=res://...).
+var TARGET := "res://assets/models/soldier.glb"
 const FPS := 30.0
 
 func _globals(sk: Skeleton3D, local_rot: Array) -> Array:
@@ -46,7 +48,10 @@ func _rest_rot(sk: Skeleton3D) -> Array:
 	return r
 
 func _init() -> void:
-	var sol: Node3D = load("res://assets/models/soldier.glb").instantiate()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--target="): TARGET = a.substr(9)
+		if a.begins_with("--out="): OUT = a.substr(6)
+	var sol: Node3D = load(TARGET).instantiate()
 	var tsk: Skeleton3D = sol.find_child("Skeleton3D", true, false)
 	var tpath := String(sol.get_path_to(tsk))
 	# Target skeleton space -> soldier model space (rotation only) and its unit scale.

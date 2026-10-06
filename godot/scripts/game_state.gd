@@ -39,6 +39,7 @@ const WARDROBE := [
 	["الثلج", Color("e6e8ea"), Color("9aa3ab"), 500],
 	["المحارب الذهبي", Color("d9a53a"), Color("8a6420"), 1500, "gold"],
 	["الباندا", Color("f2f2f0"), Color("2f4a72"), 1200, "panda"],
+	["لولا", Color("d9662a"), Color("d9662a"), 0, "lola"],
 ]
 
 var settings := {
@@ -96,6 +97,10 @@ func save_data() -> void:
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
+
+## Which character model the outfit uses ("soldier" or "lola").
+func outfit_character() -> String:
+	return "lola" if outfit_style() == "lola" else "soldier"
 
 func outfit_style() -> String:
 	var w: Array = WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)]
