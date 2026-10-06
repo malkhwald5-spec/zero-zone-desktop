@@ -45,6 +45,20 @@ func _run() -> void:
 	p.ammo["556"] = 60
 	p.start_reload()
 	check(p.reload_t > 0.0, "reload starts")
+	# Footsteps: on a road it is concrete, in a field grass; enemy steps nearby.
+	var road: Dictionary = world.island.roads[0]
+	var rp: Vector2 = (road.a + road.b) * 0.5
+	check(world.surface_at(Vector3(rp.x, 0, rp.y)) == "concrete", "road sounds like concrete")
+	var n1: int = world.get_child_count()
+	world.footstep(p.global_position, true, 0.5)
+	world.footstep(p.global_position + Vector3(10, 0, 0), false, 0.9)
+	world.footstep(p.global_position + Vector3(90, 0, 0), false, 0.9)
+	check(world.get_child_count() == n1 + 2, "own and near enemy steps play, far enemy steps do not")
+	# Automatic fire: short cracks, then the echo when you stop.
+	world.sound_shot("ar", p.global_position, true)
+	await wait(0.4)
+	world._update_auto_tail()
+	check(world._auto_tail_at < 0.0, "echo after automatic fire")
 	var n0: int = world.get_child_count()
 	world.sound_shot("sr", p.global_position, true)
 	for k in 4:

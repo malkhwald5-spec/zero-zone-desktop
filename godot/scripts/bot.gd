@@ -52,6 +52,7 @@ var far := false
 var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
 var _frame := 0
+var _step_dist := 0.0
 
 func _ready() -> void:
 	var cap := CapsuleShape3D.new()
@@ -399,6 +400,12 @@ func _move(delta: float) -> void:
 		velocity.y -= GRAVITY * delta
 	var before := global_position
 	move_and_slide()
+	if is_on_floor():
+		var sp := Vector2(velocity.x, velocity.z).length()
+		_step_dist += sp * delta
+		if _step_dist > (1.9 if sp > 5.0 else 1.35):
+			_step_dist = 0.0
+			world.footstep(global_position, false, 0.9 if sp > 5.0 else 0.5)
 	# Never walk into deep water (bridges are fine).
 	if global_position.y < Island.WATER - 0.3 and world.is_deep(global_position):
 		global_position = Vector3(before.x, global_position.y, before.z)

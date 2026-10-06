@@ -416,9 +416,24 @@ func _ground(delta: float) -> void:
 		velocity.x = 0
 		velocity.z = 0
 	_tick_heal(delta)
+	_footsteps(delta)
 	if firing and not throw_ready:
 		if heal_id != "": cancel_heal()
 		_try_fire()
+
+var _step_dist := 0.0
+
+## A footstep sound every stride (none while prone).
+func _footsteps(delta: float) -> void:
+	world._update_auto_tail()
+	if not is_on_floor() or stance == "prone":
+		_step_dist = 0.0
+		return
+	_step_dist += Vector2(velocity.x, velocity.z).length() * delta
+	var stride := 1.9 if is_sprinting else (0.95 if stance == "crouch" else 1.35)
+	if _step_dist > stride:
+		_step_dist = 0.0
+		world.footstep(global_position, true, 0.9 if is_sprinting else (0.15 if stance == "crouch" else 0.5))
 
 # ---------- Shooting ----------
 func _try_fire() -> void:

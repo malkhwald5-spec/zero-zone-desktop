@@ -886,8 +886,13 @@ func sound_boom(pos: Vector3) -> void:
 
 var _sounds_playing := 0
 ## Recorded sounds (freesound.org, see README): assets/sounds/<name>.ogg
-const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_far", "far_crack_1", "far_crack_2", "far_crack_3",
-	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click"]
+const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_far", "far_crack_1", "far_crack_2", "far_crack_3",
+	"auto_1", "auto_2", "auto_3", "auto_4", "auto_tail",
+	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click",
+	"step_concrete_1", "step_concrete_2", "step_concrete_3", "step_concrete_4", "step_concrete_5",
+	"step_grass_1", "step_grass_2", "step_grass_3", "step_grass_4", "step_grass_5", "step_grass_6", "step_grass_7", "step_grass_8"]
+const AUTO_CLASSES := ["ar", "smg", "lmg"]
+var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
 const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95}
 const SPEED_OF_SOUND := 343.0
 var _snd := {}
@@ -903,9 +908,13 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 	var pick: String
 	if far:
 		pick = "shot_far" if randf() < 0.5 else ["far_crack_1", "far_crack_2", "far_crack_3"][randi() % 3]
+	elif own and cls in AUTO_CLASSES:
+		# Your automatic gun: short dry cracks; the echo plays when you let go.
+		pick = "auto_%d" % (randi() % 4 + 1)
+		_auto_tail_at = Time.get_ticks_msec() / 1000.0 + 0.16
 	else:
 		var r := randf()
-		pick = "shot_ak" if r < 0.7 else ("shot_rifle" if r < 0.85 else "shot_rifle_b")
+		pick = "shot_ak" if r < 0.65 else ("shot_burst" if r < 0.8 else ("shot_rifle" if r < 0.9 else "shot_rifle_b"))
 	var stream: AudioStream = _snd.get(pick, _shot_stream)
 	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
 	_sounds_playing += 1
@@ -941,6 +950,42 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 		_sounds_playing -= 1
 		p.queue_free())
 
+## Echo after a burst of your automatic fire (called every frame).
+func _update_auto_tail() -> void:
+	if _auto_tail_at > 0.0 and Time.get_ticks_msec() / 1000.0 > _auto_tail_at:
+		_auto_tail_at = -1.0
+		sound_local("auto_tail", 0.0, 1.0, -2.0)
+
+## What the ground under a point sounds like.
+func surface_at(p: Vector3) -> String:
+	var q := Vector2(p.x, p.z)
+	if building_at(q) >= 0 or island.near_road(q, 0.0):
+		return "concrete"
+	return "grass"
+
+## One footstep. own = your own feet (not placed in the world); loud 0..1
+## (crouching is quiet, sprinting loud). Enemies are heard up to ~40 m away.
+func footstep(pos: Vector3, own: bool, loud: float) -> void:
+	if not Game.settings.sound: return
+	if not own and (_sounds_playing >= 14 or pos.distance_to(player.global_position) > 40.0): return
+	var surf := surface_at(pos)
+	var snd := ("step_concrete_%d" % (randi() % 5 + 1)) if surf == "concrete" else ("step_grass_%d" % (randi() % 8 + 1))
+	var vol := lerpf(-26.0, -8.0, loud)
+	if own:
+		sound_local(snd, 0.0, randf_range(0.92, 1.08), vol - 6.0)
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = _snd.get(snd)
+	if p.stream == null: return
+	p.unit_size = 3.0
+	p.max_distance = 45.0
+	p.volume_db = vol + 6.0
+	p.pitch_scale = randf_range(0.9, 1.1)
+	add_child(p)
+	p.global_position = pos
+	p.play()
+	p.finished.connect(p.queue_free)
+
 ## A bullet passing close to you: the crack/whizz right by your head.
 func sound_flyby(pos: Vector3) -> void:
 	if not Game.settings.sound: return
@@ -956,11 +1001,11 @@ func sound_flyby(pos: Vector3) -> void:
 	p.finished.connect(p.queue_free)
 
 ## Your own non-positional sounds (reload, bolt, empty click), optionally delayed.
-func sound_local(name: String, delay := 0.0, pitch := 1.0) -> void:
+func sound_local(name: String, delay := 0.0, pitch := 1.0, volume := -4.0) -> void:
 	if not Game.settings.sound or not _snd.has(name): return
 	var p := AudioStreamPlayer.new()
 	p.stream = _snd[name]
-	p.volume_db = -4.0
+	p.volume_db = volume
 	p.pitch_scale = pitch
 	add_child(p)
 	if delay > 0.0:
