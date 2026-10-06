@@ -922,7 +922,7 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click",
 	"step_concrete_1", "step_concrete_2", "step_concrete_3", "step_concrete_4", "step_concrete_5",
 	"step_grass_1", "step_grass_2", "step_grass_3", "step_grass_4", "step_grass_5", "step_grass_6", "step_grass_7", "step_grass_8",
-	"explosion", "engine_start", "engine_loop", "ambience"]
+	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
@@ -939,8 +939,14 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 	# Close: the punchy AK recording (sometimes another take for variety).
 	# Far: a distant shot rolling over the hills, or a short sharp crack.
 	var pick: String
+	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
 	if far:
-		pick = "shot_far" if randf() < 0.5 else ["far_crack_1", "far_crack_2", "far_crack_3"][randi() % 3]
+		var r0 := randf()
+		pick = "shot_far" if r0 < 0.35 else ("shot_far_2" if r0 < 0.65 else ["far_crack_1", "far_crack_2", "far_crack_3"][randi() % 3])
+	elif cls == "pistol" or cls == "shotgun":
+		# Their own recordings, at their natural pitch.
+		pick = "shot_" + cls
+		pitch = randf_range(0.97, 1.03)
 	elif own and cls in AUTO_CLASSES:
 		# Your automatic gun: short dry cracks; the echo plays when you let go.
 		pick = "auto_%d" % (randi() % 4 + 1)
@@ -949,7 +955,6 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 		var r := randf()
 		pick = "shot_ak" if r < 0.65 else ("shot_burst" if r < 0.8 else ("shot_rifle" if r < 0.9 else "shot_rifle_b"))
 	var stream: AudioStream = _snd.get(pick, _shot_stream)
-	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
 	_sounds_playing += 1
 	var p
 	if own:
@@ -963,6 +968,8 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 		p2.play()
 		if cls == "sr":
 			sound_local("bolt_cycle", 0.35)
+		elif cls == "shotgun":
+			sound_local("shotgun_pump", 0.45, 1.0, -6.0)
 	else:
 		var p3 := AudioStreamPlayer3D.new()
 		p3.stream = stream
