@@ -20,12 +20,19 @@ func _run() -> void:
 	tree.current_scene = null
 	tree.change_scene_to_file("res://scenes/splash.tscn")
 	await tree.process_frame
+	while tree.current_scene == null:
+		await tree.process_frame
 	var sp = tree.current_scene
 	# Follow the intro's own clock (software rendering is slow).
-	for at in [0.3, 0.6, 0.9, 1.3, 1.9, 3.0]:
+	for at in [0.3, 0.62, 0.78, 1.05, 1.4, 1.9, 2.3, 3.2, 4.2]:
 		while not sp._started or sp.t < at:
 			await tree.process_frame
 		await shot("intro_%02d" % int(at * 10))
+	# The outro scatter.
+	while sp.get("_out") != null and sp._out < 0.35:
+		if tree.current_scene != sp: break
+		await tree.process_frame
+	if tree.current_scene == sp: await shot("intro_out")
 	for i in 600:
 		if tree.current_scene and tree.current_scene.name == "Lobby": break
 		await tree.create_timer(0.1).timeout
