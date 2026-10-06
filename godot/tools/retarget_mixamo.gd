@@ -5,8 +5,13 @@ extends SceneTree
 ## (centimetres, rotated parent) using world-space rotation deltas from the
 ## T-pose rest, and saves an AnimationLibrary.
 
+## Animation name -> FBX file name in assets/incoming/ (missing files are skipped;
+## animations already in the library are kept).
 const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload": "reloading",
-	"rifle_run": "rifle_run", "walk": "walking", "strafe_a": "strafe", "strafe_b": "strafe_(2)"}
+	"rifle_run": "rifle_run", "walk": "walking", "strafe_a": "strafe", "strafe_b": "strafe_(2)",
+	"fall": "Falling", "crouch_fwd": "Walk_Crouching_Forward", "crouch_right": "Walk_Crouching_Right",
+	"crouch_left": "Crouch_Walk_Strafe_Left"}
+const OUT := "res://assets/anims/mixamo_anims.res"
 const FPS := 30.0
 
 func _globals(sk: Skeleton3D, local_rot: Array) -> Array:
@@ -38,12 +43,16 @@ func _init() -> void:
 	var t_scale := t_xf.basis.get_scale().x
 	var t_rest := _rest_rot(tsk)
 	var t_rest_g := _globals(tsk, t_rest)
-	var lib := AnimationLibrary.new()
+	var lib: AnimationLibrary = load(OUT) if ResourceLoader.exists(OUT) else AnimationLibrary.new()
 	for key in SRC:
-		var sc: Node3D = load("res://assets/incoming/%s.fbx" % SRC[key]).instantiate()
+		var path := "res://assets/incoming/%s.fbx" % SRC[key]
+		if not ResourceLoader.exists(path): continue
+		if lib.has_animation(key): lib.remove_animation(key)
+		var sc: Node3D = load(path).instantiate()
 		var ssk: Skeleton3D = sc.find_child("Skeleton3D", true, false)
 		var ap: AnimationPlayer = sc.find_child("AnimationPlayer", true, false)
-		var src: Animation = ap.get_animation(ap.get_animation_list()[0])
+		# Files downloaded "with skin" also hold an empty T-pose take: use the Mixamo clip.
+		var src: Animation = ap.get_animation("mixamo_com" if ap.has_animation("mixamo_com") else ap.get_animation_list()[0])
 		var spath := String(sc.get_path_to(ssk))
 		var s_rest := _rest_rot(ssk)
 		var s_rest_g := _globals(ssk, s_rest)
@@ -111,7 +120,7 @@ func _init() -> void:
 		lib.add_animation(key, out)
 		sc.free()
 	print("fw target ", _forward(tsk, C, t_scale))
-	ResourceSaver.save(lib, "res://assets/anims/mixamo_anims.res", ResourceSaver.FLAG_COMPRESS)
+	ResourceSaver.save(lib, OUT, ResourceSaver.FLAG_COMPRESS)
 	print("saved")
 	quit()
 

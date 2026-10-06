@@ -574,7 +574,10 @@ func _update_model(delta: float) -> void:
 		"chute": pose = "chute"
 		"dead": pose = "dead"
 		"vehicle": pose = "drive"
-		"ground": pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
+		"ground":
+			pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
+			# Falling off a roof or a cliff: arms and legs flail.
+			if velocity.y < -5.0 and not is_on_floor(): pose = "airborne"
 	var sp := Vector2(velocity.x, velocity.z).length()
 	var fwd := Vector3(-sin(ry), 0, -cos(ry))
 	var rgt := Vector3(cos(ry), 0, -sin(ry))

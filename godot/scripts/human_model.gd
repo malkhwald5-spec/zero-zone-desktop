@@ -24,6 +24,7 @@ var aim_pitch := 0.0          # look up/down (radians): bends the upper body
 var reload_p := -1.0          # reload progress 0..1 (-1 = not reloading)
 var recoil := 0.0             # kick from the last shot (decays here)
 var _gun_xf := Transform3D()  # smoothed weapon pose (model space)
+var _gun_drop := 0.0            # extra height offset of the gun (crouch-walk)
 var move_local := Vector2.ZERO  # ground velocity relative to facing: x = right, y = forward (m/s)
 var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 ## Skydive / parachute controls, set by the owner each frame.
@@ -374,7 +375,14 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		else:
 			_play("mx/walk", (speed / 1.09) * (-1.0 if move_local.y < -0.2 else 1.0))
 	elif pose == "crouch" and speed > 0.3:
-		_play("Walk", speed / 1.0)
+		# Real crouch-walk cycles (forward/back, left, right).
+		if sideways:
+			if move_local.x > 0.0: _play("mx/crouch_right", speed / 2.23)
+			else: _play("mx/crouch_left", speed / 1.21)
+		else:
+			_play("mx/crouch_fwd", (speed / 2.23) * (-1.0 if move_local.y < -0.2 else 1.0))
+	elif pose == "airborne":
+		_play("mx/fall", 1.0)
 	elif pose == "prone" and speed > 0.3:
 		_play("Walk", speed / 0.8)
 	elif pose == "stand" and armed and reload_p >= 0.0:
@@ -387,20 +395,21 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	if _back_dirty and is_inside_tree(): _place_back()
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
+	_gun_drop = 0.0
 	canopy.visible = pose == "chute"
 	if canopy.visible:
 		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
 		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
-	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone"]
+	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone", "airborne"]
 	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:
 		"crouch":
-			body.position.y = -0.48
-			# Crouch-walk: the feet step forward and back with the walk cycle.
-			var ph := _phase()
-			var st := clampf(speed / 1.5, 0.0, 1.0)
-			_leg("Left", Vector3(-0.14, 0.05 + maxf(0.0, sin(ph)) * 0.08 * st, -0.32 + sin(ph) * 0.16 * st))
-			_leg("Right", Vector3(0.16, 0.05 + maxf(0.0, -sin(ph)) * 0.08 * st, 0.18 - sin(ph) * 0.16 * st))
+			if _anim.begins_with("mx/crouch"):
+				_gun_drop = -0.42        # the animation already crouches the body
+			else:
+				body.position.y = -0.48
+				_leg("Left", Vector3(-0.14, 0.05, -0.32))
+				_leg("Right", Vector3(0.16, 0.05, 0.18))
 		"prone":
 			# Lying face down; the walk cycle becomes a crawl.
 			body.rotation.x = -PI / 2
@@ -503,7 +512,7 @@ func _place_gun(pose: String, delta: float) -> void:
 		var k := sin(clampf(reload_p, 0.0, 1.0) * PI)
 		pos = pos.lerp(Vector3(0.1, 1.3, -0.2), k)
 		rot = rot.lerp(Vector3(0.1, 0.3, 0.55), k)
-	pos.y += body.position.y
+	pos.y += body.position.y + _gun_drop
 	var b := Basis.from_euler(rot, EULER_ORDER_YXZ)
 	var target := Transform3D(b, pos)
 	if pitch_with_aim:
