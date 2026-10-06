@@ -85,7 +85,7 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
 - ملفات `assets/textures/*.import` محفوظة في المشروع عمداً: تولّد mipmaps وضغط كرت الشاشة (أنعم للأرض البعيدة وأخف بالحجم)، والسماء مضغوطة WebP.
 - بندقية القنص والمسدس `assets/models/weapons/`: من Poly Haven (رخصة CC0).
 - الأصوات المسجلة `assets/sounds/`: من freesound.org، مقصوصة ومعدّلة الصوت داخل المشروع:
-  طلقات `shot_*` من 435411 (moosegravy)، رصاصة مارّة `flyby_*` من 730351 (go_s0unds123)، تلقيم رشاش `reload_rifle` من 256912 (kodack)، تلقيم وأقسام قناص `reload_bolt` و`bolt_cycle` من 508747 (augustsandberg)، كبسة سلاح فاضي `dry_click` من 730213 (moodyfingers). الرخصة كما هي على صفحة كل صوت في freesound.
+  طلقة الكلاشن القريبة `shot_ak` من 855843 (serutonin_deprivd)، الطلقة البعيدة `shot_far` من 417345 (InspectorJ)، الطقّات البعيدة `far_crack_*` من 99789 (zappa_was_god)، طلقات إضافية `shot_rifle*` من 435411 (moosegravy)، رصاصة مارّة `flyby_*` من 730351 (go_s0unds123)، تلقيم رشاش `reload_rifle` من 256912 (kodack)، تلقيم وأقسام قناص `reload_bolt` و`bolt_cycle` من 508747 (augustsandberg)، كبسة سلاح فاضي `dry_click` من 730213 (moodyfingers). الرخصة كما هي على صفحة كل صوت في freesound.
 - كل شيء آخر (الجزيرة، المباني، السيارات، باقي الأسلحة، المؤثرات، الأصوات، الواجهات) مصنوع بالكود داخل المشروع.
 
 ## بنية المشروع

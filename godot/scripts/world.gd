@@ -886,8 +886,8 @@ func sound_boom(pos: Vector3) -> void:
 
 var _sounds_playing := 0
 ## Recorded sounds (freesound.org, see README): assets/sounds/<name>.ogg
-const SOUNDS := ["shot_rifle", "shot_rifle_b", "shot_far", "flyby_1", "flyby_2", "flyby_3",
-	"reload_rifle", "reload_bolt", "bolt_cycle", "dry_click"]
+const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_far", "far_crack_1", "far_crack_2", "far_crack_3",
+	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click"]
 const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95}
 const SPEED_OF_SOUND := 343.0
 var _snd := {}
@@ -898,7 +898,15 @@ func sound_shot(cls: String, pos: Vector3, own: bool) -> void:
 	# Cap how many play at once; past ~700 m nothing is heard anyway.
 	if not own and (_sounds_playing >= 14 or d > 700.0): return
 	var far := not own and d > 160.0
-	var stream: AudioStream = _snd.get("shot_far" if far else ("shot_rifle" if randf() < 0.6 else "shot_rifle_b"), _shot_stream)
+	# Close: the punchy AK recording (sometimes another take for variety).
+	# Far: a distant shot rolling over the hills, or a short sharp crack.
+	var pick: String
+	if far:
+		pick = "shot_far" if randf() < 0.5 else ["far_crack_1", "far_crack_2", "far_crack_3"][randi() % 3]
+	else:
+		var r := randf()
+		pick = "shot_ak" if r < 0.7 else ("shot_rifle" if r < 0.85 else "shot_rifle_b")
+	var stream: AudioStream = _snd.get(pick, _shot_stream)
 	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
 	_sounds_playing += 1
 	var p

@@ -47,11 +47,13 @@ func _run() -> void:
 	check(p.reload_t > 0.0, "reload starts")
 	var n0: int = world.get_child_count()
 	world.sound_shot("sr", p.global_position, true)
-	world.sound_shot("ar", p.global_position + Vector3(300, 0, 0), false)
+	for k in 4:
+		world.sound_shot("ar", p.global_position + Vector3(300, 0, 0), false)
 	world.sound_shot("ar", p.global_position + Vector3(20, 0, 0), false)
 	world.sound_flyby(p.global_position + Vector3(1, 1.5, 0))
-	check(world.get_child_count() >= n0 + 4, "shot, far shot, near shot and fly-by players created")
-	await wait(2.5)
+	check(world.get_child_count() >= n0 + 7, "shot, far shot, near shot and fly-by players created")
+	# Far shots arrive late (300 m / 343 m/s) and ring for up to 2.6 s.
+	await wait(4.5)
 	check(world._sounds_playing <= 1, "finished sounds are cleaned up  playing=%d" % world._sounds_playing)
 	print("SOUND TEST %s (%d failed)" % ["OK" if failed == 0 else "FAILED", failed])
 	tree.quit(failed)
