@@ -745,6 +745,28 @@ func _cyl_shape(body: StaticBody3D, pos: Vector3, r: float, h: float) -> void:
 	cs.position = pos
 	body.add_child(cs)
 
+## World-space approach, foot and top of a two-storey house's staircase (same layout
+## as _upper_floor), for bots walking up and down. [] for other buildings.
+static func stair_points(b: Dictionary) -> Array:
+	if b.get("storeys", 1) < 2: return []
+	var sx: float = b.size.x
+	var sz: float = b.size.y
+	var hx := sx * 0.5
+	var hz := sz * 0.5
+	var w: int = b.stair
+	var along_x := w == 0 or w == 2
+	var length := sx if along_x else sz
+	var band: float = [-hz + WALL_T + STAIR_W * 0.5, hx - WALL_T - STAIR_W * 0.5, hz - WALL_T - STAIR_W * 0.5, -hx + WALL_T + STAIR_W * 0.5][w]
+	var start := -length * 0.5 + WALL_T + 1.2
+	var foot := Vector2(start - 0.6, band) if along_x else Vector2(band, start - 0.6)
+	var top := Vector2(start + STAIR_RUN + 0.9, band) if along_x else Vector2(band, start + STAIR_RUN + 0.9)
+	# A step into the room from the foot, so the stairs are walked onto
+	# straight instead of along the end wall (furniture stands there).
+	var into := -signf(band)
+	var near := Vector2(start - 0.6, band + into * 1.0) if along_x else Vector2(band + into * 1.0, start - 0.6)
+	var c: Vector2 = b.pos
+	return [Vector3(c.x + near.x, b.floor, c.y + near.y), Vector3(c.x + foot.x, b.floor, c.y + foot.y), Vector3(c.x + top.x, b.floor + STOREY_H, c.y + top.y)]
+
 ## Second floor of a two-storey house: the floor slab with a stairwell hole,
 ## a wooden staircase (ramp collision) along a wall without a door, a railing
 ## round the stairwell and a ledge on the outside between the storeys.

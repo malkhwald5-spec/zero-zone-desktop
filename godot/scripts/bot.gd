@@ -31,7 +31,9 @@ var jump_at := 0.5           # fraction of the plane route where it jumps
 var chute_alt := 150.0
 var chute_t := 0.0
 
-var mode := "loot"           # loot | fight | zone | roam | flee
+var mode := "loot"           # loot | fight | cover | flank | alert | zone | roam | flee | heal
+var cover_t := 0.0           # seconds spent at the current cover / flank move
+var unseen_t := 0.0          # seconds the target has been out of sight in a fight
 var target: Node3D = null    # enemy being fought
 var goal := Vector3.ZERO     # where it is walking
 var path: Array = []         # waypoints before the goal (doors, bridges)
@@ -53,6 +55,7 @@ var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
 var _frame := 0
 var _step_dist := 0.0
+var _far_dt := 0.0
 
 func _ready() -> void:
 	var cap := CapsuleShape3D.new()
@@ -198,11 +201,20 @@ func _ground(delta: float) -> void:
 	if think_t <= 0.0:
 		think_t = randf_range(0.8, 1.3) if far else randf_range(0.2, 0.35)
 		_think()
-	_move(delta)
+	# Away from the player and not fighting: move every other frame in double
+	# steps (100 players cost a lot of physics otherwise).
+	if d_player > 120.0 and target == null:
+		_far_dt += delta
+		if (_frame + get_instance_id()) % 2 == 0:
+			_move(_far_dt)
+			_far_dt = 0.0
+	else:
+		_far_dt = 0.0
+		_move(delta)
 	_combat(delta)
 	model.rotation.y = yaw
 	# Animation level of detail: every frame up close, less often further away.
-	var every := 1 if d_player < 50.0 else (2 if d_player < 140.0 else 4)
+	var every := 1 if d_player < 35.0 else (2 if d_player < 90.0 else (3 if d_player < 180.0 else 5))
 	_pose_dt += delta
 	if _frame % every == 0 and model.visible:
 		var sp := Vector2(velocity.x, velocity.z).length()
@@ -232,6 +244,8 @@ func _think() -> void:
 	var outside_now: bool = zone.state != "idle" and zone.is_outside(global_position)
 	var must_move: bool = zone.state != "idle" and zone.distance_to_safe(global_position) > 0.0 and (zone.state == "shrink" or zone.time_left / zone.speed < zone.distance_to_safe(global_position) / 4.0 + 25.0)
 	if target and armed() and not (outside_now and global_position.distance_to(target.global_position) > 35.0):
+		if _tactics(seen != null):
+			return
 		mode = "fight"
 		_maybe_throw()
 		return
@@ -257,6 +271,8 @@ func _think() -> void:
 			mode = "zone"
 			var c := zone.next_center + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * zone.next_radius * 0.5
 			_go(Vector3(c.x, 0.0, c.y))
+		return
+	if mode == "alert" and global_position.distance_to(goal) > 3.0:
 		return
 	if _wants_loot():
 		if loot_item and (not is_instance_valid(loot_item) or not world.pickups.has(loot_item) or global_position.distance_to(loot_item.global_position) > 90.0):
@@ -361,6 +377,75 @@ func _clear_line(e: Node3D) -> bool:
 	var q := PhysicsRayQueryParameters3D.create(_eye(), to, 1)
 	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
+## Fighting smarter than standing in the open: run to cover when hit, low on
+## health or reloading (heal and reload there, then peek out again), and go
+## round the side when the enemy hides. True while busy with that.
+func _tactics(can_see: bool) -> bool:
+	var tpos: Vector3 = target.global_position
+	var d := global_position.distance_to(tpos)
+	unseen_t = 0.0 if can_see else unseen_t + 0.3
+	if mode == "cover":
+		cover_t += 0.3
+		var there := global_position.distance_to(goal) < 1.6
+		if there:
+			if mag < Game.WEAPONS[weapon_id].mag and reserve > 0 and reload_t <= 0.0:
+				reload_t = Game.WEAPONS[weapon_id].reload
+			if health < 75.0 and meds > 0:
+				heal_t += 0.3
+				if heal_t >= 4.0:
+					meds -= 1
+					health = minf(100.0, health + 45.0)
+					heal_t = 0.0
+		var done := reload_t <= 0.0 and (health >= 75.0 or meds <= 0)
+		if (there and done and cover_t > 1.5) or cover_t > 9.0:
+			mode = "fight"
+			cover_t = 0.0
+			return false
+		return true
+	if mode == "flank":
+		cover_t += 0.3
+		if can_see or cover_t > 7.0 or global_position.distance_to(goal) < 2.0:
+			mode = "fight"
+			cover_t = 0.0
+			return false
+		return true
+	# Hit and hurting, out of bullets, or badly hurt: get behind something.
+	var need := (hurt_t < 0.8 and health < 70.0) or (mag <= 0 and reserve > 0 and d < 70.0) or (health < 40.0 and hurt_t < 3.0)
+	if need and randf() < 0.55 + skill * 0.4:
+		var spot: Vector3 = world.find_cover(global_position, tpos, 28.0)
+		if spot != Vector3.INF:
+			mode = "cover"
+			cover_t = 0.0
+			heal_t = 0.0
+			_go(spot)
+			return true
+	# The enemy went behind cover: come round the side.
+	if unseen_t > 3.0 and d < 80.0 and randf() < 0.3 + skill * 0.5:
+		var to := tpos - global_position
+		to.y = 0.0
+		var side := Vector3(-to.z, 0, to.x).normalized() * (1.0 if randf() < 0.5 else -1.0)
+		var p := tpos - to.normalized() * minf(d * 0.6, 25.0) + side * randf_range(14.0, 22.0)
+		if world.island.is_land(p.x, p.z):
+			mode = "flank"
+			cover_t = 0.0
+			_go(p)
+			return true
+	return false
+
+## Heard a shot: look that way and, if idle, go and see (stopping short).
+func hear(pos: Vector3, shooter: Node) -> void:
+	if target != null or mode in ["fight", "cover", "flank", "zone", "flee"]: return
+	if randf() > 0.4 + skill * 0.5: return
+	var to := pos - global_position
+	to.y = 0.0
+	yaw = atan2(-to.x, -to.z)
+	if armed() and to.length() > 25.0:
+		mode = "alert"
+		_go(global_position + to * (1.0 - 22.0 / to.length()))
+	if shooter is Node3D and _clear_line(shooter):
+		target = shooter
+		react_t = randf_range(0.5, 1.1) - skill * 0.3
+
 # ---------------------------------------------------------------- movement
 func _go(p: Vector3) -> void:
 	goal = p
@@ -386,12 +471,15 @@ func _move(delta: float) -> void:
 		var wp: Vector3 = path[0] if not path.is_empty() else goal
 		var to := wp - global_position
 		to.y = 0.0
-		if to.length() < 1.2 and not path.is_empty():
+		# The foot of a staircase has to be reached properly, not cut past.
+		var near := 0.45 if path.size() > 1 and path[1].y - wp.y > 2.0 else 1.2
+		if to.length() < near and not path.is_empty():
 			path.pop_front()
-		elif to.length() > 0.8:
+		elif to.length() > minf(0.8, near * 0.5):
 			wish = to.normalized()
 			yaw = lerp_angle(yaw, atan2(-wish.x, -wish.z), minf(1.0, delta * 6.0))
-		if mode == "zone" or mode == "flee": speed = 5.6
+		if mode in ["zone", "flee", "cover", "flank"]: speed = 5.8
+		elif mode == "alert": speed = 3.6
 	velocity.x = move_toward(velocity.x, wish.x * speed, 30.0 * delta)
 	velocity.z = move_toward(velocity.z, wish.z * speed, 30.0 * delta)
 	if is_on_floor():
@@ -399,7 +487,14 @@ func _move(delta: float) -> void:
 	else:
 		velocity.y -= GRAVITY * delta
 	var before := global_position
-	move_and_slide()
+	# move_and_slide() always steps one physics frame; scale for longer steps.
+	var k := delta / maxf(get_physics_process_delta_time(), 0.0001)
+	if k > 1.01:
+		velocity *= k
+		move_and_slide()
+		velocity /= k
+	else:
+		move_and_slide()
 	if is_on_floor():
 		var sp := Vector2(velocity.x, velocity.z).length()
 		_step_dist += sp * delta
@@ -506,5 +601,6 @@ func _shoot(e: Node3D) -> void:
 			world.effects.impact(end, hit.normal, false)
 	if global_position.distance_to(world.player.global_position) < 700.0:
 		world.sound_shot(w.cls, global_position, false)
+	world.notify_shot(global_position, self)
 	if mag == 0 and reserve > 0:
 		reload_t = w.reload

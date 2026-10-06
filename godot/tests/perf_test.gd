@@ -40,5 +40,5 @@ func _run() -> void:
 	await get_tree().create_timer(3.0, true, false, true).timeout
 	var real_s := (Time.get_ticks_msec() - t0) / 1000.0
 	Engine.physics_ticks_per_second = 60
-	print("PERF %.2f ms per physics tick (%d ticks in %.1f s, 49 bots within 180 m)" % [real_s * 1000.0 / maxf(1.0, ticks[0]), ticks[0], real_s])
+	print("PERF %.2f ms per physics tick (%d ticks in %.1f s, %d bots within 180 m)" % [real_s * 1000.0 / maxf(1.0, ticks[0]), ticks[0], real_s, world.bots.size()])
 	tree.quit()

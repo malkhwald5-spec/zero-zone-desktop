@@ -2,7 +2,7 @@ extends Node3D
 ## Match scene: builds the island, flies the plane, spawns loot and bots,
 ## and keeps the HUD fed.
 
-const BOT_COUNT := 49          # + the player = 50
+const BOT_COUNT := 99          # + the player = 100
 
 var island: Island
 var builder: WorldBuilder
@@ -65,6 +65,7 @@ func _build() -> void:
 	for k in SOUNDS:
 		_snd[k] = load("res://assets/sounds/%s.ogg" % k)
 	_spawn_loot()
+	_build_cover()
 	_spawn_vehicles()
 	_make_plane()
 	loading.set_progress(0.85, "جاري تجهيز اللاعبين")
@@ -425,7 +426,11 @@ const BOT_NAMES := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ل�
 	"قناص_العرب", "Titan313", "Wolf_YT", "برق", "Cobra_007", "رعد", "أسد_الجبل", "Ninja_DZ", "Sniper_LB", "فهد", "Eagle_PS", "Joker_TN",
 	"زلزال", "Rex_QA", "عقاب", "Blaze_KW", "Hawk_OM", "إعصار", "Raven_BH", "شبح", "Fury_LY", "صاعقة", "Ace_SD", "نسر", "Bullet_YE",
 	"الذئب_الأبيض", "Zero_MR", "Kaiser_AE", "سهم", "Phantom_IQ", "ثعلب", "Venom_SA", "بركان", "Ice_JO", "Sultan_EG", "شاهين", "Rage_SY",
-	"Toxic_MA", "عاصفة"]
+	"Toxic_MA", "عاصفة", "Maverick_JO", "صياد", "Reaper_SA", "نجم_الشمال", "Bandit_EG", "حارس", "Spartan_IQ", "Nova_LB", "قرصان",
+	"Ronin_DZ", "غضب", "Mamba_TN", "Delta_KW", "سيف_الدين", "Bravo_PS", "Lion_MA", "الصقر_الحر", "Apex_QA", "زئير", "Drago_SY",
+	"Rogue_OM", "صخر", "Glitch_AE", "Thunder_YE", "مغوار", "Ghost_LY", "Blade_SD", "جمرة", "Sabre_BH", "Kilo_MR", "عنتر",
+	"Frost_JO", "Lynx_EG", "وهج", "Omen_KSA", "Bolt_IQ", "قمر", "Saber_DZ", "Shark_LB", "رمح", "Tank_TN", "Echo_PS", "حديد",
+	"Pixel_MA", "Rocket_KW", "ظل", "Arrow_SY", "Jaguar_QA", "نصر", "Wraith_AE"]
 
 func _spawn_bots() -> void:
 	var dir := plane_to - plane_from
@@ -483,6 +488,54 @@ func _doors(i: int) -> Array:
 func _v3(p: Vector2) -> Vector3:
 	return Vector3(p.x, island.height_at(p.x, p.y), p.y)
 
+## Corners to walk past when the straight line from `a` to `b` would go
+## through building i (both points outside it).
+func _around(i: int, a: Vector2, b: Vector2) -> Array:
+	var bl: Dictionary = island.buildings[i]
+	var h: Vector2 = bl.size * 0.5 + Vector2(1.6, 1.6)
+	var c: Vector2 = bl.pos
+	if not _crosses(a, b, c, h - Vector2(1.0, 1.0)): return []
+	var cs := [c + Vector2(-h.x, -h.y), c + Vector2(h.x, -h.y), c + Vector2(h.x, h.y), c + Vector2(-h.x, h.y)]
+	var inner := h - Vector2(0.9, 0.9)
+	var best := []
+	var bd := INF
+	for k in 4:
+		var p: Vector2 = cs[k]
+		if not _crosses(a, p, c, inner) and not _crosses(p, b, c, inner):
+			var d := a.distance_to(p) + p.distance_to(b)
+			if d < bd:
+				bd = d
+				best = [p]
+		# Round two corners (target on the far side).
+		for k2 in [(k + 1) % 4, (k + 3) % 4]:
+			var q: Vector2 = cs[k2]
+			if not _crosses(a, p, c, inner) and not _crosses(q, b, c, inner):
+				var d2 := a.distance_to(p) + p.distance_to(q) + q.distance_to(b)
+				if d2 < bd:
+					bd = d2
+					best = [p, q]
+	var res := []
+	for p in best: res.append(_v3(p))
+	return res
+
+## True when segment a-b passes through the box centred at c with half size h.
+func _crosses(a: Vector2, b: Vector2, c: Vector2, h: Vector2) -> bool:
+	var t0 := 0.0
+	var t1 := 1.0
+	var d := b - a
+	for ax in 2:
+		var lo: float = c[ax] - h[ax]
+		var hi: float = c[ax] + h[ax]
+		if absf(d[ax]) < 0.0001:
+			if a[ax] < lo or a[ax] > hi: return false
+			continue
+		var ta: float = (lo - a[ax]) / d[ax]
+		var tb: float = (hi - a[ax]) / d[ax]
+		t0 = maxf(t0, minf(ta, tb))
+		t1 = minf(t1, maxf(ta, tb))
+		if t0 > t1: return false
+	return true
+
 ## Waypoints for walking from a to b: leave/enter buildings through doors and
 ## cross deep water on bridges. The goal itself is not included.
 func route(a: Vector3, b: Vector3) -> Array:
@@ -498,6 +551,18 @@ func route(a: Vector3, b: Vector3) -> Array:
 		pts.append(_v3(best[1]))
 		pts.append(_v3(best[0]))
 		a2 = best[0]
+		if ib < 0: pts.append_array(_around(ia, a2, b2))
+	# Short walks outside: go round a house in the way instead of into its wall.
+	if ia < 0 and ib < 0 and a2.distance_to(b2) < 80.0:
+		var reach := a2.distance_to(b2)
+		for i in island.buildings.size():
+			var bl: Dictionary = island.buildings[i]
+			if a2.distance_to(bl.pos) > reach + bl.size.length():
+				continue
+			var ar := _around(i, a2, b2)
+			if not ar.is_empty():
+				pts.append_array(ar)
+				break
 	# Deep water in between: use the nearest bridge.
 	var wet := false
 	for k in range(1, 20):
@@ -527,17 +592,95 @@ func route(a: Vector3, b: Vector3) -> Array:
 		var from := Vector2(pts[-1].x, pts[-1].z) if not pts.is_empty() else a2
 		for d in _doors(ib):
 			if d[0].distance_to(from) < best2[0].distance_to(from): best2 = d
+		pts.append_array(_around(ib, from, best2[0]))
 		pts.append(_v3(best2[0]))
 		pts.append(_v3(best2[1]))
+	# Two-storey houses: come down the stairs before leaving an upper floor,
+	# and climb them to reach someone upstairs.
+	var a_up := ia >= 0 and a.y > float(island.buildings[ia].floor) + 2.0
+	var b_up := ib >= 0 and b.y > float(island.buildings[ib].floor) + 2.0
+	if a_up and not (ia == ib and b_up):
+		var st := WorldBuilder.stair_points(island.buildings[ia])
+		if not st.is_empty():
+			pts = [st[2], st[1], st[0]] + pts
+	if b_up and not (ia == ib and a_up):
+		var st2 := WorldBuilder.stair_points(island.buildings[ib])
+		if not st2.is_empty():
+			pts.append_array(st2)
 	return pts
 
+# ---------- Cover for bots ----------
+const COVER_CELL := 32.0
+var _cover := {}            # Vector2i -> Array of [Vector2 centre, radius]
+
+func _build_cover() -> void:
+	var add := func(p: Vector2, r: float):
+		var k := Vector2i(floori(p.x / COVER_CELL), floori(p.y / COVER_CELL))
+		if not _cover.has(k): _cover[k] = []
+		_cover[k].append([p, r])
+	for t in island.trees: add.call(t.pos, float(t.r) + 0.2)
+	for r in island.rocks: add.call(r.pos, float(r.r) * 0.8)
+	for b in island.buildings:
+		var h: Vector2 = b.size * 0.5
+		for cx in [-1.0, 0.0, 1.0]:
+			for cz in [-1.0, 0.0, 1.0]:
+				if cx == 0.0 and cz == 0.0: continue
+				add.call(b.pos + Vector2(cx * h.x, cz * h.y), minf(h.x, h.y) * 0.5)
+	for s in island.structures:
+		add.call(s.pos, 1.6)
+
+## A spot behind something solid, away from `threat`, within `reach` metres
+## of `from` (Vector3.INF if none). Checked with a ray from the threat's eyes.
+func find_cover(from: Vector3, threat: Vector3, reach := 30.0) -> Vector3:
+	var f := Vector2(from.x, from.z)
+	var t := Vector2(threat.x, threat.z)
+	var best := Vector3.INF
+	var bd := INF
+	var k0 := Vector2i(floori(f.x / COVER_CELL), floori(f.y / COVER_CELL))
+	var tries := 0
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			for c in _cover.get(k0 + Vector2i(dx, dz), []):
+				var o: Vector2 = c[0]
+				var spot: Vector2 = o + (o - t).normalized() * (float(c[1]) + 0.9)
+				var d := spot.distance_to(f)
+				if d > reach or spot.distance_to(t) < 10.0: continue
+				# Prefer near spots that do not mean running towards the threat.
+				var score := d + maxf(0.0, t.distance_to(f) - t.distance_to(spot)) * 2.0
+				if score >= bd: continue
+				if not island.is_land(spot.x, spot.y): continue
+				var p3 := Vector3(spot.x, ground_height(Vector3(spot.x, 0, spot.y)), spot.y)
+				tries += 1
+				if tries > 8: return best
+				var q := PhysicsRayQueryParameters3D.create(threat + Vector3(0, 1.5, 0), p3 + Vector3(0, 1.1, 0), 1)
+				if get_world_3d().direct_space_state.intersect_ray(q).is_empty(): continue
+				bd = score
+				best = p3
+	return best
+
+## A gunshot: bots that hear it turn towards it and come to have a look.
+func notify_shot(pos: Vector3, shooter: Node, suppressed := false) -> void:
+	var r := 40.0 if suppressed else 130.0
+	for b in bots:
+		if b == shooter or b.dead: continue
+		if b.global_position.distance_squared_to(pos) < r * r:
+			b.hear(pos, shooter)
+
 ## Everyone still in the match (player and bots).
+## Built once per physics frame: with 100 players every bot asks for it.
 func actors() -> Array:
+	var f := Engine.get_physics_frames()
+	if f == _actors_frame: return _actors
 	var res := []
 	if player and player.state != "dead": res.append(player)
 	for b in bots:
 		if not b.dead: res.append(b)
+	_actors = res
+	_actors_frame = f
 	return res
+
+var _actors: Array = []
+var _actors_frame := -1
 
 ## Nearest pickup within r for which ok(it) is true.
 func find_pickup(p: Vector3, r: float, ok: Callable) -> Node3D:
@@ -1084,13 +1227,20 @@ func sound_length(name: String) -> float:
 func _capture_map() -> void:
 	if DisplayServer.get_name() == "headless": return   # nothing is drawn in tests
 	var vp := SubViewport.new()
-	vp.size = Vector2i(1024, 1024)
+	vp.size = Vector2i(2048, 2048)
 	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	vp.own_world_3d = false
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.size = island.size
 	cam.far = 2000.0
+	# No haze or glow from above: the map should be clear.
+	var map_env: Environment = builder.env.duplicate()
+	map_env.fog_enabled = false
+	map_env.volumetric_fog_enabled = false
+	map_env.glow_enabled = false
+	map_env.ssr_enabled = false
+	cam.environment = map_env
 	vp.add_child(cam)
 	add_child(vp)
 	cam.global_transform = Transform3D(Basis.looking_at(Vector3(0, -1, 0), Vector3(0, 0, -1)), Vector3(island.size * 0.5, 900.0, island.size * 0.5))
@@ -1100,7 +1250,28 @@ func _capture_map() -> void:
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	var img := vp.get_texture().get_image()
-	if img: map_texture = ImageTexture.create_from_image(img)   # null when running headless
 	vp.queue_free()
 	plane.visible = plane_was and plane_active
 	player.camera.current = true
+	if img == null: return   # nothing rendered (headless)
+	# Paint the clean map from the photo and the height map.
+	var pv := SubViewport.new()
+	pv.size = Vector2i(2048, 2048)
+	pv.render_target_update_mode = SubViewport.UPDATE_ONCE
+	pv.transparent_bg = false
+	var rect := ColorRect.new()
+	rect.size = Vector2(2048, 2048)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/map_paint.gdshader")
+	mat.set_shader_parameter("photo", ImageTexture.create_from_image(img))
+	mat.set_shader_parameter("heights", builder.height_tex)
+	mat.set_shader_parameter("mask", builder.mask_tex)
+	mat.set_shader_parameter("texel", 1.0 / float(Island.N))
+	rect.material = mat
+	pv.add_child(rect)
+	add_child(pv)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var painted := pv.get_texture().get_image()
+	map_texture = ImageTexture.create_from_image(painted if painted else img)
+	pv.queue_free()

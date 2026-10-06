@@ -93,7 +93,12 @@ func _process(delta: float) -> void:
 	if _banner_t > 0.0:
 		_banner_t -= delta
 		banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
+	banner.visible = not map_open and not bag_open
 	draw_layer.queue_redraw()
+
+func _input(event: InputEvent) -> void:
+	if map_open and Game.settings.controls == "kbm" and _map_input(event):
+		get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -103,6 +108,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_bag()
 		elif event.keycode == KEY_CTRL or event.physical_keycode == KEY_CTRL:
 			toggle_cursor()
+		elif event.physical_keycode == KEY_ESCAPE and bag_open:
+			toggle_bag()
+		elif event.physical_keycode == KEY_ESCAPE and map_open:
+			toggle_map()
 		elif event.physical_keycode == KEY_ESCAPE:
 			if results:
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -110,7 +119,20 @@ func _unhandled_input(event: InputEvent) -> void:
 				toggle_pause()
 
 func toggle_map() -> void:
+	if pause_panel or results: return
 	map_open = not map_open
+	_map_drag = false
+	if map_open:
+		if bag_open: toggle_bag()
+		map_zoom = 1.0
+		map_focus = Vector2.ONE * world.island.size * 0.5
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		Game.cursor_free = true
+		world.player.firing = false
+		world.player.aiming = false
+	elif Game.settings.controls == "kbm":
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		Game.cursor_free = false
 
 ## Ctrl: show the cursor (camera and shooting stop) or hide it again.
 func toggle_cursor() -> void:
@@ -129,8 +151,27 @@ func toggle_cursor() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		Game.cursor_free = false
 
+var inventory: InventoryPanel
+
+## B / I: the bag screen with the mouse free; closing gives the mouse back.
 func toggle_bag() -> void:
+	if pause_panel or results: return
 	bag_open = not bag_open
+	if bag_open:
+		if map_open: toggle_map()
+		inventory = InventoryPanel.new(world.player, world)
+		add_child(inventory)
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		Game.cursor_free = true
+		world.player.firing = false
+		world.player.aiming = false
+	else:
+		if inventory:
+			inventory.queue_free()
+			inventory = null
+		if Game.settings.controls == "kbm":
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			Game.cursor_free = false
 
 func toggle_pause() -> void:
 	if results: return
@@ -236,8 +277,6 @@ func _draw_hud() -> void:
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت خارج المنطقة الآمنة!", 22, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
-	if bag_open and not map_open:
-		_draw_bag(c, sz, p)
 	if map_open:
 		_draw_full_map(c, sz, p)
 
@@ -268,6 +307,15 @@ func _draw_compass(c: Control, sz: Vector2, p: Player) -> void:
 		c.draw_rect(Rect2(x - 0.5, 8, 1, 9 if major else 5), Color(1, 1, 1, alpha))
 		_text(c, Vector2(x, 36), names.get(dd, str(dd)), 16 if major else 12, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, bold if major else null, 80)
 	c.draw_colored_polygon(PackedVector2Array([Vector2(cx - 6, 46), Vector2(cx + 6, 46), Vector2(cx, 40)]), Color("ffd34d"))
+	# Your map marker on the compass, with its distance.
+	if marker != Vector2.INF:
+		var to := marker - Vector2(p.global_position.x, p.global_position.z)
+		var mb := fposmod(rad_to_deg(atan2(to.x, -to.y)), 360.0)
+		var diff := fposmod(mb - bearing + 180.0, 360.0) - 180.0
+		if absf(diff) < 60.0:
+			var mx := cx + diff * px_per_deg
+			c.draw_circle(Vector2(mx, 58), 5.0, Color("ffd34d"))
+			_text(c, Vector2(mx, 78), "%d م" % int(to.length()), 12, Color("ffd34d"), HORIZONTAL_ALIGNMENT_CENTER, null, 80)
 
 func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	var size := 200.0
@@ -293,6 +341,15 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	for ad in world.airdrops:
 		var q: Vector2 = r.get_center() + (Vector2(ad.global_position.x, ad.global_position.z) - Vector2(pos.x, pos.z)) * s
 		if r.has_point(q): _crate_icon(c, q, ad.landed)
+	if marker != Vector2.INF:
+		var mq: Vector2 = r.get_center() + (marker - Vector2(pos.x, pos.z)) * s
+		if r.grow(-4).has_point(mq):
+			_pin(c, mq + Vector2(0, 4))
+		else:
+			# Off the minimap: a small pin on its edge pointing that way.
+			var dir := (mq - r.get_center()).normalized()
+			var e := r.get_center() + dir * (size * 0.5 - 8.0) / maxf(absf(dir.x), absf(dir.y))
+			c.draw_circle(e, 5.0, Color("ffd34d"))
 	_arrow(c, r.get_center(), -p.yaw, Color("ffd34d"), 9.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.4), false, 1.5)
 	# Match clock and connection, under the minimap.
@@ -533,72 +590,202 @@ func _draw_town_labels(c: Control, p: Player) -> void:
 		var fs := int(clampf(16000.0 / d, 14.0, 34.0))
 		_text(c, sp, t.name, fs, Color("ffe08a") if t.military else Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
 
-func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
-	c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0, 0, 0, 0.65))
-	var size := minf(sz.x, sz.y) - 70.0
-	var r := Rect2((sz.x - size) * 0.5, (sz.y - size) * 0.5, size, size)
-	if world.map_texture:
-		c.draw_texture_rect(world.map_texture, r, false)
+# ---------- Full map (M): zoom with the wheel, drag to move, click to mark ----------
+var map_zoom := 1.0
+var map_focus := Vector2.ZERO        # world point at the middle of the map view
+var marker := Vector2.INF            # your map marker (world x, z)
+var _map_rect := Rect2()
+var _map_drag := false
+var _map_press := Vector2.ZERO
+
+func _map_k() -> float:
+	return _map_rect.size.x / world.island.size * map_zoom
+
+func _w2m(q: Vector2) -> Vector2:
+	return _map_rect.get_center() + (q - map_focus) * _map_k()
+
+func _m2w(sp: Vector2) -> Vector2:
+	return map_focus + (sp - _map_rect.get_center()) / _map_k()
+
+func _clamp_focus() -> void:
 	var S: float = world.island.size
-	var k := size / S
-	for i in range(1, Game.GRID):
-		var o := size * i / Game.GRID
-		c.draw_line(Vector2(r.position.x + o, r.position.y), Vector2(r.position.x + o, r.end.y), Color(1, 1, 1, 0.25))
-		c.draw_line(Vector2(r.position.x, r.position.y + o), Vector2(r.end.x, r.position.y + o), Color(1, 1, 1, 0.25))
+	var half := S * 0.5 / map_zoom
+	map_focus = Vector2(clampf(map_focus.x, half, S - half), clampf(map_focus.y, half, S - half))
+
+func _map_input(event: InputEvent) -> bool:
+	if event is InputEventMouseButton and event.pressed and _map_rect.has_point(event.position):
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			var at := _m2w(event.position)
+			map_zoom = clampf(map_zoom * (1.25 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 0.8), 1.0, 8.0)
+			# Keep the point under the mouse where it is.
+			map_focus = at - (event.position - _map_rect.get_center()) / _map_k()
+			_clamp_focus()
+			return true
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			_map_press = event.position
+			_map_drag = true
+			return true
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			marker = Vector2.INF
+			return true
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _map_drag:
+		_map_drag = false
+		# A click (not a drag) puts the marker there.
+		if event.position.distance_to(_map_press) < 6.0 and _map_rect.has_point(event.position):
+			var w := _m2w(event.position)
+			marker = Vector2.INF if marker != Vector2.INF and _w2m(marker).distance_to(event.position) < 12.0 else w
+		return true
+	if event is InputEventMouseMotion and _map_drag and event.position.distance_to(_map_press) >= 6.0:
+		map_focus -= event.relative / _map_k()
+		_clamp_focus()
+		return true
+	return false
+
+func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
+	c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.02, 0.04, 0.06, 0.95))
+	var size := minf(sz.x - 360.0, sz.y - 60.0)
+	var r := Rect2((sz.x - size) * 0.5, 30.0, size, size)
+	_map_rect = r
+	if map_focus == Vector2.ZERO:
+		map_focus = Vector2.ONE * world.island.size * 0.5
+	_clamp_focus()
+	var S: float = world.island.size
+	var k := _map_k()
+	c.draw_rect(r, Color(0.1, 0.27, 0.42))
+	if world.map_texture:
+		var tex: Texture2D = world.map_texture
+		var tk := tex.get_width() / S
+		var view := S / map_zoom
+		var src := Rect2((map_focus - Vector2.ONE * view * 0.5) * tk, Vector2.ONE * view * tk)
+		c.draw_texture_rect_region(tex, r, src)
+	# Grid: big squares with letters and numbers, small ones when zoomed in.
+	var cell := S / Game.GRID
+	var fine := 4 if map_zoom >= 2.5 else 1
+	for i in range(1, Game.GRID * fine):
+		var o := i * cell / fine
+		var major := i % fine == 0
+		var col := Color(1, 1, 1, 0.32 if major else 0.12)
+		var gx := _w2m(Vector2(o, 0)).x
+		var gy := _w2m(Vector2(0, o)).y
+		if gx > r.position.x and gx < r.end.x: c.draw_line(Vector2(gx, r.position.y), Vector2(gx, r.end.y), col, 1.0)
+		if gy > r.position.y and gy < r.end.y: c.draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), col, 1.0)
 	var letters := "ABCDEFGH"
 	for i in Game.GRID:
-		var o := size * (i + 0.5) / Game.GRID
-		_text(c, Vector2(r.position.x + o, r.position.y + 18), letters[i], 14, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
-		_text(c, Vector2(r.position.x + 12, r.position.y + o + 5), str(i + 1), 14, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
+		var mx := _w2m(Vector2((i + 0.5) * cell, 0)).x
+		var my := _w2m(Vector2(0, (i + 0.5) * cell)).y
+		if mx > r.position.x + 10 and mx < r.end.x - 10:
+			_text(c, Vector2(mx, r.position.y - 8), letters[i], 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
+		if my > r.position.y + 10 and my < r.end.y - 10:
+			_text(c, Vector2(r.position.x - 14, my + 5), str(i + 1), 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
+	# Places: a dot and the name (gold for the military base).
+	var taken: Array[Rect2] = []
 	for t in world.island.towns:
-		_text(c, r.position + t.pos * k, t.name, 14, Color("ffe08a") if t.military else Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		var tp := _w2m(t.pos)
+		if not r.grow(-20).has_point(tp): continue
+		var tc: Color = Color("ffe08a") if t.military else Color.WHITE
+		c.draw_circle(tp, 3.0, Color(0, 0, 0, 0.6))
+		c.draw_circle(tp, 2.0, tc)
+		var fs := 13 + int(minf(map_zoom, 3.0))
+		var tw := bold.get_string_size(t.name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		# Above the dot, or below / beside it when another name is there.
+		var at := tp + Vector2(0, -7)
+		for off in [Vector2(0, -7), Vector2(0, fs + 8), Vector2(tw * 0.5 + 8, fs * 0.4), Vector2(-tw * 0.5 - 8, fs * 0.4)]:
+			var box := Rect2(tp + off - Vector2(tw * 0.5, fs), Vector2(tw, fs + 2))
+			var free := true
+			for o in taken:
+				if o.intersects(box): free = false
+			if free:
+				at = tp + off
+				break
+		taken.append(Rect2(at - Vector2(tw * 0.5, fs), Vector2(tw, fs + 2)))
+		_text(c, at, t.name, fs, tc, HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if world.plane_active:
-		c.draw_dashed_line(r.position + Vector2(world.plane_from.x, world.plane_from.z) * k, r.position + Vector2(world.plane_to.x, world.plane_to.z) * k, Color(1, 1, 1, 0.7), 2.0, 8.0)
+		_clipped_line(c, r, _w2m(Vector2(world.plane_from.x, world.plane_from.z)), _w2m(Vector2(world.plane_to.x, world.plane_to.z)), Color(1, 1, 1, 0.8))
+		var pp: Vector3 = world.plane_position()
+		var pd: Vector3 = (world.plane_to - world.plane_from).normalized()
+		var ps := _w2m(Vector2(pp.x, pp.z))
+		if r.has_point(ps): _arrow(c, ps, atan2(pd.x, -pd.z), Color.WHITE, 11.0)
 	var z: Zone = world.zone
 	if z.state != "idle":
-		_clipped_circle(c, r, r.position + z.center * k, z.radius * k, Color(0.25, 0.5, 1.0, 0.95), 2.5)
-		_clipped_circle(c, r, r.position + z.next_center * k, z.next_radius * k, Color.WHITE, 2.0)
+		_clipped_circle(c, r, _w2m(z.center), z.radius * k, Color(0.25, 0.5, 1.0, 0.95), 2.5)
+		_clipped_circle(c, r, _w2m(z.next_center), z.next_radius * k, Color.WHITE, 2.0)
 	for ad in world.airdrops:
-		_crate_icon(c, r.position + Vector2(ad.global_position.x, ad.global_position.z) * k, ad.landed)
+		var q := _w2m(Vector2(ad.global_position.x, ad.global_position.z))
+		if r.has_point(q): _crate_icon(c, q, ad.landed)
 	for f in world._drop_flights:
 		var fp: Vector3 = f.node.global_position
-		c.draw_circle(r.position + Vector2(fp.x, fp.z) * k, 4.0, Color(1, 1, 1, 0.9))
-	_arrow(c, r.position + Vector2(p.global_position.x, p.global_position.z) * k, -p.yaw, Color("ffd34d"), 10.0)
-	c.draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
-	_text(c, Vector2(sz.x * 0.5, r.end.y + 26), "كل مربع = %d م — اضغط M للإغلاق" % int(S / Game.GRID), 14)
+		var q2 := _w2m(Vector2(fp.x, fp.z))
+		if r.has_point(q2): c.draw_circle(q2, 4.0, Color(1, 1, 1, 0.9))
+	var me := Vector2(p.global_position.x, p.global_position.z)
+	if marker != Vector2.INF:
+		var ms := _w2m(marker)
+		if r.has_point(ms):
+			_clipped_line(c, r, _w2m(me), ms, Color(1, 0.83, 0.3, 0.6))
+			_pin(c, ms)
+			_text(c, ms + Vector2(0, 16), "%d م" % int(me.distance_to(marker)), 13, Color("ffd34d"), HORIZONTAL_ALIGNMENT_CENTER, bold, 80)
+	var mp := _w2m(me)
+	if r.has_point(mp):
+		c.draw_arc(mp, 13.0 + 3.0 * sin(world.time * 4.0), 0, TAU, 24, Color(1, 0.83, 0.3, 0.5), 2.0)
+		_arrow(c, mp, -p.yaw, Color("ffd34d"), 11.0)
+	c.draw_rect(r, Color(1, 1, 1, 0.55), false, 2.0)
+	# Scale bar.
+	var bar_m := 1000.0 if map_zoom < 1.6 else (500.0 if map_zoom < 3.2 else (200.0 if map_zoom < 6.0 else 100.0))
+	var bl := bar_m * k
+	var b0 := Vector2(r.end.x - bl - 14, r.end.y - 16)
+	c.draw_rect(Rect2(b0 - Vector2(6, 22), Vector2(bl + 12, 30)), Color(0, 0, 0, 0.45))
+	c.draw_line(b0, b0 + Vector2(bl, 0), Color.WHITE, 3.0)
+	_text(c, b0 + Vector2(bl * 0.5, -6), "%d م" % int(bar_m), 12, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, 80)
+	# Side panel: zone, marker, keys.
+	var px := r.end.x + 22.0
+	var pw := sz.x - px - 16.0
+	if pw > 120.0:
+		var y := r.position.y + 10.0
+		var lines := []
+		if z.state == "idle":
+			lines.append(["المنطقة الزرقاء", "لم تبدأ بعد", Color.WHITE])
+		else:
+			var tl := int(maxf(0.0, z.time_left))
+			lines.append(["المنطقة الزرقاء", ("تضيق الآن" if z.state == "shrink" else "تضيق بعد %d:%02d" % [tl / 60, tl % 60]) if z.state != "done" else "انتهت", Color("9fd0ff")])
+			var dd := z.distance_to_safe(p.global_position)
+			lines.append(["المنطقة الآمنة", "أنت بداخلها" if dd <= 0.0 else "تبعد %d م" % int(dd), Color.WHITE if dd <= 0.0 else Color("ff9a7a")])
+		lines.append(["الباقون", str(world.alive_count()), Color.WHITE])
+		if marker != Vector2.INF:
+			lines.append(["علامتك", "%d م" % int(me.distance_to(marker)), Color("ffd34d")])
+		var cell_name := "%s%d" % [letters[clampi(int(me.x / cell), 0, Game.GRID - 1)], clampi(int(me.y / cell), 0, Game.GRID - 1) + 1]
+		lines.append(["مكانك", cell_name, Color("ffd34d")])
+		for ln in lines:
+			c.draw_rect(Rect2(px, y, pw, 52), Color(1, 1, 1, 0.06))
+			_text(c, Vector2(px + 10, y + 20), ln[0], 13, Color(1, 1, 1, 0.6), HORIZONTAL_ALIGNMENT_LEFT, null, pw - 20)
+			_text(c, Vector2(px + 10, y + 43), ln[1], 18, ln[2], HORIZONTAL_ALIGNMENT_LEFT, bold, pw - 20)
+			y += 58.0
+		y += 10.0
+		for h in ["عجلة الماوس: تكبير وتصغير", "اسحب بالماوس: تحريك الخريطة", "كبسة شمال: حط علامة", "كبسة يمين: امسح العلامة", "M: إغلاق الخريطة"]:
+			_text(c, Vector2(px + 4, y), h, 12, Color(1, 1, 1, 0.55), HORIZONTAL_ALIGNMENT_LEFT, null, pw)
+			y += 20.0
 
-func _draw_bag(c: Control, sz: Vector2, p: Player) -> void:
-	var rows := []
-	for i in 3:
-		var sl = p.slots[i]
-		rows.append([["السلاح 1", "السلاح 2", "المسدس"][i], "—" if sl == null else Game.WEAPONS[sl.id].name])
-		if sl != null:
-			for slot_name in Items.ATTACH_SLOTS:
-				if sl.get("att", {}).has(slot_name):
-					rows.append(["   " + Items.ATTACH_SLOT_NAMES[slot_name], Items.ATTACH[sl.att[slot_name]].name])
-	for g in ["helmet", "vest", "pack"]:
-		var lvl: int = p.gear[g]
-		var label := {"helmet": "الخوذة", "vest": "السترة", "pack": "الحقيبة"}[g] as String
-		var val := "—" if lvl == 0 else ("مستوى %d" % lvl + ("" if g == "pack" else "  (%d%%)" % int(100.0 * float(p.gear[g + "_dur"]) / float((Items.HELMET if g == "helmet" else Items.VEST)[lvl].dur))))
-		rows.append([label, val])
-	for at in p.ammo:
-		if p.ammo[at] > 0: rows.append(["ذخيرة " + Game.AMMO_NAMES[at], str(p.ammo[at])])
-	for hid in Items.HEAL_ORDER:
-		if p.heals[hid] > 0: rows.append([Items.HEALS[hid].name, "×%d" % p.heals[hid]])
-	for tid in p.throwables:
-		if p.throwables[tid] > 0: rows.append([Items.THROWS[tid], "×%d" % p.throwables[tid]])
-	var r := Rect2(16, 70, 320, 84 + 26 * rows.size())
-	c.draw_rect(r, Color(0.03, 0.05, 0.08, 0.84))
-	c.draw_rect(r, Color(1, 1, 1, 0.15), false, 1.0)
-	_text(c, Vector2(r.position.x + 14, r.position.y + 30), "الحقيبة", 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_LEFT, bold, 200)
-	_text(c, Vector2(r.end.x - 14, r.position.y + 30), "السعة %d / %d" % [int(p.used_space()), int(p.capacity())], 14, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_RIGHT, null, 160)
-	var y := r.position.y + 60
-	for row in rows:
-		_text(c, Vector2(r.position.x + 14, y), row[0], 15, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_LEFT, null, 170)
-		_text(c, Vector2(r.end.x - 14, y), row[1], 15, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, bold, 150)
-		y += 26
-	if Game.settings.controls == "kbm":
-		_text(c, Vector2(r.position.x + 14, r.end.y - 8), "H علاج • Y منشّط • G قنبلة • T نوعها", 12, Color(1, 1, 1, 0.6), HORIZONTAL_ALIGNMENT_LEFT, null, 300)
+func _clipped_line(c: Control, r: Rect2, a: Vector2, b: Vector2, col: Color) -> void:
+	# Liang-Barsky clip to the map, then a dashed line.
+	var t0 := 0.0
+	var t1 := 1.0
+	var d := b - a
+	for ax in 2:
+		for side in 2:
+			var pp := -d[ax] if side == 0 else d[ax]
+			var q := (a[ax] - r.position[ax]) if side == 0 else (r.end[ax] - a[ax])
+			if absf(pp) < 0.0001:
+				if q < 0.0: return
+				continue
+			var t := q / pp
+			if pp < 0.0: t0 = maxf(t0, t)
+			else: t1 = minf(t1, t)
+	if t0 >= t1: return
+	c.draw_dashed_line(a + d * t0, a + d * t1, col, 2.0, 8.0)
+
+## Yellow map pin.
+func _pin(c: Control, at: Vector2) -> void:
+	c.draw_colored_polygon(PackedVector2Array([at, at + Vector2(-6, -12), at + Vector2(6, -12)]), Color("ffd34d"))
+	c.draw_circle(at + Vector2(0, -14), 7.0, Color("ffd34d"))
+	c.draw_circle(at + Vector2(0, -14), 3.0, Color(0.15, 0.1, 0.0))
 
 ## Blue zone and next safe circle on the minimap (world -> minimap: centre + (q - pos) * s).
 func _draw_zone(c: Control, r: Rect2, pos: Vector3, s: float) -> void:

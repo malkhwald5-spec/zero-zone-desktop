@@ -64,6 +64,8 @@ var recoil_kick := 0.0
 # Gear and meds
 var gear := {"vest": 0, "vest_dur": 0.0, "helmet": 0, "helmet_dur": 0.0, "pack": 0}
 var heals := {"bandage": 0, "firstaid": 0, "medkit": 0, "drink": 0, "pills": 0}
+var spares: Array = []            # attachments carried in the bag (not on a gun)
+const SPARE_SIZE := 3.0
 var boost := 0.0                  # 0..100, slowly heals and (when high) speeds you up
 var heal_id := ""                 # item being used
 var heal_t := 0.0                 # seconds left
@@ -267,7 +269,7 @@ func weapon() -> Dictionary:
 ## Fits a picked-up attachment: first to a gun with that slot free (the one in
 ## your hands first), else swaps it onto the first gun it fits (the old part
 ## drops at your feet). False if no gun takes it.
-func add_attachment(id: String) -> bool:
+func add_attachment(id: String, swap_to_bag := false) -> bool:
 	var a: Dictionary = Items.ATTACH[id]
 	var order := [active, 0, 1, 2]
 	for pass_n in 2:
@@ -277,14 +279,111 @@ func add_attachment(id: String) -> bool:
 			var att: Dictionary = slots[i].get("att", {})
 			if pass_n == 0 and att.has(a.slot): continue
 			if att.has(a.slot):
-				world._add_pickup({"kind": "attach", "id": att[a.slot]}, global_position + Vector3(randf_range(-0.5, 0.5), 0, randf_range(-0.5, 0.5)))
+				if swap_to_bag: spares.append(att[a.slot])
+				else: world._add_pickup({"kind": "attach", "id": att[a.slot]}, global_position + Vector3(randf_range(-0.5, 0.5), 0, randf_range(-0.5, 0.5)))
 			att[a.slot] = id
 			slots[i].att = att
 			_after_attach_change(i)
 			message.emit("تم تركيب %s على %s" % [a.name, Game.WEAPONS[slots[i].id].name])
 			return true
+	# Nothing to fit it on yet: keep it in the bag.
+	if free_space() >= SPARE_SIZE:
+		spares.append(id)
+		message.emit("%s في الحقيبة" % a.name)
+		return true
+	message.emit("الحقيبة ممتلئة")
+	return false
+
+# ---------- Inventory actions (bag screen) ----------
+func _drop_at() -> Vector3:
+	return global_position + Vector3(randf_range(-0.7, 0.7), 0, randf_range(-0.7, 0.7))
+
+## Takes an attachment off a gun into the bag (or to the ground if full).
+func detach(slot_i: int, att_slot: String) -> void:
+	if slots[slot_i] == null or not slots[slot_i].get("att", {}).has(att_slot): return
+	var id: String = slots[slot_i].att[att_slot]
+	slots[slot_i].att.erase(att_slot)
+	_after_attach_change(slot_i)
+	if slot_i == active:
+		model.set_attachments(slots[slot_i].att)
+	if free_space() >= SPARE_SIZE: spares.append(id)
+	else: world._add_pickup({"kind": "attach", "id": id}, _drop_at())
+
+## Fits a spare from the bag onto a specific gun (or the best one if -1).
+func fit_spare(spare_i: int, slot_i := -1) -> bool:
+	if spare_i < 0 or spare_i >= spares.size(): return false
+	var id: String = spares[spare_i]
+	var a: Dictionary = Items.ATTACH[id]
+	if slot_i >= 0:
+		if slots[slot_i] == null or not Items.attach_fits(id, Game.WEAPONS[slots[slot_i].id].cls): return false
+		spares.remove_at(spare_i)
+		var att: Dictionary = slots[slot_i].get("att", {})
+		if att.has(a.slot): spares.append(att[a.slot])
+		att[a.slot] = id
+		slots[slot_i].att = att
+		_after_attach_change(slot_i)
+		return true
+	spares.remove_at(spare_i)
+	for i in [active, 0, 1, 2]:
+		if i >= 0 and slots[i] != null and Items.attach_fits(id, Game.WEAPONS[slots[i].id].cls):
+			return fit_spare_on(id, i)
+	spares.insert(spare_i, id)
 	message.emit("%s ما بيركب على أسلحتك" % a.name)
 	return false
+
+func fit_spare_on(id: String, i: int) -> bool:
+	var att: Dictionary = slots[i].get("att", {})
+	var slot_name: String = Items.ATTACH[id].slot
+	if att.has(slot_name): spares.append(att[slot_name])
+	att[slot_name] = id
+	slots[i].att = att
+	_after_attach_change(i)
+	return true
+
+func drop_spare(spare_i: int) -> void:
+	if spare_i < 0 or spare_i >= spares.size(): return
+	world._add_pickup({"kind": "attach", "id": spares[spare_i]}, _drop_at())
+	spares.remove_at(spare_i)
+
+func drop_slot(i: int) -> void:
+	if slots[i] == null: return
+	world.drop_weapon(slots[i].id, slots[i].mag, global_position, slots[i].get("att", {}))
+	slots[i] = null
+	if active == i:
+		var next := -1
+		for k in [0, 1, 2]:
+			if slots[k] != null:
+				next = k
+				break
+		active = -1
+		reload_t = 0.0
+		if next >= 0: switch_slot(next)
+		else: model.set_weapon("")
+	_refresh_back()
+
+func drop_ammo(type: String, amount := -1) -> void:
+	var n: int = ammo[type] if amount < 0 else mini(amount, ammo[type])
+	if n <= 0: return
+	ammo[type] -= n
+	world._add_pickup({"kind": "ammo", "type": type, "amount": n}, _drop_at())
+
+func drop_heal(id: String) -> void:
+	if heals[id] <= 0: return
+	heals[id] -= 1
+	world._add_pickup({"kind": "heal", "id": id, "n": 1}, _drop_at())
+
+func drop_throw(id: String) -> void:
+	if throwables[id] <= 0: return
+	throwables[id] -= 1
+	world._add_pickup({"kind": "throw", "id": id, "n": 1}, _drop_at())
+
+func drop_gear(kind: String) -> void:
+	if int(gear[kind]) <= 0: return
+	if kind == "pack" and used_space() > Items.PACK[0].cap:
+		message.emit("فضّي الحقيبة أول قبل ما ترميها")
+		return
+	var old := equip(kind, 0, 0.0)
+	world._add_gear(kind, old.lvl, old.dur, _drop_at())
 
 func _after_attach_change(i: int) -> void:
 	# A smaller magazine than the rounds loaded: put the extra back in the bag.
@@ -514,6 +613,7 @@ func _try_fire() -> void:
 	var quiet: bool = w.get("suppressed", false)
 	if not quiet: world.effects.muzzle_flash(model.muzzle_position())
 	world.sound_shot(w.cls, global_position, true, quiet)
+	world.notify_shot(global_position, self, quiet)
 	if s.mag == 0:
 		start_reload()
 
@@ -735,6 +835,7 @@ func used_space() -> float:
 	for t in throwables: u += throwables[t] * Items.THROW_SIZE
 	for a in ammo: u += ammo[a] * Items.AMMO_SIZE
 	for h in heals: u += heals[h] * Items.HEALS[h].size
+	u += spares.size() * SPARE_SIZE
 	return u
 
 func free_space() -> float:

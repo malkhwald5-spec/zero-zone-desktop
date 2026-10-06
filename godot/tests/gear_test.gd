@@ -204,10 +204,11 @@ func _run() -> void:
 	b4.visible = true
 	b4._land()
 	b4.set_physics_process(true)
+	p.set_physics_process(false)
 	p.global_position = ad.global_position + Vector3(0, 200, 0)
 	for i in 120:
 		await wait(0.25)
 		if Game.WEAPONS[b4.weapon_id].get("crate", false): break
-	check("bot loots the crate", Game.WEAPONS[b4.weapon_id].get("crate", false), "bot weapon=%s mode=%s d=%.1f" % [b4.weapon_id, b4.mode, b4.global_position.distance_to(ad.global_position)])
+	check("bot loots the crate", Game.WEAPONS[b4.weapon_id].get("crate", false), "bot weapon=%s mode=%s d=%.1f target=%s" % [b4.weapon_id, b4.mode, b4.global_position.distance_to(ad.global_position), str(b4.target)])
 	print("GEAR TEST %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 	tree.quit()
