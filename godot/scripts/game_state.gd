@@ -53,7 +53,14 @@ var settings := {
 	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal
 	"invert_y": false,
 	"keys": {},               # action -> physical keycode, only the ones changed
+	"mode": "solo",           # "solo" | "duo" | "squad"
 }
+
+const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة"}
+
+## Players per team in the chosen mode.
+func team_size() -> int:
+	return {"solo": 1, "duo": 2, "squad": 4}.get(settings.get("mode", "solo"), 1)
 
 ## Keyboard actions you can rebind (Settings → الأزرار), their default keys
 ## and names. Esc and 4-8 (heals) stay fixed.

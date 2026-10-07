@@ -504,17 +504,43 @@ const BOT_NAMES := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ل�
 	"Frost_JO", "Lynx_EG", "وهج", "Omen_KSA", "Bolt_IQ", "قمر", "Saber_DZ", "Shark_LB", "رمح", "Tank_TN", "Echo_PS", "حديد",
 	"Pixel_MA", "Rocket_KW", "ظل", "Arrow_SY", "Jaguar_QA", "نصر", "Wraith_AE"]
 
+## Teams: you and the first (size - 1) bots are team 0; the other bots are in
+## teams of the same size that drop together. Solo: everyone on their own.
+var team_size := 1
+const TEAM_COLORS := [Color("ffd34d"), Color("ff8a3c"), Color("5fd16a"), Color("58a8ff")]
+
 func _spawn_bots() -> void:
 	var dir := plane_to - plane_from
+	team_size = Game.team_size()
+	var lead_dest := Vector3.ZERO
+	var lead_jump := 0.5
 	for i in BOT_COUNT:
 		var b := Bot.new()
 		b.world = self
 		b.display_name = BOT_NAMES[i % BOT_NAMES.size()]
+		if team_size == 1:
+			b.team = i + 1
+		elif i < team_size - 1:
+			b.team = 0
+			b.buddy = true
+			b.slot = i + 1
+		else:
+			b.team = 1 + (i - (team_size - 1)) / team_size
+			b.slot = (i - (team_size - 1)) % team_size
 		b.skill = clampf({"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15), 0.05, 0.95)
 		# Pick a landing spot: mostly towns (hot drops), some lone houses/fields.
 		var dest := _landing_spot()
 		# Jump where the plane passes closest to that spot.
 		var t := clampf((Vector2(dest.x, dest.z) - Vector2(plane_from.x, plane_from.z)).dot(Vector2(dir.x, dir.z)) / Vector2(dir.x, dir.z).length_squared(), 0.04, 0.96)
+		if team_size > 1 and b.slot > 0 and not b.buddy:
+			# Squad mates drop together, a few houses apart.
+			var off := Vector2(randf_range(12.0, 28.0), 0).rotated(randf() * TAU)
+			var p2 := Vector2(lead_dest.x, lead_dest.z) + off
+			dest = Vector3(p2.x, island.height_at(p2.x, p2.y), p2.y) if island.is_land(p2.x, p2.y) and not _in_building(p2, 1.5) else lead_dest
+			t = lead_jump
+		elif team_size > 1:
+			lead_dest = dest
+			lead_jump = t
 		b.dest = dest
 		b.jump_at = t + randf_range(-0.03, 0.01)
 		b.chute_alt = randf_range(110.0, 220.0)
@@ -819,6 +845,64 @@ func _remove_pickup(it: Node3D) -> void:
 	if _grid.has(c): _grid[c].erase(it)
 	it.queue_free()
 
+## Teammates of `a` (player or bot), not counting `a`.
+func teammates(a: Node) -> Array:
+	var res := []
+	if team_size <= 1: return res
+	if player and a != player and player.team == a.team: res.append(player)
+	for b in bots:
+		if b != a and b.team == a.team: res.append(b)
+	return res
+
+func same_team(a: Node, b: Node) -> bool:
+	return team_size > 1 and a != null and b != null and "team" in a and "team" in b and a.team == b.team
+
+static func is_down(a: Node) -> bool:
+	return ("knocked" in a and a.knocked)
+
+static func is_gone(a: Node) -> bool:
+	return ("dead" in a and a.dead) or ("state" in a and a.state == "dead")
+
+## Can `a` be knocked down instead of dying? Only with a teammate still on
+## their feet to pick them up.
+func can_knock(a: Node) -> bool:
+	if team_size <= 1 or is_down(a): return false
+	for m in teammates(a):
+		if not is_gone(m) and not is_down(m): return true
+	return false
+
+## Someone was knocked down: feed line, and if nobody in their team is left
+## standing, the whole team is out.
+func on_actor_knocked(victim: Node, attacker: Node) -> void:
+	var by: String = attacker.display_name if attacker and "display_name" in attacker else ""
+	if hud: hud.knock_feed(by, victim.display_name, attacker == player)
+	_check_team_wipe(victim.team)
+
+func _check_team_wipe(team: int) -> void:
+	if team_size <= 1: return
+	var members := []
+	if player.team == team: members.append(player)
+	for b in bots:
+		if b.team == team: members.append(b)
+	for m in members:
+		if not is_gone(m) and not is_down(m): return
+	for m in members:
+		if is_down(m) and not is_gone(m): m.bleed_out()
+
+## Teams with someone still alive (standing or knocked).
+func teams_alive() -> int:
+	var seen := {}
+	if player and player.state != "dead": seen[player.team] = true
+	for b in bots:
+		if not b.dead: seen[b.team] = true
+	return seen.size()
+
+func team_alive(team: int) -> bool:
+	if player.team == team and player.state != "dead": return true
+	for b in bots:
+		if b.team == team and not b.dead: return true
+	return false
+
 func alive_count() -> int:
 	var n := 1 if player and player.state != "dead" else 0
 	for b in bots:
@@ -832,6 +916,10 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 	if attacker == player:
 		Game.stats.kills += 1
 	if attacker == null: zone_deaths += 1
+	# Bled out or team wiped: the kill goes to whoever knocked them down.
+	if victim is Bot and victim.bled and attacker != null and is_instance_valid(attacker) and attacker != victim:
+		if attacker == player: player.kills += 1
+		elif attacker is Bot: attacker.kills += 1
 	if victim is Bot:
 		var v: Bot = victim
 		# Everything it carried goes into a loot box where it fell.
@@ -850,16 +938,24 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 		if v.meds > 0:
 			items.append({"kind": "heal", "id": "firstaid", "n": v.meds})
 		death_crate(v.display_name, v.global_position, items)
-	if player.state != "dead" and alive_count() == 1:
+	if team_size > 1 and "team" in victim: _check_team_wipe(victim.team)
+	# Last team (or last player) standing wins.
+	if team_alive(player.team) and teams_alive() == 1:
 		_end_match(true)
+	elif team_size > 1 and player.state == "dead" and not team_alive(player.team):
+		_end_match(false)
 
 func _on_player_died(_killer: String) -> void:
+	# In a team the match goes on while a teammate lives: you watch them.
+	if team_alive(player.team) and team_size > 1:
+		hud.team_still_alive()
+		return
 	_end_match(false)
 
 func _end_match(won: bool) -> void:
 	if match_over: return
 	match_over = true
-	var rank := 1 if won else alive_count() + 1
+	var rank := 1 if won else (teams_alive() + 1 if team_size > 1 else alive_count() + 1)
 	if won: Game.stats.wins += 1
 	if Game.stats.best == 0 or rank < Game.stats.best: Game.stats.best = rank
 	var reward := Game.reward_match(rank, player.kills, won)

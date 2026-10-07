@@ -91,6 +91,102 @@ func kill_feed(killer: String, victim: String, mine: bool, by_zone := false) -> 
 		feed.get_child(0).queue_free()
 	l.create_tween().tween_callback(l.queue_free).set_delay(6.0)
 
+## Someone knocked down (team match).
+func knock_feed(by: String, victim: String, mine: bool) -> void:
+	var l := Label.new()
+	l.text = ("%s أسقط %s" % [by, victim]) if by != "" else ("%s انسقط" % victim)
+	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_color_override("font_color", Color("ffd34d") if mine else Color("ffb0a0"))
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	l.add_theme_constant_override("outline_size", 4)
+	feed.add_child(l)
+	if feed.get_child_count() > 5:
+		feed.get_child(0).queue_free()
+	l.create_tween().tween_callback(l.queue_free).set_delay(6.0)
+
+## You died but your team plays on: after the killcam, watch a teammate.
+func team_still_alive() -> void:
+	show_banner("فريقك لسا بيقاتل — بتتفرج عليهم")
+	get_tree().create_timer(KILLCAM_TIME).timeout.connect(func():
+		if not results and not spectating and world.player.state == "dead" and world.team_alive(world.player.team):
+			start_spectate())
+
+## You and your teammates, in slot order.
+func _team() -> Array:
+	var t: Array = [world.player]
+	t.append_array(world.teammates(world.player))
+	t.sort_custom(func(a, b): return a.slot < b.slot)
+	return t
+
+## Left side: each teammate's number, name and health (red while knocked).
+func _draw_team(c: Control) -> void:
+	if world.team_size <= 1: return
+	feed.position.y = 60.0 + world.team_size * 30.0 + 8.0     # kill feed goes under the team list
+	var y := 52.0
+	for m in _team():
+		var col: Color = world.TEAM_COLORS[m.slot % 4]
+		var gone: bool = world.is_gone(m)
+		var down: bool = world.is_down(m)
+		c.draw_rect(Rect2(14, y, 200, 26), Color(0, 0, 0, 0.35))
+		c.draw_rect(Rect2(14, y, 24, 26), col if not gone else Color(0.4, 0.4, 0.4))
+		_text(c, Vector2(26, y + 19), str(m.slot + 1), 14, Color.BLACK, HORIZONTAL_ALIGNMENT_CENTER, bold, 24)
+		var nm: String = "أنت" if m == world.player else m.display_name
+		_text(c, Vector2(44, y + 13), nm, 12, Color(1, 1, 1, 0.5 if gone else 0.95), HORIZONTAL_ALIGNMENT_LEFT, null, 165)
+		var hp := 0.0 if gone else clampf(float(m.health) / 100.0, 0.0, 1.0)
+		c.draw_rect(Rect2(44, y + 17, 162, 5), Color(1, 1, 1, 0.15))
+		c.draw_rect(Rect2(44, y + 17, 162 * hp, 5), Color("ff4a3a") if down else Color.WHITE)
+		if gone:
+			_text(c, Vector2(200, y + 14), "✕", 13, Color(1, 0.4, 0.4), HORIZONTAL_ALIGNMENT_CENTER, bold, 20)
+		elif down:
+			_text(c, Vector2(196, y + 13), "مُسقط", 11, Color("ff8a7a"), HORIZONTAL_ALIGNMENT_CENTER, bold, 50)
+		y += 30.0
+
+## Teammates' names over their heads (coloured), with a + when knocked.
+func _draw_team_tags(c: Control, p: Player) -> void:
+	if world.team_size <= 1: return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null: return
+	for m in world.teammates(p):
+		if world.is_gone(m) or not m.visible: continue
+		var wp: Vector3 = m.global_position + Vector3(0, 2.15 if not world.is_down(m) else 0.9, 0)
+		if cam.is_position_behind(wp): continue
+		var sp := cam.unproject_position(wp)
+		var d: float = cam.global_position.distance_to(wp)
+		var col: Color = world.TEAM_COLORS[m.slot % 4]
+		if world.is_down(m):
+			c.draw_circle(sp + Vector2(0, -16), 9.0, Color("e03a2a"))
+			c.draw_rect(Rect2(sp + Vector2(-2, -22), Vector2(4, 12)), Color.WHITE)
+			c.draw_rect(Rect2(sp + Vector2(-6, -18), Vector2(12, 4)), Color.WHITE)
+		_text(c, sp, "%s  %dم" % [m.display_name, int(d)] if d > 30.0 else m.display_name, 13, col, HORIZONTAL_ALIGNMENT_CENTER, bold, 220)
+
+## Knocked: red edges, bleed bar; next to a knocked mate: revive prompt/progress.
+func _draw_revive(c: Control, sz: Vector2, p: Player) -> void:
+	if p.knocked:
+		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.6, 0.0, 0.0, 0.16))
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "انسقطت! ازحف لعند زميلك ليرفعك", 22, Color("ff9a8a"), HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
+		var w := 300.0
+		var r := Rect2(sz.x * 0.5 - w * 0.5, sz.y * 0.3 + 14, w, 8)
+		c.draw_rect(r, Color(0, 0, 0, 0.5))
+		c.draw_rect(Rect2(r.position, Vector2(w * clampf(p.health / 100.0, 0.0, 1.0), 8)), Color("ff3a2a"))
+		if p.revived_by_t > 0.0:
+			_progress(c, Vector2(sz.x * 0.5, sz.y * 0.62), p.revived_by_t, "زميلك عم يرفعك…")
+			p.revived_by_t = maxf(0.0, p.revived_by_t - get_process_delta_time() * 0.5)   # decays unless refreshed
+		return
+	if p.revive_target:
+		_progress(c, Vector2(sz.x * 0.5, sz.y * 0.62), p.revive_t / Player.REVIVE_TIME, "عم ترفع " + p.revive_target.display_name + "… خليك ثابت")
+		return
+	var mate := p.downed_mate_near()
+	if mate:
+		var key := "[%s] " % Game.key_label(Game.key("interact")) if Game.settings.controls == "kbm" else ""
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "اضغط مطوّل لترفع " + mate.display_name, 19, Color("7dff8a"), HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
+
+func _progress(c: Control, ctr: Vector2, k: float, label: String) -> void:
+	c.draw_arc(ctr, 26.0, 0, TAU, 40, Color(0, 0, 0, 0.5), 6.0)
+	c.draw_arc(ctr, 26.0, -PI / 2, -PI / 2 + TAU * clampf(k, 0.0, 1.0), 40, Color("7dff8a"), 6.0)
+	c.draw_rect(Rect2(ctr + Vector2(-3, -11), Vector2(6, 22)), Color("7dff8a"))
+	c.draw_rect(Rect2(ctr + Vector2(-11, -3), Vector2(22, 6)), Color("7dff8a"))
+	_text(c, ctr + Vector2(0, 52), label, 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, 500)
+
 ## Flashbang hit you: white screen and muffled sound for `secs` seconds.
 func flash(amount: float, secs: float) -> void:
 	flash_len = maxf(secs, 0.1)
@@ -224,7 +320,12 @@ func toggle_pause() -> void:
 		vb.add_child(sl)
 
 func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> void:
-	var title := "فوز! أنت الناجي الأخير 🏆" if won else "الترتيب #%d" % rank
+	if spectating:
+		spectating = false
+		if _spec_panel:
+			_spec_panel.queue_free()
+			_spec_panel = null
+	var title := ("فوز! أنت الناجي الأخير 🏆" if world.team_size <= 1 else "فوز! فريقك آخر فريق 🏆") if won else "الترتيب #%d" % rank
 	var sub := "الإقصاءات: %d" % kills
 	if not reward.is_empty():
 		sub += "\n+%d ذهب    +%d خبرة موسم" % [reward.gold, reward.xp]
@@ -252,7 +353,7 @@ func _show_results_panel() -> void:
 ## Watch the match go on: your killer first, then whoever is still alive.
 func start_spectate() -> void:
 	var p: Player = world.player
-	var first: Node3D = p.killer if p.killer is Bot and not p.killer.dead else _next_alive(null)
+	var first: Node3D = p.killer if p.killer is Bot and not p.killer.dead and not world.team_alive(p.team) else _next_alive(null)
 	if first == null: return
 	if results:
 		results.queue_free()
@@ -272,6 +373,9 @@ func stop_spectate() -> void:
 ## The next player still alive after `cur` (in list order).
 func _next_alive(cur: Node3D) -> Node3D:
 	var alive: Array = world.bots.filter(func(b): return not b.dead)
+	# While your team lives you watch your teammates only.
+	var mates: Array = alive.filter(func(b): return b.team == world.player.team)
+	if world.team_size > 1 and not mates.is_empty(): alive = mates
 	if alive.is_empty(): return null
 	var i: int = alive.find(cur)
 	return alive[(i + 1) % alive.size()]
@@ -381,6 +485,8 @@ func _draw_hud() -> void:
 	if p == null: return
 	_draw_town_labels(c, p)
 	_draw_counters(c)
+	_draw_team(c)
+	_draw_team_tags(c, p)
 	_draw_compass(c, sz, p)
 	_draw_minimap(c, sz, p)
 	if p.state == "ground":
@@ -389,7 +495,8 @@ func _draw_hud() -> void:
 			_draw_scope(c, sz, p.weapon())
 		else:
 			_draw_crosshair(c, sz, p)
-		_draw_prompt(c, sz, p)
+		_draw_revive(c, sz, p)
+		if not p.knocked and p.revive_target == null and p.downed_mate_near() == null: _draw_prompt(c, sz, p)
 		if p.throw_ready: _draw_throw_arc(c, p)
 		_draw_throw_card(c, sz, p)
 	elif p.state == "vehicle":
@@ -419,7 +526,9 @@ func _draw_hud() -> void:
 func _draw_counters(c: Control) -> void:
 	# Mobile-BR style pills: "17 متبقي" and "0 الإقصاءات".
 	var x := 14.0
-	for b in [[str(world.alive_count()), "متبقي"], [str(world.player.kills), "الإقصاءات"]]:
+	var pills := [[str(world.alive_count()), "متبقي"], [str(world.player.kills), "الإقصاءات"]]
+	if world.team_size > 1: pills.insert(1, [str(world.teams_alive()), "فرق"])
+	for b in pills:
 		var w: float = 52.0 + String(b[1]).length() * 9.0
 		c.draw_rect(Rect2(x, 12, w, 30), Color(0, 0, 0, 0.42))
 		c.draw_rect(Rect2(x, 12, 40, 30), Color(0, 0, 0, 0.55))
@@ -486,6 +595,12 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 			var dir := (mq - r.get_center()).normalized()
 			var e := r.get_center() + dir * (size * 0.5 - 8.0) / maxf(absf(dir.x), absf(dir.y))
 			c.draw_circle(e, 5.0, Color("ffd34d"))
+	for m in world.teammates(p):
+		if world.is_gone(m): continue
+		var tq: Vector2 = r.get_center() + (Vector2(m.global_position.x, m.global_position.z) - Vector2(pos.x, pos.z)) * s
+		if r.grow(-4).has_point(tq):
+			c.draw_circle(tq, 5.0, Color.BLACK)
+			c.draw_circle(tq, 4.0, world.TEAM_COLORS[m.slot % 4] if not world.is_down(m) else Color("ff3a2a"))
 	_arrow(c, r.get_center(), -p.yaw, Color("ffd34d"), 9.0)
 	c.draw_rect(r, Color(1, 1, 1, 0.4), false, 1.5)
 	# Match clock and connection, under the minimap.
@@ -866,6 +981,12 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	if r.has_point(mp):
 		c.draw_arc(mp, 13.0 + 3.0 * sin(world.time * 4.0), 0, TAU, 24, Color(1, 0.83, 0.3, 0.5), 2.0)
 		_arrow(c, mp, -p.yaw, Color("ffd34d"), 11.0)
+	for m in world.teammates(p):
+		if world.is_gone(m): continue
+		var tq := _w2m(Vector2(m.global_position.x, m.global_position.z))
+		if r.has_point(tq):
+			c.draw_circle(tq, 6.0, Color.BLACK)
+			c.draw_circle(tq, 5.0, world.TEAM_COLORS[m.slot % 4] if not world.is_down(m) else Color("ff3a2a"))
 	c.draw_rect(r, Color(1, 1, 1, 0.55), false, 2.0)
 	# Scale bar.
 	var bar_m := 1000.0 if map_zoom < 1.6 else (500.0 if map_zoom < 3.2 else (200.0 if map_zoom < 6.0 else 100.0))

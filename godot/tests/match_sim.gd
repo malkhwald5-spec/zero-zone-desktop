@@ -7,6 +7,8 @@ func wait(sec: float) -> void:
 	await get_tree().create_timer(sec).timeout
 
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--mode="): Game.settings.mode = a.substr(7)
 	_run.call_deferred()
 
 func _run() -> void:
@@ -57,12 +59,12 @@ func _run() -> void:
 				if b.armed(): armed += 1
 				modes[b.mode] = modes.get(b.mode, 0) + 1
 			print("SIM t=%4.0f zone=%s ph=%d r=%4.0f alive=%2d armed=%2d modes=%s zone_deaths=%d" % [world.time, z.state, z.phase, z.radius, world.alive_count(), armed, str(modes), world.zone_deaths])
-		if world.alive_count() <= 1 or world.match_over: break
+		if world.alive_count() <= 1 or world.match_over or (world.team_size > 1 and world.teams_alive() <= 1): break
 	Engine.time_scale = 1.0
 	var top := []
 	for b in world.bots:
 		top.append([b.kills, b.display_name, b.dead])
 	top.sort_custom(func(a, b): return a[0] > b[0])
-	print("SIM end alive=%d match_over=%s top_killers=%s" % [world.alive_count(), world.match_over, str(top.slice(0, 3))])
+	print("SIM end alive=%d teams=%d match_over=%s top_killers=%s" % [world.alive_count(), world.teams_alive(), world.match_over, str(top.slice(0, 3))])
 	print("SIM DONE")
 	tree.quit()

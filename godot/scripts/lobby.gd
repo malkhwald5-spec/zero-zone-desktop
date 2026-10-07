@@ -445,7 +445,7 @@ func _top_left() -> void:
 	labels.bell = bell.get_meta("label")
 	bell.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	side.add_child(bell)
-	var fr := _icon_button("friends", "0/1", func(): _toast("اللعب فردي حالياً — الفرق قريباً"), Vector2(72, 40), false, Color(0, 0, 0, 0.5), Color.WHITE, 6)
+	var fr := _icon_button("friends", "0/1", func(): _open("mode"), Vector2(72, 40), false, Color(0, 0, 0, 0.5), Color.WHITE, 6)
 	fr.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	side.add_child(fr)
 
@@ -642,7 +642,7 @@ func _refresh() -> void:
 	labels.pass_level.text = " %d ›" % Game.pass_level()
 	labels.pass_bar.value = float(int(Game.wallet.xp) % Game.PASS_XP) / Game.PASS_XP * 100.0
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
-	labels.mode.text = "كلاسيكي - فردي | %s" % d
+	labels.mode.text = "كلاسيكي - %s | %s" % [Game.MODE_NAMES.get(Game.settings.get("mode", "solo"), "فردي"), d]
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()
 	labels.missions_hint.text = ("%d جاهزة!" % ready) if ready > 0 else "متاح الآن"
 	var unread := not bool(Game.wallet.mail_read)
@@ -1137,8 +1137,10 @@ func _page_mode(body: VBoxContainer) -> void:
 	var v := VBoxContainer.new()
 	c.add_child(v)
 	v.add_child(UiKit.label("كلاسيكي — جزيرة الصفر (8×8)", 20, Color.WHITE, UiKit.bold(), 0))
-	v.add_child(UiKit.label("فردي فقط • منظور الشخص الثالث • 100 لاعب", 14, Color(1, 1, 1, 0.75), null, 0))
+	v.add_child(UiKit.label("منظور الشخص الثالث • 100 لاعب", 14, Color(1, 1, 1, 0.75), null, 0))
 	body.add_child(c)
+	body.add_child(_row("الفريق", _seg(["solo", "duo", "squad"], ["فردي", "ثنائي (زميل واحد)", "فرقة (3 زملاء)"], "mode", "mode")))
+	body.add_child(UiKit.label("بالثنائي والفرقة: زملاؤك من الكمبيوتر بينطّوا معك ويلحقوك، واللي بينصاب بينسقط على الأرض وزميله بيرفعه (F مطوّل).", 14, Color(1, 1, 1, 0.7), null, 0))
 	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
 	body.add_child(_row("", _small_btn("تأكيد", func(): _close_panel())))
 

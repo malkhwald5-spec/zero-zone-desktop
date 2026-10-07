@@ -54,6 +54,15 @@ var far := false
 var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
 var blind_t := 0.0           # seconds left blinded by a flashbang
+var team := 0                # same team = no friendly fire, revive each other
+var slot := 0                # number in its team (colour)
+var buddy := false           # your teammate: drops with you, follows you
+var knocked := false         # down in a team match: crawls and bleeds out
+var knocked_by: Node = null
+var revive_mate: Node3D = null   # knocked teammate this bot is picking up
+var revive_t := 0.0
+var _buddy_off := Vector3.ZERO
+var _buddy_jump_t := -1.0
 var _face := 0.0             # quick turn towards a shot or a hit
 var _face_t := 0.0
 
@@ -95,7 +104,8 @@ func armed() -> bool:
 
 func take_damage(amount: float, attacker: Node, head := false) -> bool:
 	if dead: return false
-	if attacker != null:
+	if attacker != null and attacker != self and world.same_team(self, attacker): return false   # no friendly fire
+	if attacker != null and not knocked:
 		var kind := "helmet" if head else "vest"
 		var lvl: int = gear[kind]
 		if lvl > 0:
@@ -114,12 +124,42 @@ func take_damage(amount: float, attacker: Node, head := false) -> bool:
 			target = attacker
 			react_t = minf(react_t, 0.25)
 		_turn_to(atan2(-(attacker.global_position.x - global_position.x), -(attacker.global_position.z - global_position.z)))
+	if health <= 0.0 and not knocked and world.can_knock(self):
+		_knock(attacker)
+		return false
 	if health <= 0.0:
-		_die(attacker)
+		_die(attacker if attacker != null or not knocked else knocked_by)
 		return true
 	return false
 
+## Down in a team match: drops the fight, crawls to its team, bleeds out.
+func _knock(attacker: Node) -> void:
+	knocked = true
+	knocked_by = attacker
+	health = 100.0
+	target = null
+	reload_t = 0.0
+	heal_t = 0.0
+	revive_mate = null
+	mode = "knocked"
+	world.on_actor_knocked(self, attacker)
+
+func revive_done() -> void:
+	if not knocked or dead: return
+	knocked = false
+	health = 25.0
+	hurt_t = 0.0
+	mode = "roam"
+
+var bled := false            # died of bleeding / team wiped (the knocker gets the kill)
+
+func bleed_out() -> void:
+	if dead: return
+	bled = true
+	_die(knocked_by)
+
 func _die(attacker: Node) -> void:
+	knocked = false
 	dead = true
 	state = "dead"
 	collision_layer = 0
@@ -134,7 +174,17 @@ func _physics_process(delta: float) -> void:
 	match state:
 		"plane":
 			global_position = world.plane_position() + Vector3(0, -3, 0)
-			if world.plane_t >= jump_at or not world.plane_active:
+			if buddy:
+				# Your teammates jump right after you.
+				if world.player.state != "plane":
+					if _buddy_jump_t < 0.0: _buddy_jump_t = 0.4 + slot * 0.35
+					_buddy_jump_t -= delta
+					if _buddy_jump_t <= 0.0:
+						_buddy_off = Vector3(cos(slot * 2.1), 0, sin(slot * 2.1)) * (6.0 + slot * 3.0)
+						_jump()
+				elif not world.plane_active:
+					_jump()
+			elif world.plane_t >= jump_at or not world.plane_active:
 				_jump()
 		"fall", "chute":
 			_air(delta)
@@ -154,6 +204,10 @@ func _jump() -> void:
 	yaw = atan2(-to.x, -to.z)
 
 func _air(delta: float) -> void:
+	if buddy and world.player.state in ["fall", "chute", "ground"]:
+		# Follow you down and land next to you.
+		var pp: Vector3 = world.player.global_position + _buddy_off
+		dest = Vector3(pp.x, world.ground_height(pp), pp.z)
 	var alt: float = global_position.y - world.ground_height(global_position)
 	var to := dest - global_position
 	to.y = 0.0
@@ -166,7 +220,7 @@ func _air(delta: float) -> void:
 		model.chute_open = clampf(chute_t / 1.6, 0.0, 1.0)
 	else:
 		model.dive = 0.8
-	var hs := 30.0 if state == "fall" else 11.0
+	var hs := (30.0 if state == "fall" else 11.0) * (1.6 if buddy else 1.0)   # teammates keep up with you
 	var vs := 45.0 if state == "fall" else 6.5
 	# Glide only as fast as needed to arrive about when touching down.
 	var need := dist / maxf(alt / vs, 0.5)
@@ -197,6 +251,12 @@ func _ground(delta: float) -> void:
 	model.visible = d_player < 650.0
 	fire_cd = maxf(0.0, fire_cd - delta)
 	hurt_t += delta
+	if knocked:
+		health -= delta * 100.0 / 45.0
+		if health <= 0.0:
+			bleed_out()
+			return
+	_tick_revive(delta)
 	throw_cd = maxf(0.0, throw_cd - delta)
 	if reload_t > 0.0:
 		reload_t -= delta
@@ -239,12 +299,26 @@ func _ground(delta: float) -> void:
 			model.aim_pitch = clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.8, 0.8)
 		model.reload_p = 1.0 - reload_t / float(Game.WEAPONS[weapon_id].reload) if reload_t > 0.0 and armed() else -1.0
 		# Down low behind cover (reloading, healing) and while patching up.
-		var low := (mode == "cover" and global_position.distance_to(goal) < 1.8) or mode == "heal"
-		model.set_pose("crouch" if low else "stand", Vector2(velocity.x, velocity.z).length(), armed(), _pose_dt, world.time)
+		var low := (mode == "cover" and global_position.distance_to(goal) < 1.8) or mode == "heal" or revive_mate != null
+		model.set_pose("prone" if knocked else ("crouch" if low else "stand"), Vector2(velocity.x, velocity.z).length(), armed() and not knocked, _pose_dt, world.time)
 		_pose_dt = 0.0
 
 # ---------------------------------------------------------------- decisions
 func _think() -> void:
+	if knocked:
+		# Crawl to the nearest teammate still standing.
+		var best: Node3D = null
+		for m in world.teammates(self):
+			if not world.is_gone(m) and not world.is_down(m) and (best == null or m.global_position.distance_to(global_position) < best.global_position.distance_to(global_position)):
+				best = m
+		if best and best.global_position.distance_to(global_position) > 1.5:
+			_go(best.global_position)
+		else:
+			goal = global_position
+			path = []
+		return
+	if _team_think():
+		return
 	# Standing in a molotov's fire: get out first.
 	var burn: Vector3 = world.fire_at(global_position, 0.8)
 	if burn != Vector3.INF:
@@ -341,6 +415,7 @@ func _wants_loot() -> bool:
 	return not armed() or reserve < 30 or TIER.get(weapon_id, 0) < 3 or gear.vest < 3 or gear.helmet < 3 or meds < 3
 
 func _useful(it: Node3D) -> bool:
+	if buddy and world.player.state != "dead" and it.global_position.distance_to(world.player.global_position) > 40.0: return false
 	var data: Dictionary = it.get_meta("data")
 	# Bots do not climb stairs: skip loot on upper floors.
 	var ip := it.global_position
@@ -368,13 +443,13 @@ func _is_dead(n: Node) -> bool:
 
 ## Nearest enemy (player or bot) that is in view and not behind cover.
 func _look_for_enemy() -> Node3D:
-	if blind_t > 0.0: return null
+	if blind_t > 0.0 or knocked: return null
 	var view := (70.0 + skill * 50.0) * (0.75 if world.weather == "rain" else 1.0)
 	var facing := Vector3(-sin(yaw), 0, -cos(yaw))
 	var best: Node3D = null
 	var bd := view
 	for e in world.actors():
-		if e == self or not e.on_ground(): continue
+		if e == self or not e.on_ground() or world.same_team(self, e): continue
 		var to: Vector3 = e.global_position - global_position
 		var d := to.length()
 		var v := view
@@ -457,7 +532,8 @@ func _tactics(can_see: bool) -> bool:
 
 ## Heard a shot: look that way and, if idle, go and see (stopping short).
 func hear(pos: Vector3, shooter: Node) -> void:
-	if target != null or mode in ["fight", "cover", "flank", "zone", "flee"]: return
+	if knocked or target != null or mode in ["fight", "cover", "flank", "zone", "flee", "revive"]: return
+	if world.same_team(self, shooter): return
 	if randf() > 0.4 + skill * 0.5: return
 	var to := pos - global_position
 	to.y = 0.0
@@ -468,6 +544,79 @@ func hear(pos: Vector3, shooter: Node) -> void:
 	if shooter is Node3D and _clear_line(shooter):
 		target = shooter
 		react_t = randf_range(0.5, 1.1) - skill * 0.3
+
+# ---------------------------------------------------------------- team play
+## Team decisions before the usual ones: pick up a knocked teammate when no
+## enemy is on us, and (your teammates) stay with you. True when busy.
+func _team_think() -> bool:
+	if world.team_size <= 1: return false
+	var engaged: bool = target != null and is_instance_valid(target) and hurt_t < 3.0
+	# A knocked teammate nearby: go and pick them up.
+	if not engaged:
+		var best: Node3D = null
+		var bd := 80.0
+		for m in world.teammates(self):
+			if world.is_down(m) and not world.is_gone(m):
+				var d: float = m.global_position.distance_to(global_position)
+				if d < bd:
+					bd = d
+					best = m
+		if best:
+			mode = "revive"
+			target = null
+			if bd > 1.6:
+				revive_mate = null
+				if goal.distance_to(best.global_position) > 1.0: _go(best.global_position)
+			else:
+				goal = global_position
+				path = []
+				if revive_mate != best:
+					revive_mate = best
+					revive_t = 0.0
+			return true
+	revive_mate = null
+	if not buddy or world.player.state == "dead": return false
+	var pp: Vector3 = world.player.global_position
+	var d_me := global_position.distance_to(pp)
+	# Left far behind (you drove off): catch up out of sight.
+	var behind_cam: bool = world.player.camera.global_basis.z.dot(global_position - pp) > 0.0
+	if (d_me > 160.0 or (d_me > 80.0 and behind_cam)) and world.player.state in ["ground", "vehicle"]:
+		var cz: Vector3 = world.player.camera.global_basis.z
+		var behind: Vector3 = pp + Vector3(cz.x, 0, cz.z).normalized() * 25.0 + _buddy_off
+		var g: float = world.ground_height(behind)
+		if not world.is_deep(behind):
+			global_position = Vector3(behind.x, g + 0.3, behind.z)
+			reset_physics_interpolation()
+			path = []
+			goal = global_position
+			return true
+	if engaged and armed(): return false
+	home = pp
+	# Too far from you: come back (looting only near you).
+	if d_me > 35.0 or (d_me > 14.0 and mode == "follow"):
+		mode = "follow"
+		var want := pp + _buddy_off
+		if goal.distance_to(want) > 4.0: _go(want)
+		return true
+	return false
+
+## Kneeling by a knocked teammate: six seconds to get them up.
+func _tick_revive(delta: float) -> void:
+	if revive_mate == null: return
+	if not is_instance_valid(revive_mate) or not world.is_down(revive_mate) or world.is_gone(revive_mate) or knocked \
+			or revive_mate.global_position.distance_to(global_position) > 2.2:
+		revive_mate = null
+		revive_t = 0.0
+		return
+	revive_t += delta
+	var to: Vector3 = revive_mate.global_position - global_position
+	yaw = lerp_angle(yaw, atan2(-to.x, -to.z), minf(1.0, delta * 6.0))
+	if revive_mate == world.player: world.player.revived_by_t = revive_t / Player.REVIVE_TIME
+	if revive_t >= Player.REVIVE_TIME:
+		var m := revive_mate
+		revive_mate = null
+		revive_t = 0.0
+		m.revive_done()
 
 # ---------------------------------------------------------------- movement
 func _go(p: Vector3) -> void:
@@ -501,8 +650,11 @@ func _move(delta: float) -> void:
 		elif to.length() > minf(0.8, near * 0.5):
 			wish = to.normalized()
 			yaw = lerp_angle(yaw, atan2(-wish.x, -wish.z), minf(1.0, delta * 6.0))
-		if mode in ["zone", "flee", "cover", "flank"]: speed = 5.8
+		if mode in ["zone", "flee", "cover", "flank", "revive"]: speed = 5.8
 		elif mode == "alert": speed = 3.6
+		elif mode == "follow": speed = 5.6 if global_position.distance_to(goal) > 12.0 else 3.8
+		if knocked: speed = 0.9
+		if revive_mate != null: speed = 0.0
 	velocity.x = move_toward(velocity.x, wish.x * speed, 30.0 * delta)
 	velocity.z = move_toward(velocity.z, wish.z * speed, 30.0 * delta)
 	if is_on_floor():
@@ -547,6 +699,7 @@ func _move(delta: float) -> void:
 
 # ---------------------------------------------------------------- combat
 func _combat(delta: float) -> void:
+	if knocked or revive_mate != null: return
 	if blind_t > 0.0:
 		blind_t -= delta
 		return

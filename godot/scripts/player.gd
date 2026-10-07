@@ -77,6 +77,15 @@ var throw_ready := false          # holding G: aiming a throw (arc shown)
 var shake := 0.0                  # camera shake from nearby explosions
 var peek := 0.0                   # leaning round cover: -1 left .. 1 right (Q / E)
 var peek_toggle := 0.0            # touch buttons: lean stays on until pressed again
+var team := 0                     # your team (bot teammates share it)
+var slot := 0                     # your number in the team (colour on the HUD)
+var knocked := false              # down in a team match: crawl, bleed, wait for a revive
+var knocked_by: Node = null
+var revive_target: Node3D = null  # knocked teammate you are picking up (hold F)
+var revive_t := 0.0
+var revived_by_t := 0.0           # a teammate picking you up: their progress 0..1
+const REVIVE_TIME := 6.0
+const BLEED_TIME := 45.0          # seconds from knocked to dead with nobody helping
 var killer: Node3D = null         # who killed you (the killcam looks at them)
 var spectate: Node3D = null       # player you are watching after dying
 var dead_t := 0.0                 # seconds since you died
@@ -148,7 +157,9 @@ func action(act: String, pressed: bool) -> void:
 		"jump": if pressed: jump_queued = true
 		"crouch": if pressed: set_stance("crouch")
 		"prone": if pressed: set_stance("prone")
-		"interact": if pressed: interact()
+		"interact":
+			if pressed: interact()
+			else: revive_target = null
 		"heal": if pressed: use_heal(best_heal())
 		"boost": if pressed: use_heal(best_boost())
 		"throw":
@@ -180,6 +191,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.button_index == MOUSE_BUTTON_RIGHT: aiming = event.pressed
 	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("throw"):
 		release_throw()
+	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("interact"):
+		revive_target = null
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match Game.action_for(event.physical_keycode):
 			"interact": interact()
@@ -223,6 +236,15 @@ func interact() -> void:
 		"fall":
 			open_chute()
 		"ground":
+			if knocked: return
+			# A knocked teammate next to you: hold to pick them up.
+			var mate := downed_mate_near()
+			if mate:
+				revive_target = mate
+				revive_t = 0.0
+				firing = false
+				cancel_heal()
+				return
 			var car: Vehicle = world.nearest_vehicle(global_position, 3.5)
 			var it = world.nearest_pickup(global_position, 2.4)
 			if it and (car == null or car.global_position.distance_to(global_position) > 2.8):
@@ -235,6 +257,26 @@ func interact() -> void:
 				enter_vehicle(car)
 		"vehicle":
 			exit_vehicle()
+
+## Nearest knocked teammate within reach (or null).
+func downed_mate_near() -> Node3D:
+	for m in world.teammates(self):
+		if world.is_down(m) and not world.is_gone(m) and m.global_position.distance_to(global_position) < 2.3:
+			return m
+	return null
+
+## Holding F next to a knocked teammate: six seconds standing still.
+func _tick_revive(delta: float) -> void:
+	if revive_target == null: return
+	var m := revive_target
+	if not is_instance_valid(m) or not world.is_down(m) or world.is_gone(m) or knocked \
+			or m.global_position.distance_to(global_position) > 2.6 or move_input.length() > 0.3:
+		revive_target = null
+		return
+	revive_t += delta
+	if revive_t >= REVIVE_TIME:
+		revive_target = null
+		m.revive_done()
 
 func jump_from_plane() -> void:
 	state = "fall"
@@ -252,13 +294,17 @@ func open_chute() -> void:
 		shake = maxf(shake, 0.6)
 
 func set_stance(s: String) -> void:
-	if state != "ground": return
-	stance = "stand" if stance == s else s
+	if state != "ground" or knocked: return
+	_force_stance("stand" if stance == s else s)
+
+func _force_stance(s: String) -> void:
+	stance = s
 	var h := {"stand": 1.8, "crouch": 1.25, "prone": 0.7}[stance] as float
 	capsule.height = maxf(h, capsule.radius * 2.0)
 	shape_node.position.y = capsule.height * 0.5
 
 func switch_slot(i: int) -> void:
+	if knocked: return
 	if i < 0 or i > 2 or slots[i] == null or active == i: return
 	active = i
 	reload_t = 0.0
@@ -416,6 +462,7 @@ func _after_attach_change(i: int) -> void:
 		model.set_attachments(slots[i].att)
 
 func start_reload() -> void:
+	if knocked: return
 	var w := weapon()
 	if w.is_empty() or reload_t > 0.0: return
 	var s: Dictionary = slots[active]
@@ -560,6 +607,10 @@ func _ground(delta: float) -> void:
 		if stance == "crouch": set_stance("crouch")
 	if stance == "crouch": speed = 2.8
 	elif stance == "prone": speed = 1.2
+	if knocked:
+		speed = 0.9
+		is_sprinting = false
+	if revive_target: speed = 0.0
 	if aiming: speed = minf(speed, 2.8)
 	if heal_id != "": speed = minf(speed, 2.0)
 	elif boost >= 60.0: speed *= 1.06
@@ -593,6 +644,13 @@ func _ground(delta: float) -> void:
 		velocity.x = 0
 		velocity.z = 0
 	_tick_heal(delta)
+	_tick_revive(delta)
+	if knocked:
+		# Bleeding out.
+		health -= delta * 100.0 / BLEED_TIME
+		if health <= 0.0:
+			bleed_out()
+			return
 	_footsteps(delta)
 	if firing and not throw_ready:
 		if heal_id != "": cancel_heal()
@@ -630,6 +688,7 @@ func _step_up(wish: Vector3) -> void:
 ## Space in front of a low wall, fence, crate or window: climb over it (or
 ## up onto it when it is deep). True when a vault started.
 func try_vault() -> bool:
+	if knocked: return false
 	var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
 	var base := global_position
 	var space := get_world_3d().direct_space_state
@@ -719,7 +778,7 @@ func _footsteps(delta: float) -> void:
 # ---------- Shooting ----------
 func _try_fire() -> void:
 	var w := weapon()
-	if w.is_empty() or reload_t > 0.0 or fire_cd > 0.0 or state != "ground":
+	if w.is_empty() or reload_t > 0.0 or fire_cd > 0.0 or state != "ground" or knocked:
 		return
 	var s: Dictionary = slots[active]
 	if s.mag <= 0:
@@ -804,23 +863,61 @@ func on_ground() -> bool:
 ## attacker is null for blue-zone damage.
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 	if state == "dead" or world.match_over: return false
-	if attacker != null:
+	if attacker != null and attacker != self and world.same_team(self, attacker): return false   # no friendly fire
+	if attacker != null and not knocked:
 		amount = _armour(amount, _head)
 	health -= amount
 	if attacker != null: model.hit(amount / 40.0)
 	if attacker is Node3D:
 		damaged.emit((attacker.global_position - global_position).normalized())
+	if health <= 0.0 and not knocked and world.can_knock(self):
+		_knock(attacker)
+		return false
 	if health <= 0.0:
-		health = 0.0
-		model.death_anim = _death_anim(attacker, _head)
-		state = "dead"
-		killer = attacker if attacker is Node3D and attacker != self else null
-		dead_t = 0.0
-		firing = false
-		world.on_actor_killed(self, attacker)
-		died.emit(attacker.display_name if attacker and "display_name" in attacker else "")
+		_die(attacker if attacker != null or not knocked else knocked_by, _head)
 		return true
 	return false
+
+## Knocked down (team match): on the ground, crawling, bleeding out unless a
+## teammate picks you up.
+func _knock(attacker: Node) -> void:
+	if state == "vehicle": exit_vehicle(true)
+	knocked = true
+	knocked_by = attacker
+	health = 100.0
+	firing = false
+	aiming = false
+	throw_ready = false
+	peek_toggle = 0.0
+	revive_target = null
+	cancel_heal()
+	_force_stance("prone")
+	world.on_actor_knocked(self, attacker)
+
+## Picked up by a teammate.
+func revive_done() -> void:
+	if not knocked or state == "dead": return
+	knocked = false
+	health = 25.0
+	revived_by_t = 0.0
+	_force_stance("stand")
+	message.emit("زميلك رفعك!")
+
+## Nobody left to help, or bled out.
+func bleed_out() -> void:
+	if state != "dead": _die(knocked_by, false)
+
+func _die(attacker: Node, _head: bool) -> void:
+	knocked = false
+	revive_target = null
+	health = 0.0
+	model.death_anim = _death_anim(attacker, _head)
+	state = "dead"
+	killer = attacker if attacker is Node3D and attacker != self else null
+	dead_t = 0.0
+	firing = false
+	world.on_actor_killed(self, attacker)
+	died.emit(attacker.display_name if attacker and "display_name" in attacker else "")
 
 # ---------- Camera and model ----------
 func _update_camera(delta: float) -> void:
@@ -982,7 +1079,7 @@ func _update_model(delta: float) -> void:
 	var fwd := Vector3(-sin(ry), 0, -cos(ry))
 	var rgt := Vector3(cos(ry), 0, -sin(ry))
 	model.move_local = Vector2(velocity.dot(rgt), velocity.dot(fwd))
-	model.set_pose(pose, sp, active >= 0, delta, Time.get_ticks_msec() / 1000.0)
+	model.set_pose(pose, sp, active >= 0 and not knocked, delta, Time.get_ticks_msec() / 1000.0)
 
 ## Rushing wind while skydiving, softer flapping under the canopy, engine drone in the plane.
 func _update_wind() -> void:
@@ -1063,6 +1160,7 @@ func best_boost() -> String:
 	return ""
 
 func use_heal(id: String) -> void:
+	if knocked: return
 	if id == "" or state != "ground" or heal_id != "": 
 		if id == "" and state == "ground": message.emit("ما عندك أدوية مناسبة هلق")
 		return
@@ -1113,7 +1211,7 @@ func switch_throw() -> void:
 	message.emit(Items.THROWS[throw_kind])
 
 func start_throw() -> void:
-	if state != "ground" or throw_ready: return
+	if state != "ground" or throw_ready or knocked: return
 	if throwables[throw_kind] <= 0:
 		var other := ""
 		for k in Items.THROW_ORDER:
@@ -1166,7 +1264,7 @@ func release_throw() -> void:
 
 # ---------- Vehicles ----------
 func enter_vehicle(v: Vehicle) -> void:
-	if v.dead or v.driver != null: return
+	if v.dead or v.driver != null or knocked: return
 	vehicle = v
 	v.driver = self
 	state = "vehicle"

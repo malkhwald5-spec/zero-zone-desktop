@@ -53,6 +53,9 @@ func _interact_label() -> String:
 		"plane": return "اقفز" if hud.world.plane_over_land() else ""
 		"fall": return "افتح المظلة" if p.global_position.y < Player.PLANE_ALT - 40.0 else ""
 		"ground":
+			if p.knocked: return ""
+			var mate = p.downed_mate_near()
+			if mate: return "ارفع (اضغط مطوّل)"
 			var it = hud.world.nearest_pickup(p.global_position, 2.4)
 			if it: return "افتح الصندوق" if it.has_meta("crate") else "التقاط"
 			return "ركوب" if hud.world.nearest_vehicle(p.global_position, 3.5) else ""
