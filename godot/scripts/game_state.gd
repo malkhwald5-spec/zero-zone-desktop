@@ -19,12 +19,20 @@ const WEAPONS := {
 	"akm":    {"name": "AKM",    "cls": "ar",      "ammo": "762", "dmg": 27, "rate": 0.1,   "mag": 30, "reload": 2.3, "spread": 2.0, "range": 400, "auto": true,  "zoom": 1.5, "recoil": 1.4},
 	"mp44":   {"name": "MP44",   "cls": "ar",      "ammo": "762", "dmg": 26, "rate": 0.11,  "mag": 30, "reload": 2.4, "spread": 1.7, "range": 380, "auto": true,  "zoom": 1.5, "recoil": 1.2},
 	"kar98":  {"name": "Kar98k", "cls": "sr",      "ammo": "762", "dmg": 85, "rate": 1.5,   "mag": 5,  "reload": 3.2, "spread": 0.1, "range": 800, "auto": false, "zoom": 4.0, "recoil": 5.0},
+	"vector": {"name": "Vector", "cls": "smg",     "ammo": "9mm", "dmg": 19, "rate": 0.055, "mag": 19, "reload": 1.9, "spread": 1.9, "range": 140, "auto": true,  "zoom": 1.2, "recoil": 0.5},
+	"uzi":    {"name": "Micro UZI", "cls": "smg",  "ammo": "9mm", "dmg": 18, "rate": 0.048, "mag": 25, "reload": 1.8, "spread": 2.6, "range": 110, "auto": true,  "zoom": 1.1, "recoil": 0.6},
+	"scar":   {"name": "SCAR-L", "cls": "ar",      "ammo": "556", "dmg": 22, "rate": 0.096, "mag": 30, "reload": 2.0, "spread": 1.3, "range": 400, "auto": true,  "zoom": 1.5, "recoil": 0.75},
+	"beryl":  {"name": "Beryl M762", "cls": "ar",  "ammo": "762", "dmg": 28, "rate": 0.086, "mag": 30, "reload": 2.4, "spread": 2.2, "range": 400, "auto": true,  "zoom": 1.5, "recoil": 1.6},
+	"sks":    {"name": "SKS",    "cls": "dmr",     "ammo": "762", "dmg": 50, "rate": 0.25,  "mag": 10, "reload": 2.9, "spread": 0.5, "range": 650, "auto": false, "zoom": 2.0, "recoil": 2.4},
+	"mini14": {"name": "Mini14", "cls": "dmr",     "ammo": "556", "dmg": 44, "rate": 0.2,   "mag": 20, "reload": 2.6, "spread": 0.35, "range": 700, "auto": false, "zoom": 2.0, "recoil": 1.6},
+	"crossbow": {"name": "قوس (كروسبو)", "cls": "crossbow", "ammo": "bolt", "dmg": 105, "rate": 0.4, "mag": 1, "reload": 3.0, "spread": 0.3, "range": 300, "auto": false, "zoom": 1.6, "recoil": 1.0, "silent": true},
+	"pan":    {"name": "مقلاة",  "cls": "melee",   "ammo": "9mm", "dmg": 80, "rate": 0.75,  "mag": 0,  "reload": 0.1, "spread": 0.0, "range": 2.4, "auto": false, "zoom": 1.0, "recoil": 0.0, "melee": true},
 	# Airdrop-only weapons
 	"awm":    {"name": "AWM",    "cls": "sr",      "ammo": "300", "dmg": 120, "rate": 1.8,  "mag": 5,  "reload": 3.6, "spread": 0.05, "range": 1000, "auto": false, "zoom": 6.0, "recoil": 6.0, "crate": true},
 	"m249":   {"name": "M249",   "cls": "lmg",     "ammo": "556", "dmg": 22, "rate": 0.075, "mag": 100, "reload": 5.5, "spread": 2.2, "range": 450, "auto": true,  "zoom": 1.5, "recoil": 0.8, "crate": true},
 	"groza":  {"name": "Groza",  "cls": "ar",      "ammo": "762", "dmg": 28, "rate": 0.08,  "mag": 30, "reload": 2.4, "spread": 1.5, "range": 420, "auto": true,  "zoom": 1.5, "recoil": 1.1, "crate": true},
 }
-const AMMO_NAMES := {"9mm": "9 ملم", "556": "5.56 ملم", "762": "7.62 ملم", "12g": "خرطوش 12", "300": ".300 ماغنوم"}
+const AMMO_NAMES := {"9mm": "9 ملم", "556": "5.56 ملم", "762": "7.62 ملم", "12g": "خرطوش 12", "300": ".300 ماغنوم", "bolt": "سهام قوس"}
 
 ## Wardrobe items: [name, shirt colour, pants colour, price in gold (0 = owned from start), style].
 ## Style "" = plain uniform tint, "gold" = gold-plated armour, "panda" = panda mask.

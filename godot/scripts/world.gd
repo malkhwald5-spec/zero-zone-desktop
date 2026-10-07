@@ -226,7 +226,8 @@ func _box(sz: Vector3) -> BoxMesh:
 	return b
 
 # ---------- Loot ----------
-const LOOT_TABLE := [["p92", 6], ["ump", 5], ["s1897", 4], ["m416", 4], ["akm", 4], ["mp44", 2.5], ["kar98", 1.2]]
+const LOOT_TABLE := [["p92", 6], ["ump", 5], ["s1897", 4], ["m416", 4], ["akm", 4], ["mp44", 2.5], ["kar98", 1.2],
+	["vector", 2], ["uzi", 3], ["scar", 3], ["beryl", 2], ["sks", 1.5], ["mini14", 1.8], ["crossbow", 0.8], ["pan", 1.5]]
 
 func _pick_weapon(military: bool) -> String:
 	var total := 0.0
@@ -247,7 +248,8 @@ func _spawn_loot() -> void:
 		var id := _pick_weapon(spot.military)
 		_add_pickup({"kind": "weapon", "id": id, "mag": 0}, Vector3(p.x, y, p.y))
 		var at: String = Game.WEAPONS[id].ammo
-		_add_pickup({"kind": "ammo", "type": at, "amount": 30 if at != "12g" else 10}, Vector3(p.x + 0.6, y, p.y + 0.4))
+		if not Game.WEAPONS[id].get("melee", false):
+			_add_pickup({"kind": "ammo", "type": at, "amount": {"12g": 10, "bolt": 8}.get(at, 30)}, Vector3(p.x + 0.6, y, p.y + 0.4))
 		if randf() < (0.5 if spot.military else 0.35):
 			var kind: String = ["vest", "helmet", "pack"][randi() % 3]
 			_add_gear(kind, Items.roll_level(spot.military), -1.0, Vector3(p.x - 0.6, y, p.y + 0.3))
@@ -298,14 +300,14 @@ func _pickup_look(data: Dictionary) -> Array:
 		var mat := StandardMaterial3D.new()
 		var mesh: Mesh
 		if data.kind == "weapon":
-			var len := {"pistol": 0.3, "smg": 0.55, "shotgun": 0.85, "ar": 0.9, "sr": 1.15}.get(key, 0.8) as float
+			var len := {"pistol": 0.3, "smg": 0.55, "shotgun": 0.85, "ar": 0.9, "sr": 1.15, "dmr": 1.05, "crossbow": 0.75, "melee": 0.45}.get(key, 0.8) as float
 			mesh = _box(Vector3(len, 0.1, 0.08))
 			mat.albedo_color = Color("2a2c30")
 			mat.metallic = 0.5
 			mat.roughness = 0.35
 		elif data.kind == "ammo":
 			mesh = _box(Vector3(0.28, 0.2, 0.2))
-			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a"), "300": Color("6a4fa8")}[data.type]
+			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a"), "300": Color("6a4fa8"), "bolt": Color("8a6a3a")}[data.type]
 		elif data.kind == "gear":
 			var tint: Color = [Color.WHITE, Color("8d9a6b"), Color("4e6fa8"), Color("2b2b2b")][data.lvl]
 			match data.gear:
@@ -1451,7 +1453,7 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
-const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95}
+const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95, "dmr": 0.92}
 const SPEED_OF_SOUND := 343.0
 var _snd := {}
 
@@ -1466,7 +1468,13 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 	# Far: a distant shot rolling over the hills, or a short sharp crack.
 	var pick: String
 	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
-	var sniper := cls == "sr"
+	if cls == "crossbow" or cls == "melee":
+		# A crossbow is only a twang of the string, heard close by.
+		if cls == "crossbow" and (own or d < 30.0):
+			if own: sound_local("bolt_cycle", 0.0, 1.8, -8.0)
+			else: footstep(pos, false, 0.3)
+		return
+	var sniper := cls == "sr" or (cls == "dmr" and randf() < 0.5)
 	if far and sniper and randf() < 0.7:
 		# A sniper far away: a long rolling boom.
 		pick = "shot_sniper_far"

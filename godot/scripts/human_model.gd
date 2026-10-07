@@ -732,7 +732,7 @@ const WSCALE := 0.85                            # weapons sized to this characte
 ## Where the weapon should be for this pose (model space), then eased there.
 ## Positions are the pistol grip (right hand); rotations are pitch, yaw, roll.
 func _place_gun(pose: String, delta: float) -> void:
-	var pistol := _cls == "pistol"
+	var pistol := _cls in ["pistol", "melee"]
 	var pos: Vector3
 	var rot := Vector3.ZERO
 	var pitch_with_aim := true
@@ -830,7 +830,7 @@ func _bend_spine(pose: String) -> void:
 	var up_sk := (to_sk.basis * Vector3.UP).normalized()
 	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
-	var twist := -0.3 if _cls != "pistol" and not sprinting else 0.0
+	var twist := -0.3 if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
 	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload"): twist = 0.0   # already bladed
 	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
 		if not _bone.has(bn): continue
@@ -864,7 +864,7 @@ func _hold_gun() -> void:
 		elif p < 0.8: fore = mag_pt
 		else: fore = mag_pt.lerp(fore, (p - 0.8) / 0.2)
 	_arm("Right", to_local * grip, Vector3(1, -1, 0.4))
-	if _cls == "pistol" and not aiming and p < 0.0:
+	if _cls in ["pistol", "melee"] and not aiming and p < 0.0:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:
 		_arm("Left", to_local * fore, Vector3(-1, -1, 0))

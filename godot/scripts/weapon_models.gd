@@ -6,7 +6,7 @@ class_name WeaponModels
 ## (`fore`), where the muzzle is and has a separate magazine for reloads.
 
 const POLY := "res://assets/models/weapons/"
-const CLASS_DEFAULT := {"ar": "m416", "smg": "ump", "shotgun": "s1897", "sr": "kar98", "dmr": "kar98", "lmg": "m249", "pistol": "p92"}
+const CLASS_DEFAULT := {"ar": "m416", "smg": "ump", "shotgun": "s1897", "sr": "kar98", "dmr": "sks", "lmg": "m249", "pistol": "p92", "crossbow": "crossbow", "melee": "pan"}
 
 static var _cache := {}
 static var _mats := {}
@@ -119,6 +119,94 @@ static func _recipe(id: String) -> Dictionary:
 				["poly", _box(0.05, 0.12, 0.26), Vector3(0, 0.0, 0.3), X],
 				["poly", _box(0.034, 0.1, 0.045), Vector3(0, -0.05, 0.03), Vector3(0.3, 0, 0)],
 				["olive", _box(0.09, 0.13, 0.12), Vector3(-0.06, -0.08, -0.1), X, true],    # ammo box
+			]}
+		"vector":
+			# Kriss Vector: tall angular receiver, short barrel shroud, folding stock.
+			return {"fore": Vector3(0, -0.08, -0.25), "muzzle": -0.46, "parts": [
+				["poly", _box(0.058, 0.14, 0.34), Vector3(0, 0.0, -0.12), X],
+				["poly", _box(0.05, 0.06, 0.12), Vector3(0, -0.07, -0.22), Vector3(0.6, 0, 0)],    # slanted front
+				["metal", _box(0.03, 0.014, 0.3), Vector3(0, 0.077, -0.14), X],
+				["metal", _tube(0.017, 0.13), Vector3(0, 0.03, -0.38), Z90],
+				["poly", _box(0.03, 0.1, 0.04), Vector3(0, -0.06, 0.02), Vector3(0.2, 0, 0)],
+				["poly", _box(0.026, 0.026, 0.22), Vector3(0, 0.04, 0.16), X],
+				["poly", _box(0.03, 0.09, 0.02), Vector3(0, 0.01, 0.27), X],
+				["metal", _box(0.034, 0.04, 0.06), Vector3(0, 0.1, -0.1), X],
+				["poly", _box(0.026, 0.14, 0.04), Vector3(0, -0.13, -0.06), Vector3(-0.05, 0, 0), true],
+			]}
+		"uzi":
+			return {"fore": Vector3(0, -0.04, -0.2), "muzzle": -0.3, "parts": [
+				["metal", _box(0.05, 0.08, 0.3), Vector3(0, 0.02, -0.08), X],
+				["metal", _tube(0.012, 0.08), Vector3(0, 0.02, -0.26), Z90],
+				["metal", _box(0.02, 0.02, 0.18), Vector3(0, 0.035, 0.12), X],             # wire stock
+				["metal", _box(0.02, 0.07, 0.02), Vector3(0, 0.0, 0.21), X],
+				["metal", _box(0.032, 0.03, 0.03), Vector3(0, 0.07, -0.18), X],
+				["poly", _box(0.034, 0.12, 0.045), Vector3(0, -0.07, 0.0), Vector3(0.1, 0, 0)],
+				["metal", _box(0.026, 0.12, 0.035), Vector3(0, -0.15, 0.005), Vector3(0.1, 0, 0), true],   # mag in the grip
+			]}
+		"scar":
+			return {"fore": Vector3(0, -0.06, -0.33), "muzzle": -0.82, "parts": [
+				["tan", _box(0.058, 0.09, 0.44), Vector3(0, 0.035, -0.14), X],
+				["metal", _box(0.034, 0.016, 0.6), Vector3(0, 0.088, -0.25), X],
+				["tan", _box(0.066, 0.07, 0.26), Vector3(0, 0.03, -0.46), X],
+				["metal", _tube(0.012, 0.22), Vector3(0, 0.035, -0.68), Z90],
+				["metal", _tube(0.02, 0.07), Vector3(0, 0.035, -0.79), Z90],
+				["tan", _box(0.05, 0.1, 0.24), Vector3(0, 0.03, 0.24), X],                  # folding stock
+				["poly", _box(0.034, 0.1, 0.045), Vector3(0, -0.045, 0.02), Vector3(0.3, 0, 0)],
+				["metal", _box(0.006, 0.03, 0.01), Vector3(0, 0.106, -0.52), X],
+				["metal", _box(0.03, 0.16, 0.06), Vector3(0, -0.08, -0.17), Vector3(-0.15, 0, 0), true],
+			]}
+		"beryl":
+			return {"fore": Vector3(0, -0.05, -0.33), "muzzle": -0.8, "parts": [
+				["metal", _box(0.05, 0.08, 0.4), Vector3(0, 0.03, -0.1), X],
+				["metal", _box(0.034, 0.014, 0.5), Vector3(0, 0.08, -0.2), X],              # rail
+				["poly", _box(0.062, 0.07, 0.26), Vector3(0, 0.025, -0.42), X],
+				["metal", _tube(0.012, 0.22), Vector3(0, 0.03, -0.65), Z90],
+				["metal", _tube(0.018, 0.06), Vector3(0, 0.03, -0.77), Z90],
+				["poly", _box(0.04, 0.1, 0.28), Vector3(0, 0.0, 0.22), Vector3(-0.1, 0, 0)],
+				["poly", _box(0.032, 0.1, 0.04), Vector3(0, -0.045, 0.02), Vector3(0.3, 0, 0)],
+				["poly", _box(0.03, 0.2, 0.06), Vector3(0, -0.1, -0.17), Vector3(-0.38, 0, 0), true],
+			]}
+		"sks":
+			return {"fore": Vector3(0, -0.04, -0.38), "muzzle": -0.95, "parts": [
+				["metal", _box(0.045, 0.06, 0.32), Vector3(0, 0.035, -0.08), X],
+				["wood", _box(0.05, 0.06, 0.48), Vector3(0, -0.0, -0.36), X],               # fore-end
+				["wood", _box(0.045, 0.12, 0.36), Vector3(0, -0.03, 0.22), Vector3(-0.14, 0, 0)],
+				["metal", _tube(0.012, 0.4), Vector3(0, 0.04, -0.72), Z90],
+				["metal", _tube(0.015, 0.05), Vector3(0, 0.04, -0.93), Z90],
+				["metal", _box(0.008, 0.04, 0.015), Vector3(0, 0.07, -0.86), X],
+				["metal", _box(0.03, 0.12, 0.08), Vector3(0, -0.06, -0.12), X, true],
+			]}
+		"mini14":
+			return {"fore": Vector3(0, -0.04, -0.36), "muzzle": -0.9, "parts": [
+				["metal", _box(0.045, 0.06, 0.3), Vector3(0, 0.035, -0.08), X],
+				["wood", _box(0.052, 0.06, 0.4), Vector3(0, 0.0, -0.34), X],
+				["wood", _box(0.045, 0.11, 0.36), Vector3(0, -0.03, 0.22), Vector3(-0.12, 0, 0)],
+				["metal", _tube(0.012, 0.36), Vector3(0, 0.04, -0.7), Z90],
+				["metal", _tube(0.017, 0.05), Vector3(0, 0.04, -0.88), Z90],
+				["metal", _box(0.034, 0.04, 0.06), Vector3(0, 0.09, -0.06), X],
+				["metal", _box(0.028, 0.13, 0.05), Vector3(0, -0.06, -0.1), Vector3(-0.15, 0, 0), true],
+			]}
+		"crossbow":
+			# Stock with a bow across the front and the string pulled back.
+			return {"fore": Vector3(0, -0.05, -0.3), "muzzle": -0.62, "parts": [
+				["olive", _box(0.05, 0.07, 0.62), Vector3(0, 0.02, -0.2), X],
+				["olive", _box(0.045, 0.1, 0.2), Vector3(0, 0.0, 0.24), Vector3(-0.12, 0, 0)],
+				["poly", _box(0.032, 0.1, 0.04), Vector3(0, -0.05, 0.02), Vector3(0.3, 0, 0)],
+				["metal", _box(0.62, 0.025, 0.04), Vector3(0, 0.03, -0.5), X],             # limbs
+				["metal", _box(0.12, 0.025, 0.04), Vector3(-0.33, 0.03, -0.47), Vector3(0, 0.35, 0)],
+				["metal", _box(0.12, 0.025, 0.04), Vector3(0.33, 0.03, -0.47), Vector3(0, -0.35, 0)],
+				["poly", _tube(0.003, 0.5), Vector3(-0.19, 0.04, -0.33), Vector3(PI / 2, -0.75, 0)],   # string
+				["poly", _tube(0.003, 0.5), Vector3(0.19, 0.04, -0.33), Vector3(PI / 2, 0.75, 0)],
+				["metal", _box(0.034, 0.045, 0.07), Vector3(0, 0.08, -0.05), X],
+				["tan", _tube(0.006, 0.42), Vector3(0, 0.065, -0.4), Z90, true],                # the bolt
+			]}
+		"pan":
+			# Frying pan, held by the handle (the grip is the hand).
+			return {"fore": Vector3(0, -0.02, -0.05), "muzzle": -0.45, "parts": [
+				["metal", _tube(0.13, 0.03), Vector3(0, 0.0, -0.36), X],                    # pan, flat side up
+				["metal", _tube(0.14, 0.05, 0.12), Vector3(0, 0.02, -0.36), X],
+				["wood", _box(0.03, 0.025, 0.24), Vector3(0, 0.005, -0.08), X],
+				["metal", _box(0.01, 0.01, 0.01), Vector3(0, 0.0, 0.0), X, true],
 			]}
 	return {}
 

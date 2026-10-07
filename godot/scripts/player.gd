@@ -56,7 +56,7 @@ var _wind: AudioStreamPlayer
 # Weapons: two primaries + pistol. Each slot: {id, mag}
 var slots := [null, null, null]
 var active := -1
-var ammo := {"9mm": 0, "556": 0, "762": 0, "12g": 0, "300": 0}
+var ammo := {"9mm": 0, "556": 0, "762": 0, "12g": 0, "300": 0, "bolt": 0}
 var fire_cd := 0.0
 var reload_t := 0.0
 var recoil_kick := 0.0
@@ -464,19 +464,19 @@ func _after_attach_change(i: int) -> void:
 func start_reload() -> void:
 	if knocked: return
 	var w := weapon()
-	if w.is_empty() or reload_t > 0.0: return
+	if w.is_empty() or reload_t > 0.0 or w.get("melee", false): return
 	var s: Dictionary = slots[active]
 	if s.mag >= w.mag or ammo[w.ammo] <= 0: return
 	reload_t = w.reload
 	# Reload sound stretched a little to fit this gun's reload time.
-	var snd := "reload_bolt" if w.cls in ["sr", "shotgun"] else "reload_rifle"
+	var snd := "reload_bolt" if w.cls in ["sr", "shotgun", "crossbow", "dmr"] else "reload_rifle"
 	var length: float = world.sound_length(snd)
 	if length > 0.0:
 		world.sound_local(snd, 0.0, clampf(length / float(w.reload), 0.85, 1.35))
 
 func give_weapon(id: String, mag: int, att := {}) -> void:
 	var cls: String = Game.WEAPONS[id].cls
-	var slot := 2 if cls == "pistol" else (0 if slots[0] == null else (1 if slots[1] == null else (active if active in [0, 1] else 0)))
+	var slot := 2 if cls in ["pistol", "melee"] else (0 if slots[0] == null else (1 if slots[1] == null else (active if active in [0, 1] else 0)))
 	if slots[slot] != null:
 		world.drop_weapon(slots[slot].id, slots[slot].mag, global_position, slots[slot].get("att", {}))
 	slots[slot] = {"id": id, "mag": mag, "att": att.duplicate()}
@@ -780,6 +780,9 @@ func _try_fire() -> void:
 	var w := weapon()
 	if w.is_empty() or reload_t > 0.0 or fire_cd > 0.0 or state != "ground" or knocked:
 		return
+	if w.get("melee", false):
+		_swing(w)
+		return
 	var s: Dictionary = slots[active]
 	if s.mag <= 0:
 		if ammo[w.ammo] <= 0:
@@ -803,12 +806,47 @@ func _try_fire() -> void:
 	pitch = clampf(pitch + deg_to_rad(w.recoil) * 0.5, -1.35, 1.0)
 	yaw += deg_to_rad(randf_range(-w.recoil, w.recoil)) * 0.15
 	model.recoil = 1.0
-	var quiet: bool = w.get("suppressed", false)
+	var quiet: bool = w.get("suppressed", false) or w.get("silent", false)
 	if not quiet: world.effects.muzzle_flash(model.muzzle_position())
 	world.sound_shot(w.cls, global_position, true, quiet)
 	world.notify_shot(global_position, self, quiet)
 	if s.mag == 0:
 		start_reload()
+
+## Pan (melee): a swing that hits whoever is right in front of you.
+func _swing(w: Dictionary) -> void:
+	fire_cd = w.rate
+	firing = false
+	model.play_action("toss", 0.45)
+	var fwd := -camera.global_basis.z
+	fwd = Vector3(fwd.x, clampf(fwd.y, -0.4, 0.4), fwd.z).normalized()
+	var space := get_world_3d().direct_space_state
+	var shp := PhysicsShapeQueryParameters3D.new()
+	var ball := SphereShape3D.new()
+	ball.radius = 0.55
+	shp.shape = ball
+	shp.transform = Transform3D(Basis.IDENTITY, global_position + Vector3(0, 1.2, 0) + fwd * 1.3)
+	shp.collision_mask = 2 | 4
+	shp.exclude = [get_rid()]
+	var hit_someone := false
+	for r in space.intersect_shape(shp, 4):
+		var col: Object = r.collider
+		if col and col != self and col.has_method("take_damage") and not world.is_gone(col):
+			var killed: bool = col.take_damage(float(w.dmg), self, false)
+			hit_confirmed.emit(false, killed, col.global_position + Vector3(0, 1.2, 0))
+			if killed: kills += 1
+			hit_someone = true
+			break
+	world.sound_local("bolt_cycle", 0.08, 0.55 if hit_someone else 1.4, -2.0 if hit_someone else -10.0)
+	world.notify_shot(global_position, self, true)
+
+## The pan on your hip stops bullets from behind (when you are not holding it).
+func _pan_blocks(attacker: Node) -> bool:
+	if slots[2] == null or slots[2].id != "pan" or active == 2 or not (attacker is Node3D): return false
+	var to: Vector3 = attacker.global_position - global_position
+	to.y = 0.0
+	var fwd := Vector3(-sin(model.rotation.y), 0, -cos(model.rotation.y))
+	return to.length() > 0.5 and fwd.dot(to.normalized()) < -0.7
 
 func _fire_ray(w: Dictionary, spread: float) -> void:
 	var origin := camera.global_position
@@ -864,6 +902,11 @@ func on_ground() -> bool:
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 	if state == "dead" or world.match_over: return false
 	if attacker != null and attacker != self and world.same_team(self, attacker): return false   # no friendly fire
+	if not knocked and _pan_blocks(attacker):
+		# Clang: the round hits the pan on your back.
+		world.sound_local("bolt_cycle", 0.0, 0.5, -4.0)
+		world.effects.impact(global_position + Vector3(0, 1.1, 0) - Vector3(-sin(model.rotation.y), 0, -cos(model.rotation.y)) * 0.3, Vector3.UP, false)
+		return false
 	if attacker != null and not knocked:
 		amount = _armour(amount, _head)
 	health -= amount

@@ -5,7 +5,8 @@ extends CharacterBody3D
 ## moves into the safe zone in time. Far from the player it thinks less often.
 
 const GRAVITY := 18.0
-const TIER := {"p92": 1, "ump": 2, "s1897": 2, "m416": 3, "akm": 3, "mp44": 3, "kar98": 3, "awm": 4, "m249": 4, "groza": 4}
+const TIER := {"p92": 1, "ump": 2, "s1897": 2, "m416": 3, "akm": 3, "mp44": 3, "kar98": 3, "awm": 4, "m249": 4, "groza": 4,
+	"uzi": 2, "vector": 2, "scar": 3, "beryl": 3, "sks": 3, "mini14": 3}     # no pan or crossbow for bots
 
 var world: Node
 var display_name := "خصم"
@@ -422,6 +423,7 @@ func _useful(it: Node3D) -> bool:
 	if ip.y - world.island.height_at(ip.x, ip.z) > 2.5:
 		return false
 	if data.kind == "weapon":
+		if not TIER.has(data.id): return false
 		return not armed() or TIER.get(data.id, 0) > TIER.get(weapon_id, 0)
 	if data.kind == "ammo":
 		return armed() and Game.WEAPONS[weapon_id].ammo == data.type and reserve < 90

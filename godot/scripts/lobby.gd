@@ -884,7 +884,8 @@ func _bar(v: float, col: Color) -> ProgressBar:
 	return b
 
 func _page_workshop(body: VBoxContainer) -> void:
-	var cls_names := {"pistol": "مسدس", "smg": "رشاش خفيف", "shotgun": "شوزن", "ar": "رشاش هجومي", "sr": "قناصة", "lmg": "رشاش ثقيل"}
+	var cls_names := {"pistol": "مسدس", "smg": "رشاش خفيف", "shotgun": "شوزن", "ar": "رشاش هجومي", "sr": "قناصة", "lmg": "رشاش ثقيل",
+		"dmr": "قناصة نص أوتوماتيك", "crossbow": "قوس صامت", "melee": "سلاح أبيض"}
 	for id in Game.WEAPONS:
 		var w: Dictionary = Game.WEAPONS[id]
 		var c := _box_panel()
@@ -894,7 +895,7 @@ func _page_workshop(body: VBoxContainer) -> void:
 		var v := VBoxContainer.new()
 		v.custom_minimum_size = Vector2(170, 0)
 		v.add_child(UiKit.label(w.name, 22, Color.WHITE, UiKit.bold(), 0))
-		v.add_child(UiKit.label("%s • %s%s" % [cls_names.get(w.cls, ""), Game.AMMO_NAMES[w.ammo], "  • إنزال جوي فقط" if w.get("crate", false) else ""], 13, Color("ff8a8a") if w.get("crate", false) else Color(1, 1, 1, 0.65), null, 0))
+		v.add_child(UiKit.label("%s • %s%s" % [cls_names.get(w.cls, ""), ("" if w.get("melee", false) else Game.AMMO_NAMES[w.ammo]), "  • إنزال جوي فقط" if w.get("crate", false) else ""], 13, Color("ff8a8a") if w.get("crate", false) else Color(1, 1, 1, 0.65), null, 0))
 		hb.add_child(v)
 		var dps := float(w.dmg) * float(w.get("pellets", 1)) / float(w.rate)
 		var stats := GridContainer.new()

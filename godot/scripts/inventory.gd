@@ -185,7 +185,7 @@ func _rebuild() -> void:
 	_clear(eq)
 	for i in 3:
 		var s = p.slots[i]
-		var slot_title: String = ["السلاح الأول", "السلاح الثاني", "المسدس"][i]
+		var slot_title: String = ["السلاح الأول", "السلاح الثاني", "المسدس / السلاح الأبيض"][i]
 		if s == null:
 			_row(eq, slot_title, "فاضي", [])
 			continue
@@ -193,7 +193,7 @@ func _rebuild() -> void:
 		var buttons := []
 		if p.active != i: buttons.append(["بالإيد", func(): p.switch_slot(i)])
 		buttons.append(["رمي", func(): p.drop_slot(i)])
-		_row(eq, wd.name + ("  ◀" if p.active == i else ""), "%s • %d/%d" % [slot_title, s.mag, p.ammo[wd.ammo]], buttons, p.active == i)
+		_row(eq, wd.name + ("  ◀" if p.active == i else ""), ("%s • سلاح أبيض، وعلى ظهرك بتصدّ الرصاص" % slot_title) if wd.get("melee", false) else "%s • %d/%d" % [slot_title, s.mag, p.ammo[wd.ammo]], buttons, p.active == i)
 		var grid := HBoxContainer.new()
 		grid.add_theme_constant_override("separation", 5)
 		for slot_name in Items.ATTACH_SLOTS:
@@ -235,7 +235,7 @@ func _take_all(list: Array) -> void:
 		var d: Dictionary = it.get_meta("data")
 		if d.kind == "weapon":
 			var cls: String = Game.WEAPONS[d.id].cls
-			var slot := 2 if cls == "pistol" else (0 if player.slots[0] == null else (1 if player.slots[1] == null else -1))
+			var slot := 2 if cls in ["pistol", "melee"] else (0 if player.slots[0] == null else (1 if player.slots[1] == null else -1))
 			if slot < 0 or player.slots[slot] != null: continue
 		world.pickup(player, it, true)
 

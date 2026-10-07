@@ -667,7 +667,7 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 			continue
 		var wd: Dictionary = Game.WEAPONS[s.id]
 		_gun_icon(c, Rect2(rr.position + Vector2(8, 6), Vector2(rr.size.x - 16, 30)), wd.cls, Color.WHITE if active else Color(1, 1, 1, 0.75))
-		var ammo_txt := "%d/%d" % [s.mag, p.ammo[wd.ammo]]
+		var ammo_txt := "سلاح أبيض" if wd.get("melee", false) else "%d/%d" % [s.mag, p.ammo[wd.ammo]]
 		_text(c, Vector2(rr.position.x + 6, rr.end.y - 7), ammo_txt, 14, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, bold, rr.size.x)
 		_text(c, Vector2(rr.end.x - 6, rr.end.y - 7), wd.name, 11, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, null, rr.size.x)
 		# Fitted attachments: one small lit square per slot (sight, muzzle, mag, grip).
@@ -703,6 +703,9 @@ func _gun_icon(c: Control, r: Rect2, cls: String, col: Color) -> void:
 		"shotgun": [[0.0, 0.4], [0.28, 0.32], [0.34, 0.25], [1.0, 0.25], [1.0, 0.36], [0.6, 0.4], [0.6, 0.5], [0.36, 0.52], [0.34, 0.75], [0.27, 0.75], [0.26, 0.52], [0.0, 0.66]],
 		"sr": [[0.0, 0.42], [0.25, 0.36], [0.3, 0.3], [0.38, 0.3], [0.38, 0.12], [0.6, 0.12], [0.6, 0.3], [1.0, 0.33], [1.0, 0.39], [0.55, 0.44], [0.4, 0.5], [0.33, 0.72], [0.27, 0.72], [0.26, 0.52], [0.0, 0.62]],
 		"pistol": [[0.25, 0.2], [0.85, 0.2], [0.85, 0.4], [0.55, 0.42], [0.5, 0.9], [0.32, 0.9], [0.36, 0.42], [0.25, 0.4]],
+		"dmr": [[0.0, 0.42], [0.25, 0.36], [0.3, 0.28], [0.5, 0.28], [0.5, 0.2], [0.58, 0.2], [0.58, 0.28], [1.0, 0.3], [1.0, 0.38], [0.55, 0.42], [0.42, 0.5], [0.38, 0.75], [0.31, 0.75], [0.3, 0.52], [0.0, 0.62]],
+		"crossbow": [[0.0, 0.42], [0.3, 0.36], [0.62, 0.36], [0.62, 0.05], [0.7, 0.05], [0.7, 0.36], [1.0, 0.36], [1.0, 0.44], [0.7, 0.44], [0.7, 0.95], [0.62, 0.95], [0.62, 0.44], [0.42, 0.46], [0.36, 0.72], [0.3, 0.72], [0.28, 0.5], [0.0, 0.6]],
+		"melee": [[0.05, 0.42], [0.45, 0.4], [0.5, 0.3], [0.62, 0.12], [0.8, 0.08], [0.95, 0.25], [0.97, 0.5], [0.92, 0.75], [0.78, 0.9], [0.6, 0.85], [0.5, 0.6], [0.45, 0.52], [0.05, 0.52]],
 	}
 	var pts := PackedVector2Array()
 	for q in shapes.get(cls, shapes.ar):

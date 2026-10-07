@@ -69,16 +69,16 @@ static func roll_heal() -> String:
 ## zoom (sights), recoil / spread / reload multipliers, mag multiplier,
 ## suppressed (quiet, no flash, heard only nearby).
 const ATTACH := {
-	"reddot":      {"name": "ريد دوت",          "slot": "sight",  "zoom": 1.35, "for": ["pistol", "smg", "shotgun", "ar", "lmg"]},
-	"holo":        {"name": "هولوغرافيك",       "slot": "sight",  "zoom": 1.35, "for": ["pistol", "smg", "shotgun", "ar", "lmg"]},
-	"x2":          {"name": "سكوب 2",          "slot": "sight",  "zoom": 2.0,  "for": ["smg", "ar", "lmg"]},
-	"x4":          {"name": "سكوب 4",          "slot": "sight",  "zoom": 4.0,  "for": ["ar", "lmg", "sr"]},
-	"x8":          {"name": "سكوب 8",          "slot": "sight",  "zoom": 8.0,  "for": ["ar", "sr"]},
-	"suppressor":  {"name": "كاتم صوت",         "slot": "muzzle", "suppressed": true, "for": ["pistol", "smg", "ar", "sr"]},
-	"compensator": {"name": "معوّض ارتداد",      "slot": "muzzle", "recoil": 0.75, "for": ["smg", "ar", "sr", "lmg"]},
-	"ext_mag":     {"name": "مخزن موسّع",        "slot": "mag",    "mag": 1.35, "for": ["pistol", "smg", "ar", "sr"]},
-	"quick_mag":   {"name": "مخزن سريع",        "slot": "mag",    "reload": 0.7, "for": ["pistol", "smg", "ar", "sr", "lmg"]},
-	"ext_quick":   {"name": "مخزن موسّع وسريع", "slot": "mag",    "mag": 1.35, "reload": 0.75, "for": ["pistol", "smg", "ar", "sr"]},
+	"reddot":      {"name": "ريد دوت",          "slot": "sight",  "zoom": 1.35, "for": ["pistol", "smg", "shotgun", "ar", "lmg", "dmr", "crossbow"]},
+	"holo":        {"name": "هولوغرافيك",       "slot": "sight",  "zoom": 1.35, "for": ["pistol", "smg", "shotgun", "ar", "lmg", "dmr", "crossbow"]},
+	"x2":          {"name": "سكوب 2",          "slot": "sight",  "zoom": 2.0,  "for": ["smg", "ar", "lmg", "dmr", "crossbow"]},
+	"x4":          {"name": "سكوب 4",          "slot": "sight",  "zoom": 4.0,  "for": ["ar", "lmg", "sr", "dmr", "crossbow"]},
+	"x8":          {"name": "سكوب 8",          "slot": "sight",  "zoom": 8.0,  "for": ["ar", "sr", "dmr"]},
+	"suppressor":  {"name": "كاتم صوت",         "slot": "muzzle", "suppressed": true, "for": ["pistol", "smg", "ar", "sr", "dmr"]},
+	"compensator": {"name": "معوّض ارتداد",      "slot": "muzzle", "recoil": 0.75, "for": ["smg", "ar", "sr", "lmg", "dmr"]},
+	"ext_mag":     {"name": "مخزن موسّع",        "slot": "mag",    "mag": 1.35, "for": ["pistol", "smg", "ar", "sr", "dmr"]},
+	"quick_mag":   {"name": "مخزن سريع",        "slot": "mag",    "reload": 0.7, "for": ["pistol", "smg", "ar", "sr", "lmg", "dmr"]},
+	"ext_quick":   {"name": "مخزن موسّع وسريع", "slot": "mag",    "mag": 1.35, "reload": 0.75, "for": ["pistol", "smg", "ar", "sr", "dmr"]},
 	"vgrip":       {"name": "مقبض عمودي",       "slot": "grip",   "recoil": 0.8, "for": ["smg", "ar", "lmg"]},
 	"angled":      {"name": "مقبض مائل",        "slot": "grip",   "recoil": 0.9, "spread": 0.85, "for": ["smg", "ar", "lmg"]},
 }
@@ -106,7 +106,7 @@ static func apply_attachments(w: Dictionary, att: Dictionary) -> Dictionary:
 	var r := w.duplicate()
 	for slot in att:
 		var a: Dictionary = ATTACH.get(att[slot], {})
-		if a.has("zoom"): r.zoom = maxf(float(a.zoom), float(w.zoom)) if w.cls == "sr" else float(a.zoom)
+		if a.has("zoom"): r.zoom = maxf(float(a.zoom), float(w.zoom)) if w.cls in ["sr", "dmr"] else float(a.zoom)
 		if a.has("recoil"): r.recoil = float(r.recoil) * float(a.recoil)
 		if a.has("spread"): r.spread = float(r.spread) * float(a.spread)
 		if a.has("reload"): r.reload = float(r.reload) * float(a.reload)
