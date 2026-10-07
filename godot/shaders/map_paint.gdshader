@@ -6,6 +6,7 @@ shader_type canvas_item;
 uniform sampler2D photo : source_color, filter_linear;
 uniform sampler2D heights : filter_linear;
 uniform sampler2D mask : filter_linear;   // R >= 0.5: road
+uniform sampler2D biomes : filter_linear;  // R desert, G jungle, B north, A beach island
 uniform float texel = 0.00195;   // one height sample in uv
 
 float h(vec2 uv) { return texture(heights, uv).r; }
@@ -18,6 +19,10 @@ void fragment() {
 	land = clamp((land - 0.05) * 1.12, 0.0, 1.0);
 	float grey = dot(land, vec3(0.299, 0.587, 0.114));
 	land = mix(vec3(grey), land, 0.92);
+	// Regions read clearly from above: deep green jungle, cooler north.
+	vec4 bio = texture(biomes, uv);
+	land *= mix(vec3(1.0), vec3(0.62, 0.86, 0.55), bio.g * 0.85);
+	land *= mix(vec3(1.0), vec3(0.88, 0.92, 0.9), bio.b * 0.6);
 	// Hill shade, light from the north-west.
 	float dx = h(uv + vec2(texel, 0.0)) - h(uv - vec2(texel, 0.0));
 	float dz = h(uv + vec2(0.0, texel)) - h(uv - vec2(0.0, texel));

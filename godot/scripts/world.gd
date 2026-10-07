@@ -1647,6 +1647,7 @@ func _capture_map() -> void:
 	mat.set_shader_parameter("photo", ImageTexture.create_from_image(img))
 	mat.set_shader_parameter("heights", builder.height_tex)
 	mat.set_shader_parameter("mask", builder.mask_tex)
+	mat.set_shader_parameter("biomes", builder.biome_tex)
 	mat.set_shader_parameter("texel", 1.0 / float(Island.N))
 	rect.material = mat
 	pv.add_child(rect)

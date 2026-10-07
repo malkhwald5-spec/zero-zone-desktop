@@ -251,6 +251,12 @@ func _towns() -> void:
 			mil.pos = p
 			break
 	towns.append(mil)
+	# The beach island always has its resort town.
+	for k in 300:
+		var p := isle + Vector2(rng.randf_range(-120, 120), rng.randf_range(-90, 90))
+		if _land_around(p, 130.0):
+			towns.append({"name": region_names.tropic.pop_back(), "pos": p, "r": 95.0, "military": false, "kind": "town", "region": "tropic"})
+			break
 	var tries := 0
 	var want := mini(36, int(12.0 * size / 3072.0) + 4)
 	while towns.size() < want and tries < 4000:

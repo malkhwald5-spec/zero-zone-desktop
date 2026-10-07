@@ -34,7 +34,7 @@ func _run() -> void:
 		if world.ready_done: break
 		await wait(0.1)
 	var isl: Island = world.island
-	check("map is 4 km", is_equal_approx(isl.size, 4096.0))
+	check("map is 8 km", is_equal_approx(isl.size, 8192.0))
 	check("more towns", isl.towns.size() >= 14, "towns=%d buildings=%d trees=%d" % [isl.towns.size(), isl.buildings.size(), isl.trees.size()])
 	print("INFO load %d ms, pickups %d" % [Time.get_ticks_msec() - t0, world.pickups.size()])
 	for b in world.bots: b.set_physics_process(false)
