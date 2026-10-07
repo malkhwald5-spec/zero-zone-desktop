@@ -62,6 +62,9 @@ var settings := {
 	"invert_y": false,
 	"keys": {},               # action -> physical keycode, only the ones changed
 	"mode": "solo",           # "solo" | "duo" | "squad"
+	"laptop": false,          # laptop mode: lighter effects, lower render resolution, shorter view
+	"render_scale": 1.0,      # 3D resolution (0.5–1.0), sharpened back up with FSR
+	"show_fps": true,         # frame counter under the minimap
 }
 
 const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة"}
@@ -136,7 +139,9 @@ func pick_weather() -> String:
 	return "clear" if r < 0.55 else ("rain" if r < 0.78 else "sunset")
 const LOLA := 10            # WARDROBE index of the Lola character (the default look)
 var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA]}
-var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0}
+var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0,
+	"rp": 1000, "top10": 0, "dmg": 0, "heads": 0, "longest": 0, "best_kills": 0, "time": 0,
+	"modes": {}, "history": []}
 ## Lobby economy: gold earned in matches, season-pass XP, claimed mail/rewards.
 var wallet := {"gold": 0, "zc": 0, "xp": 0, "claimed": [], "mail_read": false}
 ## Key art rendered once at start-up (used by the loading screens).
@@ -155,6 +160,28 @@ func _auto_quality() -> void:
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
 	if not (gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe")):
 		settings.quality = "high"
+	if is_laptop_gpu(): settings.laptop = true
+
+## Graphics chips made only for laptops (or named as laptop parts).
+func is_laptop_gpu() -> bool:
+	var gpu := RenderingServer.get_video_adapter_name().to_lower()
+	for k in ["laptop", "mobile", "max-q", "rtx 2050", "rtx 3050 ti", " mx1", " mx2", " mx3", " mx4", " mx5"]:
+		if gpu.contains(k): return true
+	return false
+
+## Laptop mode on, or the "سلس" preset: the 3D picture is drawn smaller.
+func render_scale() -> float:
+	var sc := clampf(float(settings.get("render_scale", 1.0)), 0.5, 1.0)
+	if quality_level() == 0: sc = minf(sc, 0.8)
+	if laptop(): sc = minf(sc, 0.77)
+	return sc
+
+func laptop() -> bool:
+	return bool(settings.get("laptop", false))
+
+## View distances (grass, detailed trees, far bots) shrink in laptop mode.
+func view_k() -> float:
+	return 0.7 if laptop() else 1.0
 
 func load_data() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -178,6 +205,12 @@ func load_data() -> void:
 	if int(data.get("save_version", 1)) < 3:
 		profile.outfit = LOLA
 		if not profile.owned.has(LOLA): profile.owned.append(LOLA)
+	# JSON numbers come back as floats; career counters are whole numbers.
+	for k in stats.keys():
+		if typeof(stats[k]) == TYPE_FLOAT: stats[k] = int(stats[k])
+	# v4: laptop mode arrived; laptop graphics chips start with it on.
+	if int(data.get("save_version", 1)) < 4 and is_laptop_gpu():
+		settings.laptop = true
 	if typeof(settings.get("keys")) != TYPE_DICTIONARY: settings.keys = {}
 	for k in settings.keys.keys():
 		settings.keys[k] = int(settings.keys[k])
@@ -186,7 +219,7 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"save_version": 3, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 4, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
@@ -220,6 +253,75 @@ func reward_match(rank: int, kills: int, won: bool) -> Dictionary:
 	save_data()
 	return last_reward
 
+## Ranks like the mobile game: six tiers with five steps each (V … I), then Ace and Conqueror.
+## [name, colour, rank points where the tier starts]
+const RANK_TIERS := [
+	["برونز", Color("c4895a"), 1000], ["فضة", Color("c5ced8"), 1500], ["ذهب", Color("f2c14e"), 2000],
+	["بلاتين", Color("54d1c4"), 2500], ["ماس", Color("8fb4ff"), 3000], ["التاج", Color("ff9f43"), 3500],
+	["آس", Color("ff5d73"), 4000], ["الفاتح", Color("ffe36e"), 5000],
+]
+const ROMAN := ["I", "II", "III", "IV", "V"]
+const TIER_STEP := 100
+
+func rank_tier(rp: int) -> int:
+	var t := 0
+	for i in RANK_TIERS.size():
+		if rp >= int(RANK_TIERS[i][2]): t = i
+	return t
+
+## Name, colour and progress of a rank: {"tier", "name", "color", "frac", "to_next"}.
+func rank_info(rp: int) -> Dictionary:
+	var t := rank_tier(rp)
+	var start: int = RANK_TIERS[t][2]
+	var name: String = RANK_TIERS[t][0]
+	var frac := 1.0
+	var to_next := 0
+	if t < 6:
+		var step := mini(4, (rp - start) / TIER_STEP)
+		name += " " + ROMAN[4 - step]
+		frac = float(rp - start - step * TIER_STEP) / TIER_STEP
+		to_next = start + (step + 1) * TIER_STEP - rp
+	elif t == 6:
+		frac = float(rp - start) / float(int(RANK_TIERS[7][2]) - start)
+		to_next = int(RANK_TIERS[7][2]) - rp
+	return {"tier": t, "name": name, "color": RANK_TIERS[t][1], "frac": clampf(frac, 0.0, 1.0), "to_next": to_next}
+
+## Rank points for a match: a good placement and kills raise them; higher tiers lose more for an early exit.
+func rank_delta(rank: int, teams: int, kills: int, won: bool, rp: int) -> int:
+	var f := float(rank - 1) / maxf(1.0, float(teams - 1))
+	var place := lerpf(32.0, -14.0, sqrt(f))
+	var d := place + mini(kills, 10) * 4.0 + (15.0 if won else 0.0) - rank_tier(rp) * 2.5
+	return roundi(d)
+
+## Stores a finished match in the career: rank points, totals per mode and the match history.
+## m: {"rank", "teams", "kills", "won", "dmg", "heads", "longest", "time", "mode"}
+func record_match(m: Dictionary) -> Dictionary:
+	var rp0 := int(stats.rp)
+	var delta := rank_delta(int(m.rank), int(m.teams), int(m.kills), bool(m.won), rp0)
+	stats.rp = maxi(1000, rp0 + delta)
+	delta = int(stats.rp) - rp0
+	if int(m.rank) <= 10: stats.top10 = int(stats.top10) + 1
+	stats.dmg = int(stats.dmg) + int(m.dmg)
+	stats.heads = int(stats.heads) + int(m.heads)
+	stats.longest = maxi(int(stats.longest), int(m.longest))
+	stats.best_kills = maxi(int(stats.best_kills), int(m.kills))
+	stats.time = int(stats.time) + int(m.time)
+	if typeof(stats.modes) != TYPE_DICTIONARY: stats.modes = {}
+	var md: Dictionary = stats.modes.get(m.mode, {"games": 0, "wins": 0, "kills": 0, "top10": 0, "dmg": 0})
+	md.games = int(md.games) + 1
+	md.wins = int(md.wins) + (1 if m.won else 0)
+	md.kills = int(md.kills) + int(m.kills)
+	md.top10 = int(md.top10) + (1 if int(m.rank) <= 10 else 0)
+	md.dmg = int(md.dmg) + int(m.dmg)
+	stats.modes[m.mode] = md
+	var h := m.duplicate()
+	h.rp = delta
+	if typeof(stats.history) != TYPE_ARRAY: stats.history = []
+	stats.history.push_front(h)
+	stats.history.resize(mini(stats.history.size(), 10))
+	save_data()
+	return {"delta": delta, "before": rank_info(rp0), "after": rank_info(int(stats.rp))}
+
 func player_name() -> String:
 	return profile.name if String(profile.name) != "" else "لاعب"
 
@@ -245,35 +347,38 @@ func apply_fps() -> void:
 
 func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 	var lv := quality_level()
+	var lap := laptop()
 	if env:
-		env.ssao_enabled = lv >= 2
+		env.ssao_enabled = lv >= 2 and not lap
 		env.glow_enabled = lv >= 1
-		env.volumetric_fog_enabled = lv >= 2
-		env.ssil_enabled = lv >= 3
+		env.volumetric_fog_enabled = lv >= 2 and not lap
+		env.ssil_enabled = lv >= 3 and not lap
 		# Reflections in windows and wet surfaces from HDR up; real bounced
 		# light (rooms lit by daylight through windows) on Ultra only.
-		env.ssr_enabled = lv >= 3
+		env.ssr_enabled = lv >= 3 and not lap
 		env.ssr_max_steps = 48
-		env.sdfgi_enabled = lv >= 4
+		env.sdfgi_enabled = lv >= 4 and not lap
 		env.sdfgi_use_occlusion = true
 		env.sdfgi_cascades = 4
 		env.sdfgi_min_cell_size = 0.4
 		env.volumetric_fog_length = 160.0 if lv >= 4 else 120.0
 	if sun:
 		sun.shadow_enabled = lv >= 1
-		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 320.0, 500.0][lv]
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 or lap else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 320.0, 500.0][lv] * (0.6 if lap else 1.0)
 		sun.shadow_blur = 1.0 if lv < 4 else 1.4
-		sun.light_angular_distance = 0.5 if lv == 4 else 0.0
+		sun.light_angular_distance = 0.5 if lv == 4 and not lap else 0.0
 	var vp := get_viewport()
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_DISABLED, Viewport.MSAA_2X][lv]
-	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if lv <= 1 else Viewport.SCREEN_SPACE_AA_DISABLED
+	if lap: vp.msaa_3d = Viewport.MSAA_DISABLED
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if lv <= 1 or lap else Viewport.SCREEN_SPACE_AA_DISABLED
 	# Temporal AA from HDR up: smooths the shimmer of leaves, grass and wires.
-	vp.use_taa = lv >= 3
-	# "سلس" draws the 3D scene at 80% and sharpens it back up (like the mobile game).
-	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if lv == 0 else Viewport.SCALING_3D_MODE_BILINEAR
-	vp.scaling_3d_scale = 0.8 if lv == 0 else 1.0
-	vp.mesh_lod_threshold = [4.0, 2.0, 1.0, 1.0, 0.5][lv]
-	RenderingServer.directional_soft_shadow_filter_set_quality([RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW, RenderingServer.SHADOW_QUALITY_SOFT_LOW, RenderingServer.SHADOW_QUALITY_SOFT_HIGH, RenderingServer.SHADOW_QUALITY_SOFT_HIGH][lv])
-	RenderingServer.directional_shadow_atlas_set_size([2048, 2048, 4096, 4096, 8192][lv], true)
+	vp.use_taa = lv >= 3 and not lap
+	# A smaller 3D picture sharpened back up with FSR (like the mobile game).
+	var sc := render_scale()
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if sc < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = sc
+	vp.mesh_lod_threshold = [4.0, 2.0, 1.0, 1.0, 0.5][lv] * (2.0 if lap else 1.0)
+	RenderingServer.directional_soft_shadow_filter_set_quality([RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW, RenderingServer.SHADOW_QUALITY_SOFT_LOW, RenderingServer.SHADOW_QUALITY_SOFT_HIGH, RenderingServer.SHADOW_QUALITY_SOFT_HIGH][mini(lv, 2) if lap else lv])
+	RenderingServer.directional_shadow_atlas_set_size(mini([2048, 2048, 4096, 4096, 8192][lv], 2048 if lap else 8192), true)
 	apply_fps()

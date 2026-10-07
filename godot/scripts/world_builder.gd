@@ -1070,7 +1070,7 @@ func _trees() -> void:
 	# cards); far chunks swap to the cheap solid crowns.
 	pine_mesh = _with_lods(pine_mesh)
 	leafy_mesh = _with_lods(leafy_mesh)
-	var near_d: float = [160.0, 240.0, 320.0, 450.0, 650.0][Game.quality_level()]
+	var near_d: float = [160.0, 240.0, 320.0, 450.0, 650.0][Game.quality_level()] * Game.view_k()
 	var bark_mat := trunk_mat.duplicate() as StandardMaterial3D
 	bark_mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
 	var leaf_mat := ShaderMaterial.new()
@@ -1436,7 +1436,7 @@ func _grass() -> void:
 	grass_mat.set_shader_parameter("tuft", load("res://assets/textures/grass_tuft.png"))
 	var lv := Game.quality_level()
 	var spacing: float = [0.8, 0.75, 0.55, 0.5, 0.42][lv]
-	var radius: float = [30.0, 32.0, 40.0, 52.0, 70.0][lv]
+	var radius: float = [30.0, 32.0, 40.0, 52.0, 70.0][lv] * Game.view_k()
 	grass_snap = spacing * 12.0
 	grass_mat.set_shader_parameter("radius", radius)
 	var xforms := []

@@ -326,10 +326,13 @@ func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> 
 			_spec_panel.queue_free()
 			_spec_panel = null
 	var title := ("فوز! أنت الناجي الأخير 🏆" if world.team_size <= 1 else "فوز! فريقك آخر فريق 🏆") if won else "الترتيب #%d" % rank
-	var sub := "الإقصاءات: %d" % kills
+	var p0: Player = world.player
+	var alive_t := int(world.time - (p0.dead_t if p0.state == "dead" else 0.0))
+	var sub := "الإقصاءات: %d    الضرر: %d    النجاة: %d:%02d" % [kills, roundi(p0.dmg_dealt), alive_t / 60, alive_t % 60]
 	if not reward.is_empty():
 		sub += "\n+%d ذهب    +%d خبرة موسم" % [reward.gold, reward.xp]
 	_results_args = [title, sub]
+	_rank_change = reward.get("rank_change", {})
 	var p: Player = world.player
 	if not won and p.state == "dead" and is_instance_valid(p.killer) and p.dead_t < KILLCAM_TIME:
 		# Killcam first: the results come up after a few seconds.
@@ -338,6 +341,42 @@ func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> 
 		_show_results_panel()
 
 const KILLCAM_TIME := 4.0
+var _rank_change := {}
+
+## Rank emblem, name, points won or lost and the bar to the next step.
+func _rank_row(rc: Dictionary) -> Control:
+	var after: Dictionary = rc.after
+	var delta: int = rc.delta
+	var hb := HBoxContainer.new()
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", 14)
+	hb.add_child(RankBadge.new(int(Game.stats.rp), 60.0))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	var up: bool = int(after.tier) > int(rc.before.tier) or (after.name != rc.before.name and delta > 0)
+	var head := Label.new()
+	head.text = after.name + ("   ⬆ ترقية!" if up else "")
+	head.add_theme_font_override("font", bold)
+	head.add_theme_font_size_override("font_size", 22)
+	head.add_theme_color_override("font_color", after.color)
+	v.add_child(head)
+	var d := Label.new()
+	d.text = ("+%d" % delta if delta >= 0 else str(delta)) + " نقطة رتبة    (%d)" % int(Game.stats.rp)
+	d.add_theme_color_override("font_color", Color("7dff8a") if delta >= 0 else Color("ff7a7a"))
+	v.add_child(d)
+	var bar := ProgressBar.new()
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(200, 8)
+	bar.value = float(after.frac) * 100.0
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(1, 1, 1, 0.12)
+	var fg := StyleBoxFlat.new()
+	fg.bg_color = after.color
+	bar.add_theme_stylebox_override("background", bg)
+	bar.add_theme_stylebox_override("fill", fg)
+	v.add_child(bar)
+	hb.add_child(v)
+	return hb
 var _results_args := ["", ""]
 var spectating := false
 
@@ -348,6 +387,9 @@ func _show_results_panel() -> void:
 		buttons.append(["مشاهدة اللاعبين", start_spectate])
 	buttons.append(["العودة إلى اللوبي", _to_lobby])
 	results = _panel(_results_args[0], buttons, _results_args[1])
+	if not _rank_change.is_empty():
+		results.get_child(0).add_child(_rank_row(_rank_change))
+		results.get_child(0).move_child(results.get_child(0).get_child(-1), 2)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 ## Watch the match go on: your killer first, then whoever is still alive.
@@ -616,6 +658,10 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	if dist > 0.0 and world.zone.state != "idle":
 		_text(c, Vector2(r.position.x + size * 0.5, zy + 40), "🏃 %d م للمنطقة الآمنة" % int(dist), 13, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, null, size)
 	_text(c, Vector2(r.end.x - 8, y + 17), "%d ms 📶" % (18 + int(world.time * 3.7) % 9), 12, Color("8ef08e"), HORIZONTAL_ALIGNMENT_RIGHT, null, 90)
+	if bool(Game.settings.get("show_fps", true)):
+		var fps := int(Engine.get_frames_per_second())
+		var fc := Color("8ef08e") if fps >= 55 else (Color("ffd34d") if fps >= 30 else Color("ff6a5a"))
+		_text(c, Vector2(r.position.x + size * 0.5, y + 17), "FPS %d" % fps, 13, fc, HORIZONTAL_ALIGNMENT_CENTER, UiKit.bold(), 90)
 
 func _arrow(c: Control, at: Vector2, ang: float, col: Color, s: float) -> void:
 	var f := Vector2(sin(ang), -cos(ang))

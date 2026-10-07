@@ -22,6 +22,9 @@ var vehicle: Vehicle = null
 var stance := "stand"         # stand | crouch | prone
 var health := 100.0
 var kills := 0
+var dmg_dealt := 0.0      # career stats for this match
+var head_kills := 0
+var longest_kill := 0.0
 var display_name := "لاعب"
 
 # Look / camera
@@ -129,7 +132,7 @@ func _ready() -> void:
 	cam_pivot.add_child(spring)
 	camera = Camera3D.new()
 	camera.fov = 70.0
-	camera.far = 4000.0
+	camera.far = 4000.0 if not Game.laptop() else 2600.0
 	camera.current = true
 	spring.add_child(camera)
 	sens = float(Game.settings.sensitivity)
@@ -876,7 +879,9 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 			var head: bool = end.y > col.global_position.y + 1.45
 			var killed: bool = col.take_damage(float(w.dmg) * (2.0 if head else 1.0), self)
 			hit_confirmed.emit(head, killed, end)
-			if killed: kills += 1
+			if killed:
+				kills += 1
+				if head: head_kills += 1
 			world.effects.impact(end, hit.normal, true)
 		else:
 			world.effects.impact(end, hit.normal, false)

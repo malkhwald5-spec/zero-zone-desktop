@@ -117,6 +117,7 @@ func take_damage(amount: float, attacker: Node, head := false) -> bool:
 				model.set_gear(gear.vest, gear.helmet, gear.pack)
 			amount -= absorbed
 	heal_t = 0.0
+	if attacker != null and attacker == world.player: world.player.dmg_dealt += minf(amount, maxf(health, 0.0))
 	health -= amount
 	hurt_t = 0.0
 	if model.visible: model.hit(amount / 40.0)
@@ -248,8 +249,8 @@ func _land() -> void:
 
 func _ground(delta: float) -> void:
 	var d_player := global_position.distance_to(world.view_position())
-	far = d_player > 280.0
-	model.visible = d_player < 650.0
+	far = d_player > 280.0 * Game.view_k()
+	model.visible = d_player < 650.0 * Game.view_k()
 	fire_cd = maxf(0.0, fire_cd - delta)
 	hurt_t += delta
 	if knocked:

@@ -69,7 +69,10 @@ func _run() -> void:
 	p.global_position = car.global_position + car.global_basis.x * 2.2
 	await wait(0.5)
 	var settled_y: float = car.global_position.y - world.ground_height(car.global_position)
-	check("car rests on its wheels", settled_y > -0.3 and settled_y < 1.5 and car.global_basis.y.y > 0.9, "height=%.2f up=%.2f" % [settled_y, car.global_basis.y.y])
+	# The big map has hilly roads: compare with the slope of the ground under the car.
+	var cp: Vector3 = car.global_position
+	var gn := Vector3(isl.height_at(cp.x - 2.0, cp.z) - isl.height_at(cp.x + 2.0, cp.z), 4.0, isl.height_at(cp.x, cp.z - 2.0) - isl.height_at(cp.x, cp.z + 2.0)).normalized()
+	check("car rests on its wheels", settled_y > -0.3 and settled_y < 1.5 and car.global_basis.y.dot(gn) > 0.93, "height=%.2f up=%.2f ground_up=%.2f" % [settled_y, car.global_basis.y.dot(gn), gn.y])
 	p.interact()
 	check("get in with F", p.state == "vehicle" and car.driver == p)
 	var start := car.global_position

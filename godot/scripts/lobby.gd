@@ -431,6 +431,22 @@ func _top_left() -> void:
 	who.add_theme_constant_override("separation", 4)
 	labels.name = UiKit.label("", 22, Color.WHITE, UiKit.bold())
 	who.add_child(labels.name)
+	var rank_btn := Button.new()
+	rank_btn.custom_minimum_size = Vector2(150, 34)
+	rank_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	rank_btn.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.45), 17, Color(1, 1, 1, 0.15), 1, 4))
+	rank_btn.add_theme_stylebox_override("hover", UiKit.style(Color(0, 0, 0, 0.6), 17, Color(1, 1, 1, 0.35), 1, 4))
+	rank_btn.add_theme_stylebox_override("pressed", UiKit.style(Color(0, 0, 0, 0.6), 17, Color(1, 1, 1, 0.35), 1, 4))
+	rank_btn.pressed.connect(func(): _open("cards"))
+	var rb := RankBadge.new(int(Game.stats.rp), 28.0)
+	rb.position = Vector2(6, 1)
+	rank_btn.add_child(rb)
+	var rl := UiKit.label("", 15, Color.WHITE, UiKit.bold(), 3)
+	rl.position = Vector2(40, 5)
+	rank_btn.add_child(rl)
+	labels.rank_badge = rb
+	labels.rank = rl
+	who.add_child(rank_btn)
 	var chips := HBoxContainer.new()
 	chips.add_theme_constant_override("separation", 8)
 	chips.add_child(_icon_button("clan", "العشيرة", func(): _open("clan"), Vector2(118, 34)))
@@ -637,6 +653,10 @@ func _refresh() -> void:
 	labels.name.text = Game.player_name()
 	labels.avatar.text = Game.player_name().left(1)
 	labels.level_badge.text = str(Game.level())
+	var ri := Game.rank_info(int(Game.stats.rp))
+	labels.rank.text = ri.name
+	labels.rank.add_theme_color_override("font_color", ri.color)
+	labels.rank_badge.rp = int(Game.stats.rp)
 	labels.gold.text = "%d" % int(Game.wallet.gold)
 	labels.zc.text = "ZC %d" % int(Game.wallet.zc)
 	labels.pass_level.text = " %d ›" % Game.pass_level()
@@ -694,7 +714,7 @@ func _missions() -> Array:
 # Panels (full-screen pages with a header bar)
 # =====================================================================
 const TITLES := {
-	"inventory": "المخزون", "cards": "البطاقات", "workshop": "ورشة العمل", "season": "الموسم — ZERO PASS",
+	"inventory": "المخزون", "cards": "الملف الشخصي والرتبة", "workshop": "ورشة العمل", "season": "الموسم — ZERO PASS",
 	"missions": "المهام", "mail": "البريد", "clan": "العشيرة", "shop": "المتجر", "crate": "صندوق القمر الأحمر",
 	"events": "الفعاليات", "settings": "الإعدادات", "keys": "الأزرار", "mode": "اختيار الوضع", "help": "طريقة اللعب",
 }
@@ -858,20 +878,118 @@ func _page_cards(body: VBoxContainer) -> void:
 	le.text_changed.connect(func(s): Game.profile.name = s.strip_edges())
 	body.add_child(_row("اسم اللاعب", le))
 	body.add_child(_row("المستوى", UiKit.label(str(Game.level()), 20, Color.WHITE, UiKit.bold(), 0)))
+	_rank_panel(body)
+	var st: Dictionary = Game.stats
+	var games := maxi(1, int(st.games))
+	var best: String = ("#%d" % st.best) if st.best > 0 else "-"
+	var kd := float(st.kills) / maxf(1.0, float(st.games - st.wins))
+	var avg_t := int(st.time) / maxi(1, _recorded_games())
+	body.add_child(UiKit.label("الإحصائيات العامة", 18, Color.WHITE, UiKit.bold(), 0))
 	var grid := GridContainer.new()
-	grid.columns = 4
+	grid.columns = 6
 	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
 	body.add_child(grid)
-	var best: String = ("#%d" % Game.stats.best) if Game.stats.best > 0 else "-"
-	var kd := float(Game.stats.kills) / maxf(1.0, float(Game.stats.games - Game.stats.wins))
-	for s in [["الانتصارات", str(Game.stats.wins)], ["المباريات", str(Game.stats.games)], ["الإقصاءات", str(Game.stats.kills)], ["أفضل ترتيب", best], ["معدل K/D", "%.2f" % kd], ["مستوى الموسم", str(Game.pass_level())]]:
+	for s in [["المباريات", str(int(st.games))], ["الانتصارات", str(int(st.wins))], ["نسبة الفوز", "%d%%" % roundi(100.0 * st.wins / games)],
+			["أفضل 10", str(int(st.top10))], ["أفضل ترتيب", best], ["معدل K/D", "%.2f" % kd],
+			["الإقصاءات", str(int(st.kills))], ["أكثر قتلات بمباراة", str(int(st.best_kills))], ["قتلات بالراس", str(int(st.heads))],
+			["أبعد قتلة", "%d م" % int(st.longest)], ["الضرر الكلي", str(int(st.dmg))], ["معدل النجاة", "%d:%02d" % [avg_t / 60, avg_t % 60]]]:
 		var c := _box_panel()
-		c.custom_minimum_size = Vector2(200, 90)
+		c.custom_minimum_size = Vector2(150, 80)
 		var v := VBoxContainer.new()
-		v.add_child(UiKit.label(s[0], 14, Color(1, 1, 1, 0.7), null, 0))
-		v.add_child(UiKit.label(s[1], 30, Color("ffd34d"), UiKit.bold(), 0))
+		v.add_child(UiKit.label(s[0], 13, Color(1, 1, 1, 0.7), null, 0))
+		v.add_child(UiKit.label(s[1], 26, Color("ffd34d"), UiKit.bold(), 0))
 		c.add_child(v)
 		grid.add_child(c)
+	_mode_table(body)
+	_history(body)
+
+## Games played since the career page tracked details (older saves only counted totals).
+func _recorded_games() -> int:
+	var n := 0
+	for m in Game.stats.get("modes", {}).values(): n += int(m.games)
+	return n
+
+func _rank_panel(body: VBoxContainer) -> void:
+	var rp := int(Game.stats.rp)
+	var ri := Game.rank_info(rp)
+	var box := _box_panel(Color(ri.color.r, ri.color.g, ri.color.b, 0.12))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 22)
+	box.add_child(hb)
+	hb.add_child(RankBadge.new(rp, 110.0))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(UiKit.label("الرتبة — %s" % Game.SEASON_NAME, 14, Color(1, 1, 1, 0.7), null, 0))
+	v.add_child(UiKit.label(ri.name, 34, ri.color, UiKit.bold(), 4))
+	var b := _bar(ri.frac, ri.color)
+	b.custom_minimum_size = Vector2(420, 12)
+	v.add_child(b)
+	var next := ("باقي %d نقطة للرتبة الجاية" % ri.to_next) if ri.to_next > 0 else "وصلت لأعلى رتبة! 👑"
+	v.add_child(UiKit.label("نقاط الرتبة: %d     %s" % [rp, next], 15, Color.WHITE, null, 0))
+	v.add_child(UiKit.label("بتربح نقاط لما تخلص بترتيب عالي وتقتل أكثر، وبتخسر شوي إذا طلعت بكير.", 13, Color(1, 1, 1, 0.6), null, 0))
+	hb.add_child(v)
+	# The ladder: every tier, the reached ones lit.
+	var ladder := HBoxContainer.new()
+	ladder.add_theme_constant_override("separation", 6)
+	ladder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for i in Game.RANK_TIERS.size():
+		var tv := VBoxContainer.new()
+		var rb := RankBadge.new(int(Game.RANK_TIERS[i][2]), 40.0)
+		rb.modulate = Color.WHITE if i <= ri.tier else Color(1, 1, 1, 0.28)
+		rb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		tv.add_child(rb)
+		var l := UiKit.label(Game.RANK_TIERS[i][0], 11, Color.WHITE if i <= ri.tier else Color(1, 1, 1, 0.4), null, 0)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tv.add_child(l)
+		ladder.add_child(tv)
+	hb.add_child(ladder)
+	body.add_child(box)
+
+func _mode_table(body: VBoxContainer) -> void:
+	body.add_child(UiKit.label("حسب الوضع", 18, Color.WHITE, UiKit.bold(), 0))
+	var g := GridContainer.new()
+	g.columns = 6
+	g.add_theme_constant_override("h_separation", 36)
+	g.add_theme_constant_override("v_separation", 6)
+	var box := _box_panel()
+	box.add_child(g)
+	body.add_child(box)
+	for h in ["الوضع", "مباريات", "فوز", "قتلات", "أفضل 10", "ضرر/مباراة"]:
+		g.add_child(UiKit.label(h, 14, Color(1, 1, 1, 0.6), UiKit.bold(), 0))
+	for mode in ["solo", "duo", "squad"]:
+		var m: Dictionary = Game.stats.get("modes", {}).get(mode, {"games": 0, "wins": 0, "kills": 0, "top10": 0, "dmg": 0})
+		var n := int(m.games)
+		for x in [Game.MODE_NAMES[mode], str(n), str(int(m.wins)), str(int(m.kills)), str(int(m.top10)), str(int(m.dmg) / maxi(1, n))]:
+			g.add_child(UiKit.label(x, 16, Color.WHITE if n > 0 else Color(1, 1, 1, 0.4), null, 0))
+
+func _history(body: VBoxContainer) -> void:
+	body.add_child(UiKit.label("آخر المباريات", 18, Color.WHITE, UiKit.bold(), 0))
+	var hist: Array = Game.stats.get("history", [])
+	if hist.is_empty():
+		body.add_child(UiKit.label("لسا ما لعبت مباريات — العب وحتشوف نتايجك هون.", 15, Color(1, 1, 1, 0.6), null, 0))
+		return
+	for h in hist:
+		var won: bool = h.get("won", false)
+		var c := _box_panel(Color(1, 0.82, 0.12, 0.14) if won else Color(1, 1, 1, 0.05))
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 28)
+		c.add_child(hb)
+		var place := UiKit.label("🏆 #1" if won else "#%d" % int(h.rank), 22, Color("ffd34d") if won else Color.WHITE, UiKit.bold(), 0)
+		place.custom_minimum_size = Vector2(80, 0)
+		hb.add_child(place)
+		var t := int(h.get("time", 0))
+		for x in [Game.MODE_NAMES.get(h.get("mode", "solo"), ""), "قتلات %d" % int(h.kills), "ضرر %d" % int(h.get("dmg", 0)), "نجاة %d:%02d" % [t / 60, t % 60]]:
+			var l := UiKit.label(x, 15, Color(1, 1, 1, 0.85), null, 0)
+			l.custom_minimum_size = Vector2(110, 0)
+			hb.add_child(l)
+		var d := int(h.get("rp", 0))
+		var dl := UiKit.label(("+%d" % d if d >= 0 else str(d)) + " نقطة", 16, Color("7dff8a") if d >= 0 else Color("ff7a7a"), UiKit.bold(), 0)
+		dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		hb.add_child(dl)
+		body.add_child(c)
 
 func _bar(v: float, col: Color) -> ProgressBar:
 	var b := ProgressBar.new()
@@ -1059,12 +1177,45 @@ func _seg(values: Array, names: Array, key: String, page: String) -> HBoxContain
 		hb.add_child(b)
 	return hb
 
+## Re-applies graphics settings to the lobby scene (laptop mode, render scale).
+func _apply_gfx() -> void:
+	var env: Environment = null
+	var sun: DirectionalLight3D = null
+	for n in get_children():
+		if n is WorldEnvironment: env = n.environment
+		elif n is DirectionalLight3D and sun == null: sun = n
+	Game.apply_quality(env, sun)
+
 func _page_settings(body: VBoxContainer) -> void:
 	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "settings")))
 	body.add_child(_row("طريقة التحكم", _seg(["touch", "kbm"], ["أزرار الشاشة", "كيبورد وماوس"], "controls", "settings")))
 	body.add_child(_row("جودة الرسوميات", _seg(Game.QUALITIES, Game.QUALITY_NAMES, "quality", "settings")))
 	body.add_child(_row("عدد الإطارات", _seg(Game.FPS_OPTIONS, Game.FPS_OPTIONS.map(func(f): return str(f)), "fps", "settings")))
 	body.add_child(_row("كرت الشاشة", UiKit.label(RenderingServer.get_video_adapter_name(), 14, Color(1, 1, 1, 0.7), null, 0)))
+	var lap := CheckButton.new()
+	lap.button_pressed = Game.laptop()
+	lap.toggled.connect(func(v): Game.settings.laptop = v; Game.save_data(); _apply_gfx(); _open("settings"))
+	body.add_child(_row("وضع اللابتوب (أسرع، رسوميات أخف شوي)", lap))
+	var rs := HSlider.new()
+	rs.min_value = 0.5
+	rs.max_value = 1.0
+	rs.step = 0.05
+	rs.value = clampf(float(Game.settings.get("render_scale", 1.0)), 0.5, 1.0)
+	rs.custom_minimum_size = Vector2(240, 30)
+	var rs_l := UiKit.label("%d%%" % roundi(Game.render_scale() * 100.0), 15, Color.WHITE, UiKit.bold(), 0)
+	rs.value_changed.connect(func(v):
+		Game.settings.render_scale = v
+		rs_l.text = "%d%%" % roundi(Game.render_scale() * 100.0)
+		_apply_gfx())
+	var rs_box := HBoxContainer.new()
+	rs_box.add_theme_constant_override("separation", 10)
+	rs_box.add_child(rs_l)
+	rs_box.add_child(rs)
+	body.add_child(_row("دقة الرسم ثلاثي الأبعاد (أقل = أسرع)", rs_box))
+	var fps_cb := CheckButton.new()
+	fps_cb.button_pressed = bool(Game.settings.get("show_fps", true))
+	fps_cb.toggled.connect(func(v): Game.settings.show_fps = v)
+	body.add_child(_row("إظهار عدد الإطارات (FPS) باللعب", fps_cb))
 	var sl := HSlider.new()
 	sl.min_value = 0.3
 	sl.max_value = 3.0

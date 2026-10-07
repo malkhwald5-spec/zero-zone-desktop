@@ -917,6 +917,7 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 	if hud: hud.kill_feed(killer, victim.display_name, attacker == player, attacker == null)
 	if attacker == player:
 		Game.stats.kills += 1
+		player.longest_kill = maxf(player.longest_kill, player.global_position.distance_to(victim.global_position))
 	if attacker == null: zone_deaths += 1
 	# Bled out or team wiped: the kill goes to whoever knocked them down.
 	if victim is Bot and victim.bled and attacker != null and is_instance_valid(attacker) and attacker != victim:
@@ -961,6 +962,10 @@ func _end_match(won: bool) -> void:
 	if won: Game.stats.wins += 1
 	if Game.stats.best == 0 or rank < Game.stats.best: Game.stats.best = rank
 	var reward := Game.reward_match(rank, player.kills, won)
+	var alive_t := time - (player.dead_t if player.state == "dead" else 0.0)
+	reward.rank_change = Game.record_match({"rank": rank, "teams": int(ceil(float(bots.size() + 1) / team_size)), "kills": player.kills, "won": won,
+		"dmg": roundi(player.dmg_dealt), "heads": player.head_kills, "longest": roundi(player.longest_kill),
+		"time": roundi(alive_t), "mode": Game.settings.get("mode", "solo")})
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	hud.show_results(won, rank, player.kills, reward)
 
