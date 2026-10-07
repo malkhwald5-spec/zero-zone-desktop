@@ -139,5 +139,8 @@ func _run() -> void:
 	await wait(3.5)
 	p.action("interact", false)
 	check("you picked them up", not m2.knocked and not m2.dead)
+	# Don't leave the saved settings in squad mode for the other tests.
+	Game.settings.mode = "solo"
+	Game.save_data()
 	print("SQUAD TEST %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 	tree.quit()
