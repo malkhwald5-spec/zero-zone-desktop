@@ -31,6 +31,9 @@ var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
 var lean := 0.0               # roll while skydiving (-1..1)
 var peek := 0.0               # leaning round cover: -1 left .. 1 right
+var ride := ""               # vehicle kind while driving (hands and feet placed for it)
+var flinch := 0.0             # hit reaction: 1 when just hit, fades out
+var _flinch_side := 0.0
 var steer := 0.0              # parachute toggles: -1 pull left .. 1 pull right
 var brake := 0.0              # parachute flare 0..1
 var chute_open := 1.0         # 0 = just pulled (bunched up) .. 1 = fully open
@@ -661,6 +664,20 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		"drive":
 			# Seated: hips low, feet on the pedals, hands on the wheel (turning it).
 			body.position.y = -0.6
+			if ride == "bike":
+				# Astride: hands on the grips (turning with the bars), feet on the pegs.
+				for side in [["Left", -1.0], ["Right", 1.0]]:
+					var sd: float = side[1]
+					_arm(side[0], Vector3(sd * 0.32, 0.58 + sd * steer * 0.04, -0.55 - sd * steer * 0.08), Vector3(sd, -1, 0.3))
+					_leg(side[0], Vector3(sd * 0.2, -0.08, -0.18), Vector3(0, 0.5, -1))
+				return
+			if ride == "boat":
+				# On the stern bench: right hand on the tiller, left on the knee.
+				_arm("Right", Vector3(0.36, 0.66, 0.1 + steer * 0.12), Vector3(1, -1, 0))
+				_arm("Left", Vector3(-0.16, 0.45, -0.28), Vector3(-1, -1, 0))
+				_leg("Left", Vector3(-0.16, -0.18, -0.5), Vector3(0, 0.5, -1))
+				_leg("Right", Vector3(0.16, -0.18, -0.5), Vector3(0, 0.5, -1))
+				return
 			var a := steer * 0.9
 			for side in [["Left", -1.0], ["Right", 1.0]]:
 				var ang: float = (PI * 0.5 + 0.35) * side[1] + a
@@ -678,6 +695,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	if absf(peek) > 0.01 and pose in ["stand", "crouch"]:
 		body.position.x += peek * PEEK_SHIFT     # weight onto the outer foot
 		_lean_spine()
+	if flinch > 0.0 and pose in ["stand", "crouch", "prone"]:
+		_flinch_spine()
+		flinch = maxf(0.0, flinch - delta * 3.5)
 	if armed and gun.visible:
 		_place_gun(pose, delta)
 		_bend_spine(pose)
@@ -769,6 +789,24 @@ func _place_gun(pose: String, delta: float) -> void:
 		elif p >= 0.6 and p < 0.8: drop = 1.0 - (p - 0.6) / 0.2
 		mag.position = Vector3(0, -0.28 * drop, 0.05 * drop)
 		mag.visible = not (p >= 0.3 and p < 0.45)
+
+## Hit: the upper body jerks back and a little to one side, the head snaps.
+func hit(strength := 1.0) -> void:
+	flinch = clampf(strength, 0.3, 1.0)
+	_flinch_side = randf_range(-1.0, 1.0)
+
+func _flinch_spine() -> void:
+	var k := sin(flinch * PI * 0.5)     # fast in, eased out
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var right := (to_sk.basis * Vector3.RIGHT).normalized()
+	var fwd := (to_sk.basis * Vector3.BACK).normalized()
+	for bn in ["Spine1", "Spine2", "Neck", "Head"]:
+		if not _bone.has(bn): continue
+		var i: int = _bone[bn]
+		var inv := sk.get_bone_global_pose(i).basis.inverse()
+		var amt := 0.12 if bn.begins_with("Spine") else 0.2
+		var q := Quaternion((inv * right).normalized(), -amt * k) * Quaternion((inv * fwd).normalized(), _flinch_side * amt * 0.6 * k)
+		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
 
 const PEEK_ROLL := 0.36      # radians the upper body tilts when leaning
 const PEEK_SHIFT := 0.22     # metres the body shifts sideways

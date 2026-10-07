@@ -65,6 +65,9 @@ func _ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		# Tweens die with their node, so nothing fires after leaving the match.
 		create_tween().tween_callback(show_banner.bind("اضغط Ctrl لإظهار الماوس أو إخفائه")).set_delay(3.2)
+	var wtext: String = {"rain": "الطقس: مطر — الرؤية أقل والأصوات أوطى", "sunset": "الطقس: غروب"}.get(world.weather, "")
+	if wtext != "":
+		create_tween().tween_callback(show_banner.bind(wtext)).set_delay(6.6)
 
 func show_banner(text: String) -> void:
 	banner.text = text
@@ -114,11 +117,12 @@ func _input(event: InputEvent) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.physical_keycode == KEY_M or event.physical_keycode == KEY_TAB:
+		var act := Game.action_for(event.physical_keycode)
+		if act == "map" or (event.physical_keycode == KEY_TAB and Game.action_for(KEY_TAB) == ""):
 			toggle_map()
-		elif event.physical_keycode == KEY_B or event.physical_keycode == KEY_I:
+		elif act == "bag" or (event.physical_keycode == KEY_I and Game.action_for(KEY_I) == ""):
 			toggle_bag()
-		elif event.keycode == KEY_CTRL or event.physical_keycode == KEY_CTRL:
+		elif act == "cursor":
 			toggle_cursor()
 		elif event.physical_keycode == KEY_ESCAPE and bag_open:
 			toggle_bag()
@@ -188,6 +192,7 @@ func toggle_bag() -> void:
 func toggle_pause() -> void:
 	if results: return
 	if pause_panel:
+		Game.save_data()
 		pause_panel.queue_free()
 		pause_panel = null
 		get_tree().paused = false
@@ -199,6 +204,24 @@ func toggle_pause() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	pause_panel = _panel("إيقاف مؤقت", [["متابعة", toggle_pause], ["القائمة الرئيسية", _to_lobby]])
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	# Look and aim speed can be changed without leaving the match.
+	var vb: VBoxContainer = pause_panel.get_child(0)
+	for opt in [["حساسية النظر", "sensitivity", 0.3, 3.0, 1.0], ["حساسية التصويب والسكوب", "aim_sens", 0.15, 1.2, 0.45]]:
+		var l := Label.new()
+		l.text = opt[0]
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(l)
+		var sl := HSlider.new()
+		sl.min_value = opt[2]
+		sl.max_value = opt[3]
+		sl.step = 0.05
+		sl.value = float(Game.settings.get(opt[1], opt[4]))
+		sl.custom_minimum_size = Vector2(280, 28)
+		var key: String = opt[1]
+		sl.value_changed.connect(func(v):
+			Game.settings[key] = v
+			world.player.sens = float(Game.settings.sensitivity))
+		vb.add_child(sl)
 
 func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> void:
 	var title := "فوز! أنت الناجي الأخير 🏆" if won else "الترتيب #%d" % rank
@@ -980,7 +1003,7 @@ func _draw_vehicle(c: Control, sz: Vector2, p: Player) -> void:
 	_text(c, ctr + Vector2(0, 8), str(int(kmh)), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 90)
 	_text(c, ctr + Vector2(0, 26), "كم/س", 12, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_CENTER, null, 90)
 	var w := 160.0
-	var hp := clampf(v.health / Vehicle.MAX_HEALTH, 0.0, 1.0)
+	var hp := clampf(v.health / v.max_health, 0.0, 1.0)
 	var r := Rect2(ctr.x - w * 0.5, ctr.y + 40.0, w, 7.0)
 	c.draw_rect(r, Color(0, 0, 0, 0.5))
 	c.draw_rect(Rect2(r.position, Vector2(w * hp, 7.0)), Color("ffcf5a") if hp > 0.3 else Color("ff4a3a"))

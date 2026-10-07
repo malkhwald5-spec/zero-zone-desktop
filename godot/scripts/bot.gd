@@ -54,6 +54,13 @@ var far := false
 var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
 var blind_t := 0.0           # seconds left blinded by a flashbang
+var _face := 0.0             # quick turn towards a shot or a hit
+var _face_t := 0.0
+
+## Turn round quickly but not in one frame (a hit, a heard shot).
+func _turn_to(y: float) -> void:
+	_face = y
+	_face_t = 0.5
 var _frame := 0
 var _step_dist := 0.0
 var _far_dt := 0.0
@@ -101,11 +108,12 @@ func take_damage(amount: float, attacker: Node, head := false) -> bool:
 	heal_t = 0.0
 	health -= amount
 	hurt_t = 0.0
+	if model.visible: model.hit(amount / 40.0)
 	if attacker is Node3D and attacker != self and state == "ground":
 		if target == null or not is_instance_valid(target) or randf() < 0.5:
 			target = attacker
 			react_t = minf(react_t, 0.25)
-		yaw = atan2(-(attacker.global_position.x - global_position.x), -(attacker.global_position.z - global_position.z))
+		_turn_to(atan2(-(attacker.global_position.x - global_position.x), -(attacker.global_position.z - global_position.z)))
 	if health <= 0.0:
 		_die(attacker)
 		return true
@@ -212,7 +220,10 @@ func _ground(delta: float) -> void:
 		_far_dt = 0.0
 		_move(delta)
 	_combat(delta)
-	model.rotation.y = yaw
+	if _face_t > 0.0:
+		_face_t -= delta
+		yaw = lerp_angle(yaw, _face, minf(1.0, delta * 9.0))
+	model.rotation.y = lerp_angle(model.rotation.y, yaw, minf(1.0, delta * 14.0))
 	# Animation level of detail: every frame up close, less often further away.
 	var every := 1 if d_player < 35.0 else (2 if d_player < 90.0 else (3 if d_player < 180.0 else 5))
 	_pose_dt += delta
@@ -227,7 +238,9 @@ func _ground(delta: float) -> void:
 			var to := t.global_position - global_position
 			model.aim_pitch = clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.8, 0.8)
 		model.reload_p = 1.0 - reload_t / float(Game.WEAPONS[weapon_id].reload) if reload_t > 0.0 and armed() else -1.0
-		model.set_pose("stand", Vector2(velocity.x, velocity.z).length(), armed(), _pose_dt, world.time)
+		# Down low behind cover (reloading, healing) and while patching up.
+		var low := (mode == "cover" and global_position.distance_to(goal) < 1.8) or mode == "heal"
+		model.set_pose("crouch" if low else "stand", Vector2(velocity.x, velocity.z).length(), armed(), _pose_dt, world.time)
 		_pose_dt = 0.0
 
 # ---------------------------------------------------------------- decisions
@@ -356,7 +369,7 @@ func _is_dead(n: Node) -> bool:
 ## Nearest enemy (player or bot) that is in view and not behind cover.
 func _look_for_enemy() -> Node3D:
 	if blind_t > 0.0: return null
-	var view := 70.0 + skill * 50.0
+	var view := (70.0 + skill * 50.0) * (0.75 if world.weather == "rain" else 1.0)
 	var facing := Vector3(-sin(yaw), 0, -cos(yaw))
 	var best: Node3D = null
 	var bd := view
@@ -448,7 +461,7 @@ func hear(pos: Vector3, shooter: Node) -> void:
 	if randf() > 0.4 + skill * 0.5: return
 	var to := pos - global_position
 	to.y = 0.0
-	yaw = atan2(-to.x, -to.z)
+	_turn_to(atan2(-to.x, -to.z))
 	if armed() and to.length() > 25.0:
 		mode = "alert"
 		_go(global_position + to * (1.0 - 22.0 / to.length()))

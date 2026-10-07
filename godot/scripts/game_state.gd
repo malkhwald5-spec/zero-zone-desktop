@@ -49,7 +49,76 @@ var settings := {
 	"sensitivity": 1.0,
 	"sound": true,
 	"difficulty": "normal",
+	"weather": "random",      # "random" | "clear" | "rain" | "sunset"
+	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal
+	"invert_y": false,
+	"keys": {},               # action -> physical keycode, only the ones changed
 }
+
+## Keyboard actions you can rebind (Settings → الأزرار), their default keys
+## and names. Esc and 4-8 (heals) stay fixed.
+const KEY_ORDER := ["move_forward", "move_back", "move_left", "move_right", "sprint", "jump", "crouch", "prone",
+	"interact", "reload", "peek_l", "peek_r", "heal", "boost", "throw", "throw_kind", "slot1", "slot2", "slot3", "map", "bag", "cursor"]
+const KEY_DEFAULTS := {"move_forward": KEY_W, "move_back": KEY_S, "move_left": KEY_A, "move_right": KEY_D,
+	"sprint": KEY_SHIFT, "jump": KEY_SPACE, "crouch": KEY_C, "prone": KEY_Z, "interact": KEY_F, "reload": KEY_R,
+	"peek_l": KEY_Q, "peek_r": KEY_E, "heal": KEY_H, "boost": KEY_Y, "throw": KEY_G, "throw_kind": KEY_T,
+	"slot1": KEY_1, "slot2": KEY_2, "slot3": KEY_3, "map": KEY_M, "bag": KEY_B, "cursor": KEY_CTRL}
+const KEY_NAMES := {"move_forward": "لقدام", "move_back": "لورا", "move_left": "يسار", "move_right": "يمين",
+	"sprint": "ركض", "jump": "قفز / نطّ فوق حيط", "crouch": "انحناء", "prone": "انبطاح", "interact": "التقاط / ركوب / فتح صندوق",
+	"reload": "تلقيم", "peek_l": "ميلان يسار", "peek_r": "ميلان يمين", "heal": "علاج", "boost": "منشّط",
+	"throw": "رمي قنبلة", "throw_kind": "نوع القنبلة", "slot1": "السلاح الأول", "slot2": "السلاح الثاني",
+	"slot3": "المسدس", "map": "الخريطة", "bag": "الحقيبة", "cursor": "إظهار الماوس"}
+
+## The physical key for an action.
+func key(action: String) -> int:
+	return int(settings.keys.get(action, KEY_DEFAULTS.get(action, 0)))
+
+## The action on a physical key ("" if none).
+func action_for(code: int) -> String:
+	for a in KEY_ORDER:
+		if key(a) == code: return a
+	return ""
+
+## Put an action on a key; whatever was on that key takes the old one.
+func set_key(action: String, code: int) -> void:
+	var other := action_for(code)
+	if other != "" and other != action:
+		settings.keys[other] = key(action)
+	settings.keys[action] = code
+	apply_keys()
+	save_data()
+
+func reset_keys() -> void:
+	settings.keys = {}
+	apply_keys()
+	save_data()
+
+static func key_label(code: int) -> String:
+	match code:
+		KEY_SPACE: return "Space"
+		KEY_SHIFT: return "Shift"
+		KEY_CTRL: return "Ctrl"
+		KEY_ALT: return "Alt"
+		KEY_TAB: return "Tab"
+	return OS.get_keycode_string(code)
+
+## WASD (or the chosen keys) are input-map actions; the rest is read by code.
+func apply_keys() -> void:
+	for a in ["move_forward", "move_back", "move_left", "move_right"]:
+		if not InputMap.has_action(a): InputMap.add_action(a, 0.5)
+		InputMap.action_erase_events(a)
+		var ev := InputEventKey.new()
+		ev.physical_keycode = key(a)
+		InputMap.action_add_event(a, ev)
+
+const WEATHER_NAMES := {"random": "عشوائي", "clear": "صافي", "rain": "مطر", "sunset": "غروب"}
+
+## This match's weather (from the setting, or picked at random).
+func pick_weather() -> String:
+	var w: String = settings.get("weather", "random")
+	if w != "random": return w
+	var r := randf()
+	return "clear" if r < 0.55 else ("rain" if r < 0.78 else "sunset")
 const LOLA := 10            # WARDROBE index of the Lola character (the default look)
 var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA]}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0}
@@ -94,6 +163,10 @@ func load_data() -> void:
 	if int(data.get("save_version", 1)) < 3:
 		profile.outfit = LOLA
 		if not profile.owned.has(LOLA): profile.owned.append(LOLA)
+	if typeof(settings.get("keys")) != TYPE_DICTIONARY: settings.keys = {}
+	for k in settings.keys.keys():
+		settings.keys[k] = int(settings.keys[k])
+	apply_keys()
 
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)

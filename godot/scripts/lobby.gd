@@ -696,7 +696,7 @@ func _missions() -> Array:
 const TITLES := {
 	"inventory": "المخزون", "cards": "البطاقات", "workshop": "ورشة العمل", "season": "الموسم — ZERO PASS",
 	"missions": "المهام", "mail": "البريد", "clan": "العشيرة", "shop": "المتجر", "crate": "صندوق القمر الأحمر",
-	"events": "الفعاليات", "settings": "الإعدادات", "mode": "اختيار الوضع", "help": "طريقة اللعب",
+	"events": "الفعاليات", "settings": "الإعدادات", "keys": "الأزرار", "mode": "اختيار الوضع", "help": "طريقة اللعب",
 }
 
 func _open(which: String) -> void:
@@ -760,6 +760,7 @@ func _open(which: String) -> void:
 		"crate": _page_crate(body)
 		"events": _page_events(body)
 		"settings": _page_settings(body)
+		"keys": _page_keys(body)
 		"mode": _page_mode(body)
 		"help": _page_help(body)
 	if side:
@@ -1071,21 +1072,75 @@ func _page_settings(body: VBoxContainer) -> void:
 	sl.custom_minimum_size = Vector2(240, 30)
 	sl.value_changed.connect(func(v): Game.settings.sensitivity = v)
 	body.add_child(_row("حساسية النظر", sl))
+	var sl2 := HSlider.new()
+	sl2.min_value = 0.15
+	sl2.max_value = 1.2
+	sl2.step = 0.05
+	sl2.value = float(Game.settings.get("aim_sens", 0.45))
+	sl2.custom_minimum_size = Vector2(240, 30)
+	sl2.value_changed.connect(func(v): Game.settings.aim_sens = v)
+	body.add_child(_row("حساسية التصويب والسكوب", sl2))
+	var inv := CheckButton.new()
+	inv.button_pressed = bool(Game.settings.get("invert_y", false))
+	inv.toggled.connect(func(v): Game.settings.invert_y = v)
+	body.add_child(_row("عكس النظر لفوق ولتحت", inv))
+	body.add_child(_row("الطقس بالمباراة", _seg(["random", "clear", "rain", "sunset"], ["عشوائي", "صافي", "مطر", "غروب"], "weather", "settings")))
+	body.add_child(_row("أزرار الكيبورد", _small_btn("تغيير الأزرار", func(): _open("keys"))))
 	var snd := CheckButton.new()
 	snd.button_pressed = bool(Game.settings.sound)
 	snd.toggled.connect(func(v): Game.settings.sound = v)
 	body.add_child(_row("الصوت", snd))
 	body.add_child(_row("", _small_btn("الخروج من اللعبة", func(): get_tree().quit(), true, false)))
 
+var _wait_key := ""         # action waiting for its new key on the keys page
+
+## Every rebindable key: click one, then press the new key (Esc cancels).
+## A key already in use swaps with it.
+func _page_keys(body: VBoxContainer) -> void:
+	body.add_child(UiKit.label("اكبس على أي زر، وبعدين اكبس الزر الجديد على الكيبورد. إذا الزر مستعمل لشي ثاني بيتبادلوا.", 15, Color(1, 1, 1, 0.75), null, 0))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 30)
+	grid.add_theme_constant_override("v_separation", 6)
+	body.add_child(grid)
+	for a in Game.KEY_ORDER:
+		var hb := HBoxContainer.new()
+		hb.custom_minimum_size = Vector2(420, 0)
+		var l := UiKit.label(Game.KEY_NAMES[a], 16, Color(0.85, 0.88, 0.92), null, 0)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(l)
+		var waiting: bool = _wait_key == a
+		var txt := "اكبس زر…" if waiting else Game.key_label(Game.key(a))
+		var changed: bool = Game.settings.keys.has(a)
+		var b := UiKit.button(txt, func():
+			_wait_key = "" if _wait_key == a else a
+			_open("keys"), Vector2(130, 36), UiKit.style(UiKit.YELLOW if waiting else Color(1, 1, 1, 0.12 if not changed else 0.22), 3, Color(1, 1, 1, 0.2), 1, 6), 15, UiKit.INK if waiting else Color.WHITE)
+		b.focus_mode = Control.FOCUS_NONE
+		hb.add_child(b)
+		grid.add_child(hb)
+	body.add_child(_row("", _small_btn("إرجاع الأزرار الأصلية", func():
+		_wait_key = ""
+		Game.reset_keys()
+		_open("keys"), true, false)))
+
+func _input(event: InputEvent) -> void:
+	if _wait_key == "" or not (event is InputEventKey) or not event.pressed or event.echo: return
+	get_viewport().set_input_as_handled()
+	var code: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	if code != KEY_ESCAPE:
+		Game.set_key(_wait_key, code)
+	_wait_key = ""
+	_open("keys")
+
 func _page_mode(body: VBoxContainer) -> void:
 	var c := _box_panel(Color(0.1, 0.3, 0.25, 0.35))
 	var v := VBoxContainer.new()
 	c.add_child(v)
 	v.add_child(UiKit.label("كلاسيكي — جزيرة الصفر (8×8)", 20, Color.WHITE, UiKit.bold(), 0))
-	v.add_child(UiKit.label("فردي فقط • منظور الشخص الثالث • 17 لاعب", 14, Color(1, 1, 1, 0.75), null, 0))
+	v.add_child(UiKit.label("فردي فقط • منظور الشخص الثالث • 100 لاعب", 14, Color(1, 1, 1, 0.75), null, 0))
 	body.add_child(c)
 	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
 	body.add_child(_row("", _small_btn("تأكيد", func(): _close_panel())))
 
 func _page_help(body: VBoxContainer) -> void:
-	body.add_child(UiKit.label("• اقفز من الطائرة فوق الجزيرة، وافتح المظلة.\n• اجمع الأسلحة والذخيرة (F أو زر «التقاط»).\n• عصا الحركة يسار — اسحبها لفوق لتثبيت الركض.\n• اسحب يمين الشاشة للنظر، وأزرار الإطلاق بتدوّر الكاميرا كمان.\n• كيبورد: WASD حركة، Shift ركض، C انحناء، Z انبطاح،\n   Space قفز، R تلقيم، زر الماوس اليمين منظار، M الخريطة، B الحقيبة،\n   Ctrl لإظهار الماوس أو إخفائه.\n• H علاج، Y منشّط، G قنبلة (اترك الزر للرمي)، T نوع القنبلة.\n• العب مباريات لتجمع ذهب وخبرة الموسم، واشتري ملابس من المخزون.", 17, Color.WHITE, null, 0))
+	body.add_child(UiKit.label("• اقفز من الطائرة فوق الجزيرة، وافتح المظلة.\n• اجمع الأسلحة والذخيرة (F أو زر «التقاط»).\n• عصا الحركة يسار — اسحبها لفوق لتثبيت الركض.\n• اسحب يمين الشاشة للنظر، وأزرار الإطلاق بتدوّر الكاميرا كمان.\n• كيبورد: WASD حركة، Shift ركض، C انحناء، Z انبطاح،\n   Space قفز ونطّ فوق الحيطان والشبابيك، R تلقيم، زر الماوس اليمين منظار،\n   Q و E ميلان، M الخريطة، B الحقيبة، Ctrl لإظهار الماوس أو إخفائه.\n   (كل الأزرار بتقدر تغيّرها من الإعدادات ← تغيير الأزرار)\n• H علاج، Y منشّط، G قنبلة (اترك الزر للرمي)، T نوع القنبلة.\n• F جنب صندوق الميت بتفتح أغراضه، وبتركب سيارة أو موتور أو قارب.\n• العب مباريات لتجمع ذهب وخبرة الموسم، واشتري ملابس من المخزون.", 17, Color.WHITE, null, 0))

@@ -28,6 +28,9 @@ var plane_dur := 40.0
 var plane_active := true
 var map_texture: Texture2D
 var match_over := false
+var weather := "clear"          # clear | rain | sunset (see Game.pick_weather)
+var _rain: GPUParticles3D
+var _rain_snd: AudioStreamPlayer
 var time := 0.0
 var _shot_stream: AudioStreamWAV
 var loading: LoadingScreen
@@ -51,6 +54,8 @@ func _build() -> void:
 	island = Island.new(seed_v, Game.MAP_SIZE)
 	island.generate()
 	builder = WorldBuilder.new(island, self)
+	weather = Game.pick_weather()
+	builder.weather = weather
 	var steps := builder.steps()
 	for i in steps.size():
 		loading.set_progress(0.1 + 0.6 * i / steps.size(), steps[i][1])
@@ -67,6 +72,7 @@ func _build() -> void:
 	_spawn_loot()
 	_build_cover()
 	_spawn_vehicles()
+	_spawn_boats()
 	_make_plane()
 	loading.set_progress(0.85, "جاري تجهيز اللاعبين")
 	await _frame()
@@ -919,19 +925,55 @@ func _spawn_vehicles() -> void:
 			if island.height_at(p.x, p.y) < 0.8 or _in_building(p, 3.0): continue
 			var v := Vehicle.new()
 			v.world = self
-			v.kind = "jeep" if randf() < 0.4 else "sedan"
-			v.paint = CAR_COLORS[randi() % CAR_COLORS.size()] if v.kind == "sedan" else [Color("4b5a3a"), Color("6b6250"), Color("3d4a52")][randi() % 3]
-			v.position = Vector3(p.x, island.height_at(p.x, p.y) + 0.9, p.y)
+			var r := randf()
+			v.kind = "bike" if r < 0.25 else ("jeep" if r < 0.55 else "sedan")
+			v.paint = CAR_COLORS[randi() % CAR_COLORS.size()] if v.kind != "jeep" else [Color("4b5a3a"), Color("6b6250"), Color("3d4a52")][randi() % 3]
+			v.position = Vector3(p.x, island.height_at(p.x, p.y) + (0.9 if v.kind != "bike" else 0.6), p.y)
 			v.rotation.y = atan2(dir.x, dir.y) + (PI if randf() < 0.5 else 0.0)   # cars face +Z
 			add_child(v)
 			vehicles.append(v)
+
+## Motor boats moored in deep water just off the shores and in the river.
+func _spawn_boats() -> void:
+	var placed: Array[Vector2] = []
+	var tries := 0
+	while placed.size() < 10 and tries < 4000:
+		tries += 1
+		var p := Vector2(randf_range(0.05, 0.95), randf_range(0.05, 0.95)) * island.size
+		if not island.is_deep(p.x, p.y) or island.height_at(p.x, p.y) > -2.0: continue
+		# Wading depth 3-6 m away, so you can walk up and climb in.
+		var shore := Vector2.INF
+		for k in 16:
+			var dir := Vector2(cos(k * TAU / 16.0), sin(k * TAU / 16.0))
+			for d in [3.0, 4.5, 6.0]:
+				var q: Vector2 = p + dir * d
+				if not island.is_deep(q.x, q.y):
+					shore = q
+					break
+			if shore != Vector2.INF: break
+		if shore == Vector2.INF: continue
+		var near := false
+		for o in placed:
+			if o.distance_to(p) < 250.0: near = true
+		if near: continue
+		placed.append(p)
+		var v := Vehicle.new()
+		v.world = self
+		v.kind = "boat"
+		v.paint = [Color("c8d2d8"), Color("2f5d7a"), Color("b8402f"), Color("e8e4da")][randi() % 4]
+		v.position = Vector3(p.x, Island.WATER + 0.2, p.y)
+		# Side on to the shore, so you can step aboard.
+		var to := (shore - p).normalized()
+		v.rotation.y = atan2(-to.y, to.x)
+		add_child(v)
+		vehicles.append(v)
 
 func nearest_vehicle(p: Vector3, r: float) -> Vehicle:
 	var best: Vehicle = null
 	var bd := r
 	for v in vehicles:
 		if v.dead or v.driver != null: continue
-		var d: float = p.distance_to(v.global_position)
+		var d: float = p.distance_to(v.global_position) - (2.5 if v.kind == "boat" else 0.0)
 		if d < bd:
 			bd = d
 			best = v
@@ -1219,15 +1261,87 @@ func _update_ambience(delta: float) -> void:
 		_ambience.volume_db = -60.0
 		add_child(_ambience)
 		_ambience.play()
+	_update_rain(delta)
 	var target := -60.0
 	match player.state:
 		"ground":
 			target = -24.0 if building_at(Vector2(player.global_position.x, player.global_position.z)) >= 0 else -15.0
+			if weather == "rain": target -= 14.0      # birds keep quiet in the rain
 		"vehicle":
 			target = -26.0
 		"chute":
 			target = -30.0
 	_ambience.volume_db = move_toward(_ambience.volume_db, target, delta * 20.0)
+
+## Rain: streaks falling around the camera and the hiss of rain (made from
+## filtered noise), quieter indoors. Birds go quiet.
+func _update_rain(delta: float) -> void:
+	if weather != "rain": return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null: return
+	if _rain == null:
+		_rain = GPUParticles3D.new()
+		_rain.amount = 5000
+		_rain.lifetime = 1.1
+		_rain.visibility_aabb = AABB(Vector3(-30, -30, -30), Vector3(60, 45, 60))
+		var pm := ParticleProcessMaterial.new()
+		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		pm.emission_box_extents = Vector3(22, 0.5, 22)
+		pm.direction = Vector3(0.08, -1, 0.03)
+		pm.spread = 2.0
+		pm.initial_velocity_min = 22.0
+		pm.initial_velocity_max = 26.0
+		pm.gravity = Vector3(0, -9.8, 0)
+		_rain.process_material = pm
+		var q := QuadMesh.new()
+		q.size = Vector2(0.012, 0.55)
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = Color(0.8, 0.85, 0.9, 0.22)
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+		q.material = mat
+		_rain.draw_pass_1 = q
+		_rain.local_coords = false
+		add_child(_rain)
+	_rain.global_position = cam.global_position + Vector3(0, 14, 0) + Vector3(cam.global_basis.z.x, 0, cam.global_basis.z.z) * -8.0
+	var inside := player.state == "ground" and building_at(Vector2(player.global_position.x, player.global_position.z)) >= 0
+	if not Game.settings.sound: return
+	if _rain_snd == null:
+		_rain_snd = AudioStreamPlayer.new()
+		_rain_snd.stream = _rain_noise()
+		_rain_snd.volume_db = -40.0
+		add_child(_rain_snd)
+		_rain_snd.play()
+	var tgt := -60.0 if player.state == "plane" else (-24.0 if inside else -13.0)
+	_rain_snd.volume_db = move_toward(_rain_snd.volume_db, tgt, delta * 20.0)
+
+## Three seconds of rain hiss (low-passed white noise with soft patter), looped.
+func _rain_noise() -> AudioStreamWAV:
+	var rate := 22050
+	var n := rate * 3
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	var lp := 0.0
+	var lp2 := 0.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	for i in n:
+		var w := rng.randf_range(-1.0, 1.0)
+		lp += (w - lp) * 0.35
+		lp2 += (lp - lp2) * 0.5
+		var v := lp2 * 0.5
+		if rng.randf() < 0.004: v += rng.randf_range(-0.5, 0.5)     # drops hitting things
+		# Fade the ends together so the loop has no click.
+		var edge := minf(1.0, minf(float(i), float(n - i)) / 600.0)
+		data.encode_s16(i * 2, int(clampf(v * edge, -1.0, 1.0) * 26000.0))
+	var st := AudioStreamWAV.new()
+	st.format = AudioStreamWAV.FORMAT_16_BITS
+	st.mix_rate = rate
+	st.data = data
+	st.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	st.loop_end = n
+	return st
 
 var _sounds_playing := 0
 ## Recorded sounds (freesound.org, see README): assets/sounds/<name>.ogg

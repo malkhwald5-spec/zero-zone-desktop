@@ -250,3 +250,115 @@ static func wheel(radius: float, width: float) -> Dictionary:
 	var d := {"tyre": tyre.commit(), "rim": rim.commit()}
 	_cache[key] = d
 	return d
+
+## Parts helpers shared by the bike and the boat.
+static func _box_into(st: SurfaceTool, size: Vector3, pos: Vector3, rot := Vector3.ZERO) -> void:
+	var b := BoxMesh.new()
+	b.size = size
+	st.append_from(b, 0, Transform3D(Basis.from_euler(rot), pos))
+
+static func _tube_into(st: SurfaceTool, r: float, a: Vector3, b: Vector3, segs := 10) -> void:
+	var c := CylinderMesh.new()
+	c.top_radius = r
+	c.bottom_radius = r
+	c.height = a.distance_to(b)
+	c.radial_segments = segs
+	c.rings = 1
+	var up := (b - a).normalized()
+	var side := up.cross(Vector3.FORWARD if absf(up.z) < 0.9 else Vector3.RIGHT).normalized()
+	st.append_from(c, 0, Transform3D(Basis(side, up, side.cross(up)), (a + b) * 0.5))
+
+static func _sts(keys: Array) -> Dictionary:
+	var d := {}
+	for k in keys:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		d[k] = st
+	return d
+
+static func _commit(d: Dictionary) -> Dictionary:
+	var out := {}
+	for k in d:
+		out[k] = d[k].commit()
+	return out
+
+## Dirt bike (faces +Z, wheels at z = ±0.72, seat top ~0.85 m): painted tank
+## and side panels, black frame, fork, handlebar, engine, exhaust, lights.
+static func bike() -> Dictionary:
+	if _cache.has("bike"): return _cache["bike"]
+	var s := _sts(["paint", "dark", "chrome", "seat", "head", "tail"])
+	# Frame: down tube, top tube, rear frame to the axle.
+	_tube_into(s.dark, 0.03, Vector3(0, 0.95, 0.5), Vector3(0, 0.42, 0.15))
+	_tube_into(s.dark, 0.03, Vector3(0, 0.95, 0.5), Vector3(0, 0.85, -0.25))
+	for x in [-0.09, 0.09]:
+		_tube_into(s.dark, 0.022, Vector3(x, 0.8, -0.25), Vector3(x, 0.32, -0.72))   # swing arm/shock
+		_tube_into(s.dark, 0.02, Vector3(x, 0.45, 0.1), Vector3(x, 0.32, -0.72))
+		# Fork legs down to the front axle.
+		_tube_into(s.chrome, 0.026, Vector3(x, 1.0, 0.55), Vector3(x, 0.32, 0.72))
+	# Tank, side panels, front mudguard, rear fender.
+	var tank := CapsuleMesh.new()
+	tank.radius = 0.15
+	tank.height = 0.55
+	s.paint.append_from(tank, 0, Transform3D(Basis(Vector3.RIGHT, PI / 2 - 0.15), Vector3(0, 0.92, 0.22)))
+	_box_into(s.paint, Vector3(0.26, 0.2, 0.5), Vector3(0, 0.78, -0.35), Vector3(0.15, 0, 0))
+	_box_into(s.paint, Vector3(0.14, 0.03, 0.42), Vector3(0, 0.72, 0.78), Vector3(0.35, 0, 0))
+	_box_into(s.paint, Vector3(0.16, 0.03, 0.5), Vector3(0, 0.88, -0.78), Vector3(-0.3, 0, 0))
+	# Seat.
+	_box_into(s.seat, Vector3(0.24, 0.08, 0.62), Vector3(0, 0.89, -0.25), Vector3(0.05, 0, 0))
+	# Engine block and exhaust along the right side.
+	_box_into(s.dark, Vector3(0.24, 0.26, 0.3), Vector3(0, 0.5, 0.05))
+	_tube_into(s.chrome, 0.035, Vector3(0.12, 0.45, 0.25), Vector3(0.16, 0.42, -0.2))
+	_tube_into(s.chrome, 0.045, Vector3(0.16, 0.42, -0.2), Vector3(0.17, 0.62, -0.75))
+	# Handlebar with grips, headlight with a number plate shell, tail light.
+	_tube_into(s.dark, 0.016, Vector3(-0.36, 1.1, 0.5), Vector3(0.36, 1.1, 0.5))
+	_tube_into(s.dark, 0.022, Vector3(0, 1.0, 0.55), Vector3(0, 1.1, 0.5))
+	for x in [-0.33, 0.33]:
+		_tube_into(s.seat, 0.024, Vector3(x - 0.05, 1.1, 0.5), Vector3(x + 0.05, 1.1, 0.5))
+	_box_into(s.paint, Vector3(0.22, 0.24, 0.06), Vector3(0, 0.98, 0.64), Vector3(-0.3, 0, 0))
+	_box_into(s.head, Vector3(0.1, 0.08, 0.03), Vector3(0, 0.97, 0.68), Vector3(-0.3, 0, 0))
+	_box_into(s.tail, Vector3(0.08, 0.05, 0.03), Vector3(0, 0.9, -1.02))
+	var out := _commit(s)
+	_cache["bike"] = out
+	return out
+
+## Small open motor boat (faces +Z, 4.6 m): V-hull with a pointed bow, deck,
+## benches, windscreen, outboard motor at the stern.
+static func boat() -> Dictionary:
+	if _cache.has("boat"): return _cache["boat"]
+	var s := _sts(["paint", "white", "dark", "seat", "glass", "chrome"])
+	# Hull from cross-sections: [z, half width, keel depth].
+	var secs := [[-2.3, 0.9, 0.0], [-1.5, 0.95, -0.05], [0.0, 0.95, -0.12], [1.2, 0.8, -0.1], [1.9, 0.45, 0.05], [2.35, 0.04, 0.32]]
+	var top := 0.62
+	var ring := func(sec: Array) -> Array:
+		var z: float = sec[0]
+		var w: float = sec[1]
+		var k: float = sec[2]
+		return [Vector3(-w, top, z), Vector3(-w * 0.9, 0.15 + k * 0.5, z), Vector3(0, k, z), Vector3(w * 0.9, 0.15 + k * 0.5, z), Vector3(w, top, z)]
+	var hull: SurfaceTool = s.paint
+	for i in secs.size() - 1:
+		var a: Array = ring.call(secs[i])
+		var b: Array = ring.call(secs[i + 1])
+		for j in a.size() - 1:
+			# Outside faces (normals out of the hull).
+			for v in [a[j], b[j + 1], b[j], a[j], a[j + 1], b[j + 1]]:
+				hull.add_vertex(v)
+	# Transom (flat back).
+	var tr: Array = ring.call(secs[0])
+	for j in range(1, tr.size() - 1):
+		for v in [tr[0], tr[j + 1], tr[j]]:
+			hull.add_vertex(v)
+	hull.generate_normals()
+	# Deck, gunwale rails, benches, console with windscreen, outboard motor.
+	_box_into(s.white, Vector3(1.7, 0.04, 3.6), Vector3(0, 0.32, -0.45))
+	for x in [-1.0, 1.0]:
+		_tube_into(s.chrome, 0.02, Vector3(x * 0.88, top + 0.02, -2.2), Vector3(x * 0.6, top + 0.02, 1.9))
+	_box_into(s.seat, Vector3(1.5, 0.12, 0.45), Vector3(0, 0.55, -1.75))
+	_box_into(s.seat, Vector3(1.5, 0.12, 0.4), Vector3(0, 0.55, 0.9))
+	_box_into(s.white, Vector3(0.6, 0.55, 0.45), Vector3(0.35, 0.6, -0.25))
+	_box_into(s.glass, Vector3(0.62, 0.3, 0.02), Vector3(0.35, 1.0, -0.05), Vector3(-0.35, 0, 0))
+	_box_into(s.dark, Vector3(0.36, 0.5, 0.42), Vector3(0, 0.85, -2.45))
+	_box_into(s.dark, Vector3(0.12, 0.6, 0.18), Vector3(0, 0.3, -2.5))
+	_tube_into(s.chrome, 0.02, Vector3(0, 0.95, -2.25), Vector3(0, 0.9, -1.85))   # tiller
+	var out := _commit(s)
+	_cache["boat"] = out
+	return out

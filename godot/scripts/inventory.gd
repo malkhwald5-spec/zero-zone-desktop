@@ -50,7 +50,7 @@ func _ready() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(spacer)
-	head.add_child(UiKit.button("إغلاق  (B)", func(): world.hud.toggle_bag(), Vector2(120, 38), UiKit.style(Color(1, 1, 1, 0.1), 6), 15))
+	head.add_child(UiKit.button("إغلاق  (%s)" % Game.key_label(Game.key("bag")), func(): world.hud.toggle_bag(), Vector2(120, 38), UiKit.style(Color(1, 1, 1, 0.1), 6), 15))
 	root.add_child(head)
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL

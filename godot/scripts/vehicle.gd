@@ -1,6 +1,9 @@
 class_name Vehicle
 extends VehicleBody3D
-## A drivable car (4 wheels, real suspension), facing +Z like Godot vehicles. The player gets in with F,
+## A drivable car, motorbike or boat, facing +Z like Godot vehicles. Cars and
+## the bike have real wheels and suspension (the bike runs on two narrow pairs
+## kept upright and leans into turns); the boat floats and is pushed by its
+## outboard motor. The player gets in with F,
 ## drives with WASD (Space = handbrake) and gets out with F. Bullets damage
 ## it; at 0 health it blows up. Hitting someone at speed hurts them.
 
@@ -19,7 +22,13 @@ var throttle := 0.0              # -1..1
 var steer_in := 0.0              # -1..1 (right positive)
 var handbrake := false
 var paint := Color("b8402f")
-var kind := "sedan"              # "sedan" | "jeep"
+var kind := "sedan"              # "sedan" | "jeep" | "bike" | "boat"
+var max_health := MAX_HEALTH
+var max_speed := MAX_SPEED
+var max_force := MAX_FORCE
+var max_steer := MAX_STEER
+var _lean_node: Node3D           # the bike's body and rider lean into turns
+var lean := 0.0
 var _tail_mat: StandardMaterial3D
 var _engine: AudioStreamPlayer3D
 var _dust: Array = []
@@ -31,6 +40,12 @@ var _wheels: Array = []
 var _flip_t := 0.0
 
 func _ready() -> void:
+	if kind == "bike":
+		_ready_bike()
+		return
+	if kind == "boat":
+		_ready_boat()
+		return
 	mass = 1150.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, 0.1, 0)        # low, so it doesn't roll over in turns
@@ -81,6 +96,135 @@ func _ready() -> void:
 			rim.material_override = _shared_mat("rim", Color("9aa0a6") if kind == "sedan" else Color("2a2c2a"), 0.3, 0.85)
 			w.add_child(rim)
 			_wheels.append(w)
+
+func _ready_common(m: float) -> void:
+	mass = m
+	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	collision_layer = 1
+	collision_mask = 1
+	contact_monitor = false
+	linear_damp = 0.05
+	angular_damp = 1.2
+
+func _add_box_shape(size: Vector3, pos: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	cs.shape = box
+	cs.position = pos
+	add_child(cs)
+
+## Meshes from CarModels with one material per part name.
+func _add_parts(parts: Dictionary, mats: Dictionary, parent: Node3D) -> void:
+	for k in parts:
+		var mi := MeshInstance3D.new()
+		mi.mesh = parts[k]
+		mi.material_override = mats[k]
+		parent.add_child(mi)
+
+func _ready_bike() -> void:
+	max_health = 320.0
+	health = max_health
+	max_speed = 38.0
+	max_force = 900.0
+	max_steer = 0.42
+	display_name = "موتور"
+	_ready_common(230.0)
+	center_of_mass = Vector3(0, 0.25, 0)
+	angular_damp = 2.5
+	_add_box_shape(Vector3(0.45, 0.5, 1.7), Vector3(0, 0.75, 0))
+	_lean_node = Node3D.new()
+	add_child(_lean_node)
+	var pm := _mat(paint, 0.25, 0.4)
+	pm.clearcoat_enabled = true
+	pm.clearcoat = 0.5
+	_tail_mat = _mat(Color("8a1010"), 0.25)
+	_tail_mat.emission_enabled = true
+	_tail_mat.emission = Color("ff2a1a")
+	_tail_mat.emission_energy_multiplier = 0.3
+	var head := _shared_mat("head", Color("fff6dc"), 0.1)
+	head.emission_enabled = true
+	head.emission = Color("fff3d0")
+	head.emission_energy_multiplier = 1.2
+	_add_parts(CarModels.bike(), {"paint": pm, "dark": _shared_mat("dark", Color("141516"), 0.6),
+		"chrome": _shared_mat("chrome", Color("d8dde2"), 0.12, 1.0), "seat": _shared_mat("seat", Color("1d1b1a"), 0.85),
+		"head": head, "tail": _tail_mat}, _lean_node)
+	# Two narrow pairs of wheels keep it on its feet; one tyre of each pair is
+	# drawn, moved to the middle.
+	for z in [-0.72, 0.72]:
+		for x in [-0.11, 0.11]:
+			var w := VehicleWheel3D.new()
+			w.position = Vector3(x, 0.45, z)
+			w.wheel_radius = 0.32
+			w.wheel_rest_length = 0.12
+			w.suspension_travel = 0.18
+			w.suspension_stiffness = 40.0
+			w.suspension_max_force = 3000.0
+			w.damping_compression = 0.9
+			w.damping_relaxation = 1.1
+			w.wheel_friction_slip = 2.4
+			w.wheel_roll_influence = 0.02
+			w.use_as_steering = z > 0.0
+			w.use_as_traction = z < 0.0
+			add_child(w)
+			_wheels.append(w)
+			if x > 0.0:
+				var wm := CarModels.wheel(0.32, 0.12)
+				for part in [[wm.tyre, _shared_mat("tyre", Color("1a1a1b"), 0.92)], [wm.rim, _shared_mat("bike_rim", Color("2a2c2e"), 0.4, 0.7)]]:
+					var mi := MeshInstance3D.new()
+					mi.mesh = part[0]
+					mi.material_override = part[1]
+					mi.position.x = -x
+					w.add_child(mi)
+	_effect_nodes(Vector3(0, 0.15, -0.95), [0.0], Vector3(0, 0.8, 0.5))
+
+func _ready_boat() -> void:
+	max_health = 500.0
+	health = max_health
+	max_speed = 18.0
+	max_force = 5200.0
+	display_name = "قارب"
+	_ready_common(650.0)
+	center_of_mass = Vector3(0, 0.1, -0.2)
+	linear_damp = 0.0
+	angular_damp = 0.8
+	_add_box_shape(Vector3(1.8, 0.5, 4.4), Vector3(0, 0.38, 0))
+	var hull := _mat(paint, 0.35)
+	hull.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_tail_mat = _mat(Color("8a1010"), 0.25)
+	_add_parts(CarModels.boat(), {"paint": hull, "white": _shared_mat("boat_white", Color("ece9e2"), 0.5),
+		"dark": _shared_mat("dark", Color("141516"), 0.6), "seat": _shared_mat("boat_seat", Color("2e5c74"), 0.8),
+		"glass": _shared_mat("glass", Color(0.08, 0.1, 0.12), 0.04, 0.6), "chrome": _shared_mat("chrome", Color("d8dde2"), 0.12, 1.0)}, self)
+	_effect_nodes(Vector3(0, 0.1, -2.6), [-0.4, 0.4], Vector3(0, 0.9, -2.4))
+	for d in _dust:
+		var dm: StandardMaterial3D = d.mesh.material
+		dm.albedo_color = Color(0.92, 0.95, 0.97, 0.7)
+
+## Dust (or spray) behind, smoke and fire when damaged.
+func _effect_nodes(dust_at: Vector3, xs: Array, engine_at: Vector3) -> void:
+	for x in xs:
+		var d := _particles(Color(0.62, 0.55, 0.42, 0.55), 1.1, 0.6, 18)
+		d.position = dust_at + Vector3(x, 0, 0)
+		d.direction = Vector3(0, 0.6, -1)
+		_dust.append(d)
+	_smoke = _particles(Color(0.25, 0.25, 0.25, 0.7), 2.2, 0.5, 16)
+	_smoke.position = engine_at
+	_smoke.gravity = Vector3(0, 1.6, 0)
+	_fire = _particles(Color(1.0, 0.45, 0.1, 0.9), 0.5, 0.3, 14)
+	_fire.position = engine_at
+	_fire.gravity = Vector3(0, 2.5, 0)
+	var fm: StandardMaterial3D = _fire.mesh.material
+	fm.emission_enabled = true
+	fm.emission = Color(1.0, 0.5, 0.1)
+	fm.emission_energy_multiplier = 3.0
+
+## Where the driver sits (vehicle space; the model faces -Z so it is turned round).
+func seat_xform() -> Transform3D:
+	match kind:
+		"bike": return Transform3D(Basis(Vector3.BACK, lean), Vector3.ZERO) * Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.53, -0.08))
+		"boat": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.35, 0.23, -1.75))
+		"jeep": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.62, -0.18))
+	return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.42, -0.18))
 
 func _mat(c: Color, rough := 0.5, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -221,13 +365,14 @@ static func engine_stream() -> AudioStreamWAV:
 
 ## Sound, dust, brake lights and damage smoke (only matter near the player).
 func _effects(sp: float) -> void:
-	var near: bool = world.player != null and global_position.distance_to(world.player.global_position) < 180.0
+	var near: bool = world.player != null and global_position.distance_to(world.view_position()) < 180.0
 	var moving := absf(sp) > 4.0 and near
+	if kind == "boat": moving = moving and _in_water
 	for d in _dust: d.emitting = moving
 	var braking := brake > 1.0 and driver != null
 	_tail_mat.emission_energy_multiplier = 2.5 if braking else 0.3
-	_smoke.emitting = near and health < MAX_HEALTH * 0.45 and not dead or (dead and near)
-	_fire.emitting = near and (health < MAX_HEALTH * 0.2 or dead)
+	_smoke.emitting = near and health < max_health * 0.45 and not dead or (dead and near)
+	_fire.emitting = near and (health < max_health * 0.2 or dead)
 	if not Game.settings.sound or DisplayServer.get_name() == "headless": return
 	if driver != null and _engine == null:
 		_engine = AudioStreamPlayer3D.new()
@@ -263,7 +408,9 @@ func _effects(sp: float) -> void:
 		_gear = clampi(int(v / 7.0) + 1, 1, 5)
 		var rev := clampf((v - (_gear - 1) * 7.0) / 7.0, 0.0, 1.0)
 		var load := absf(throttle)
-		_engine.pitch_scale = lerpf(_engine.pitch_scale, 0.75 + rev * 0.9 + _gear * 0.08 + load * 0.1, 0.2)
+		var kp: float = {"bike": 1.35, "boat": 0.85}.get(kind, 1.0)
+		if kind == "boat": rev = clampf(v / max_speed, 0.0, 1.0)
+		_engine.pitch_scale = lerpf(_engine.pitch_scale, (0.75 + rev * 0.9 + (_gear * 0.08 if kind != "boat" else 0.0) + load * 0.1) * kp, 0.2)
 		_engine.volume_db = lerpf(_engine.volume_db, -10.0 + load * 6.0, 0.1)
 
 ## A recorded sound loaded by the world (null if missing).
@@ -275,6 +422,9 @@ func speed() -> float:
 	return linear_velocity.dot(global_basis.z)
 
 func _physics_process(delta: float) -> void:
+	if kind == "boat":
+		_boat_physics(delta)
+		return
 	# Safety net: if the body ever sinks into the terrain, put it back on top.
 	var g: float = world.ground_height(global_position)
 	if global_position.y < g - 1.5 and not world.is_deep(global_position):
@@ -301,23 +451,24 @@ func _physics_process(delta: float) -> void:
 		# Brake first when asked to go the other way.
 		if (t < 0.0 and sp > 4.0) or (t > 0.0 and sp < -4.0):
 			# Braking: wheel brakes plus engine braking against the motion.
-			engine_force = -signf(sp) * MAX_FORCE * 1.2
+			engine_force = -signf(sp) * max_force * 1.2
 			brake = BRAKE
 		else:
 			# Coasting: engine braking, and hold still when nearly stopped (no rolling downhill).
 			brake = (BRAKE if absf(sp) < 3.0 else BRAKE * 0.25) if absf(t) < 0.01 else 0.0
-			engine_force = t * MAX_FORCE * (1.0 if absf(sp) < MAX_SPEED else 0.0) * (0.5 if t < 0.0 else 1.0)
+			engine_force = t * max_force * (1.0 if absf(sp) < max_speed else 0.0) * (0.5 if t < 0.0 else 1.0)
 		if handbrake:
 			engine_force = 0.0
 			brake = BRAKE * 1.5
 		# Less steering at speed (no rollovers); positive steering turns left.
-		var steer_target := -steer_in * MAX_STEER * clampf(1.0 - absf(sp) / 30.0, 0.18, 1.0)
+		var steer_target := -steer_in * max_steer * clampf(1.0 - absf(sp) / (30.0 if kind != "bike" else 42.0), 0.18, 1.0)
 		steering = move_toward(steering, steer_target, delta * 2.5)
 	else:
 		# Nobody driving: roll to a stop within a few metres.
-		engine_force = -signf(sp) * MAX_FORCE * 0.6 if absf(sp) > 1.0 else 0.0
+		engine_force = -signf(sp) * max_force * 0.6 if absf(sp) > 1.0 else 0.0
 		brake = BRAKE
 		steering = move_toward(steering, 0.0, delta)
+	if kind == "bike": _keep_upright(delta, sp)
 	# Running people over.
 	for k in _hit_cd.keys():
 		_hit_cd[k] -= delta
@@ -333,8 +484,69 @@ func _physics_process(delta: float) -> void:
 				_hit_cd[b] = 0.7
 				b.take_damage(absf(sp) * 3.2, driver if driver else self, false)
 	# Drowned in deep water: the engine dies.
-	if global_position.y < Island.WATER - 1.0 and world.is_deep(global_position):
-		take_damage(MAX_HEALTH * 2.0, null)
+	if kind != "boat" and global_position.y < Island.WATER - 1.0 and world.is_deep(global_position):
+		take_damage(max_health * 2.0, null)
+
+## The bike stays on its wheels (a hidden hand on the handlebars), and its
+## body leans into the turn by speed and steering.
+func _keep_upright(delta: float, sp: float) -> void:
+	var want := clampf(steering * absf(sp) / 14.0, -0.6, 0.6)
+	lean = lerpf(lean, want, minf(1.0, delta * 5.0))
+	if _lean_node: _lean_node.rotation.z = lean
+
+## Bike: no roll at all for the body (the lean is only drawn), pitch and
+## heading stay free so it follows slopes.
+func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
+	if kind != "bike" or dead: return
+	var t := st.transform
+	var fwd := t.basis.z.normalized()
+	var up := (Vector3.UP - fwd * fwd.dot(Vector3.UP))
+	if up.length() < 0.2: return
+	up = up.normalized()
+	st.transform = Transform3D(Basis(up.cross(fwd), up, fwd), t.origin)
+	var av := st.angular_velocity
+	st.angular_velocity = av - fwd * av.dot(fwd)
+
+# ---------- Boat ----------
+var _in_water := false
+
+## Floating: four points on the hull are pushed up by how deep they sit;
+## water drag keeps it from sliding sideways; the motor pushes and turns it
+## only when its stern is in the water.
+func _boat_physics(delta: float) -> void:
+	_effects(speed())
+	var k := mass * 9.8 / (4.0 * 0.28)
+	var submerged := 0
+	for off in [Vector3(-0.8, 0.1, 1.6), Vector3(0.8, 0.1, 1.6), Vector3(-0.8, 0.1, -1.9), Vector3(0.8, 0.1, -1.9)]:
+		var p: Vector3 = global_transform * off
+		var depth := Island.WATER - p.y
+		if depth <= 0.0: continue
+		submerged += 1
+		var r: Vector3 = p - global_position
+		var vp: Vector3 = linear_velocity + angular_velocity.cross(r)
+		apply_force(Vector3.UP * (k * minf(depth, 0.8) - vp.y * mass * 0.6), r)
+	_in_water = submerged >= 2
+	if dead: return
+	var sp := speed()
+	if _in_water:
+		# Drag: little along the hull, a lot sideways.
+		var side := global_basis.x
+		var lat := linear_velocity.dot(side)
+		apply_central_force(-side * lat * mass * 1.6 - global_basis.z * sp * mass * 0.12)
+		angular_velocity.x *= 0.96
+		angular_velocity.z *= 0.96
+		if driver:
+			if sleeping and (absf(throttle) > 0.01 or absf(steer_in) > 0.01): sleeping = false
+			var t := throttle * (0.5 if throttle < 0.0 else 1.0)
+			if absf(sp) < max_speed or signf(t) != signf(sp):
+				apply_central_force(global_basis.z * t * max_force)
+			# Turning needs way on; the bow lifts a little at speed.
+			var turn := -steer_in * clampf(absf(sp) / 6.0, 0.25, 1.0) * signf(sp if absf(sp) > 0.5 else 1.0)
+			apply_torque(Vector3.UP * turn * mass * 2.2)
+			apply_torque(global_basis.x * -clampf(sp / max_speed, 0.0, 1.0) * mass * 0.6)
+	else:
+		# Beached: it just sits there.
+		linear_velocity = linear_velocity.move_toward(Vector3.ZERO, delta * 6.0)
 
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 	if dead: return false
@@ -344,7 +556,7 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 		engine_force = 0.0
 		brake = 20.0
 		var who := driver
-		if who and who.has_method("exit_vehicle"): who.exit_vehicle()
+		if who and who.has_method("exit_vehicle"): who.exit_vehicle(true)
 		world.explode(global_position + Vector3(0, 1.0, 0), attacker if attacker else self, [get_rid()])
 		var burnt := _mat(Color("1b1a19"), 1.0)
 		for c in get_children():

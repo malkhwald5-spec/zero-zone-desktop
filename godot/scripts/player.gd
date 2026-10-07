@@ -128,8 +128,12 @@ func _ready() -> void:
 
 # ---------- Input ----------
 func add_look(dx: float, dy: float) -> void:
-	var k := 0.0032 * sens * (0.45 if aiming else 1.0)
+	var k := 0.0032 * sens * (float(Game.settings.get("aim_sens", 0.45)) if aiming else 1.0)
+	if aiming and scoped():
+		# Through a scope: slower the more it magnifies.
+		k /= sqrt(maxf(1.0, float(weapon().get("zoom", 1.0))))
 	yaw -= dx * k
+	if Game.settings.get("invert_y", false): dy = -dy
 	pitch = clampf(pitch - dy * k, -1.35, 1.0)
 
 func action(act: String, pressed: bool) -> void:
@@ -174,37 +178,38 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT: firing = event.pressed
 		elif event.button_index == MOUSE_BUTTON_RIGHT: aiming = event.pressed
-	elif event is InputEventKey and not event.pressed and event.physical_keycode == KEY_G:
+	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("throw"):
 		release_throw()
 	elif event is InputEventKey and event.pressed and not event.echo:
-		match event.physical_keycode:
-			KEY_F: interact()
-			KEY_R: start_reload()
-			KEY_SPACE:
+		match Game.action_for(event.physical_keycode):
+			"interact": interact()
+			"reload": start_reload()
+			"jump":
 				if state == "plane":
 					interact()
 				else:
 					jump_queued = true
-			KEY_C: set_stance("crouch")
-			KEY_Z: set_stance("prone")
-			KEY_H: use_heal(best_heal())
-			KEY_Y: use_heal(best_boost())
-			KEY_G: start_throw()
-			KEY_T: switch_throw()
+			"crouch": set_stance("crouch")
+			"prone": set_stance("prone")
+			"heal": use_heal(best_heal())
+			"boost": use_heal(best_boost())
+			"throw": start_throw()
+			"throw_kind": switch_throw()
+			"slot1": switch_slot(0)
+			"slot2": switch_slot(1)
+			"slot3": switch_slot(2)
+		match event.physical_keycode:
 			KEY_4: use_heal("bandage")
 			KEY_5: use_heal("firstaid")
 			KEY_6: use_heal("medkit")
 			KEY_7: use_heal("drink")
 			KEY_8: use_heal("pills")
-			KEY_1: switch_slot(0)
-			KEY_2: switch_slot(1)
-			KEY_3: switch_slot(2)
 
 func _read_move() -> void:
 	var v := touch_move
 	if Game.settings.controls == "kbm":
 		v = Vector2(Input.get_axis("move_left", "move_right"), Input.get_axis("move_back", "move_forward"))
-		sprinting = Input.is_physical_key_pressed(KEY_SHIFT)
+		sprinting = Input.is_physical_key_pressed(Game.key("sprint"))
 	move_input = v.limit_length(1.0)
 
 # ---------- Actions ----------
@@ -598,7 +603,7 @@ func _ground(delta: float) -> void:
 func _update_peek(delta: float) -> void:
 	var want := peek_toggle
 	if Game.settings.controls == "kbm" and not Game.cursor_free:
-		want = (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0) - (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0)
+		want = (1.0 if Input.is_physical_key_pressed(Game.key("peek_r")) else 0.0) - (1.0 if Input.is_physical_key_pressed(Game.key("peek_l")) else 0.0)
 	if stance == "prone" or is_sprinting or vault_t >= 0.0:
 		want = 0.0
 		peek_toggle = 0.0
@@ -802,6 +807,7 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 	if attacker != null:
 		amount = _armour(amount, _head)
 	health -= amount
+	if attacker != null: model.hit(amount / 40.0)
 	if attacker is Node3D:
 		damaged.emit((attacker.global_position - global_position).normalized())
 	if health <= 0.0:
@@ -939,9 +945,9 @@ func _update_model(delta: float) -> void:
 		target_yaw = yaw    # backing up: keep facing forward
 	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (4.0 if state == "fall" else 12.0)))
 	if state == "vehicle" and vehicle:
-		# Sitting in the driver's seat (left side), facing the car's front (+Z).
-		var seat := Vector3(0.38, 0.42 if vehicle.kind == "sedan" else 0.62, -0.18)
-		model.global_transform = vehicle.global_transform * Transform3D(Basis(Vector3.UP, PI), seat)
+		# On the driver's seat, facing the front (+Z).
+		model.global_transform = vehicle.global_transform * vehicle.seat_xform()
+		model.ride = vehicle.kind
 		model.steer = vehicle.steer_in
 	elif state == "chute":
 		ry = chute_heading
@@ -1172,9 +1178,27 @@ func enter_vehicle(v: Vehicle) -> void:
 	cancel_heal()
 	message.emit("WASD للقيادة • Space فرامل • F للنزول")
 
-func exit_vehicle() -> void:
+## Get out (F). From a boat only where you can stand: next to the shore or
+## in shallow water. `force` (the vehicle blew up): out anyway, on the
+## nearest dry spot.
+func exit_vehicle(force := false) -> void:
 	if vehicle == null: return
 	var v := vehicle
+	if v.kind == "boat":
+		var spot := _boat_exit_spot(v, force)
+		if spot == Vector3.INF:
+			message.emit("ما بتقدر تنزل بالمي العميقة — قرّب على الشط")
+			return
+		v.driver = null
+		v.throttle = 0.0
+		v.steer_in = 0.0
+		vehicle = null
+		global_position = spot
+		reset_physics_interpolation()
+		velocity = Vector3.ZERO
+		shape_node.disabled = false
+		if state != "dead": state = "ground"
+		return
 	v.driver = null
 	v.throttle = 0.0
 	v.steer_in = 0.0
@@ -1190,13 +1214,27 @@ func exit_vehicle() -> void:
 	shape_node.disabled = false
 	if state != "dead": state = "ground"
 
+func _boat_exit_spot(v: Vehicle, force: bool) -> Vector3:
+	var b := v.global_transform.basis
+	for off in [-b.x * 1.6, b.x * 1.6, b.z * 3.0, -b.z * 3.0, -b.x * 2.6, b.x * 2.6, b.z * 4.2]:
+		var p: Vector3 = v.global_position + off
+		if not world.is_deep(p):
+			return Vector3(p.x, maxf(world.ground_height(p), Island.WATER - 1.0) + 0.3, p.z)
+	if not force: return Vector3.INF
+	for r in range(4, 80, 4):
+		for k in 12:
+			var p2: Vector3 = v.global_position + Vector3(cos(k * TAU / 12.0), 0, sin(k * TAU / 12.0)) * r
+			if not world.is_deep(p2):
+				return Vector3(p2.x, world.ground_height(p2) + 0.3, p2.z)
+	return v.global_position
+
 func _drive(_delta: float) -> void:
 	if vehicle == null or not is_instance_valid(vehicle) or vehicle.dead:
-		exit_vehicle()
+		exit_vehicle(true)
 		return
 	global_position = vehicle.global_position + Vector3(0, 0.6, 0)
 	velocity = vehicle.linear_velocity
 	vehicle.throttle = move_input.y
 	vehicle.steer_in = move_input.x
-	vehicle.handbrake = jump_queued or (Game.settings.controls == "kbm" and Input.is_physical_key_pressed(KEY_SPACE))
+	vehicle.handbrake = jump_queued or (Game.settings.controls == "kbm" and Input.is_physical_key_pressed(Game.key("jump")))
 	jump_queued = false

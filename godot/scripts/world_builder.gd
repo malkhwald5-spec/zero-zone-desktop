@@ -19,6 +19,7 @@ var noise_a: NoiseTexture2D
 var noise_b: NoiseTexture2D
 var env: Environment
 var sun: DirectionalLight3D
+var weather := "clear"          # clear | rain | sunset
 var grass: MultiMeshInstance3D
 var grass_mat: ShaderMaterial
 var grass_snap := 5.04
@@ -119,6 +120,7 @@ func _environment() -> void:
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	env.adjustment_contrast = 1.08
+	_weather_look(sky_mat)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	root.add_child(we)
@@ -133,7 +135,55 @@ func _environment() -> void:
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
 	root.add_child(sun)
+	if weather == "sunset":
+		# Low warm evening sun from the west, long shadows.
+		sun.rotation_degrees = Vector3(-11, -70, 0)
+		sun.light_energy = 1.6
+		sun.light_color = Color("ffbe82")
+	elif weather == "rain":
+		# Under the clouds: weak, cool, soft light.
+		sun.rotation_degrees = Vector3(-55, -35, 0)
+		sun.light_energy = 0.55
+		sun.light_color = Color(0.82, 0.86, 0.92)
+		sun.shadow_blur = 3.0
 	Game.apply_quality(env, sun)
+	if weather == "rain":
+		# The quality presets switch volumetric fog on; keep the rain mist thick.
+		env.volumetric_fog_density = maxf(env.volumetric_fog_density, 0.004)
+
+## Sky, fog and colour for the match's weather.
+func _weather_look(sky_mat: ShaderMaterial) -> void:
+	match weather:
+		"sunset":
+			# Real photographed sunset (ambientCG EveningSkyHDRI032A, CC0).
+			sky_mat.set_shader_parameter("pano", load("res://assets/textures/sky_sunset.jpg"))
+			sky_mat.set_shader_parameter("photo_sun", Vector2(0.499, 0.465))
+			sky_mat.set_shader_parameter("energy", 1.15)
+			sky_mat.set_shader_parameter("sun_boost", 2.0)
+			sky_mat.set_shader_parameter("haze", Color("e9a878"))
+			sky_mat.set_shader_parameter("haze_amount", 0.2)
+			env.ambient_light_energy = 0.55
+			env.tonemap_exposure = 1.1
+			env.fog_light_color = Color("e9a878")
+			env.fog_density = 0.0003
+			env.volumetric_fog_albedo = Color("f0c8a0")
+			env.fog_sun_scatter = 0.35
+		"rain":
+			sky_mat.set_shader_parameter("overcast", 0.92)
+			sky_mat.set_shader_parameter("energy", 0.75)
+			sky_mat.set_shader_parameter("sun_boost", 0.0)
+			sky_mat.set_shader_parameter("haze", Color(0.55, 0.58, 0.62))
+			sky_mat.set_shader_parameter("haze_amount", 0.8)
+			env.ambient_light_energy = 0.9
+			env.tonemap_exposure = 1.05
+			env.fog_light_color = Color(0.55, 0.58, 0.62)
+			env.fog_density = 0.0011
+			env.fog_aerial_perspective = 0.2
+			env.fog_sun_scatter = 0.0
+			env.volumetric_fog_albedo = Color(0.7, 0.72, 0.76)
+			env.glow_intensity = 0.2
+			env.adjustment_saturation = 0.82
+			env.adjustment_contrast = 1.02
 
 # ---------- Terrain ----------
 func _terrain() -> void:
