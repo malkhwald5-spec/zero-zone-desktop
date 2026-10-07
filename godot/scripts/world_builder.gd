@@ -15,6 +15,7 @@ var island: Island
 var root: Node3D
 var height_tex: ImageTexture
 var mask_tex: ImageTexture
+var biome_tex: ImageTexture
 var noise_a: NoiseTexture2D
 var noise_b: NoiseTexture2D
 var env: Environment
@@ -69,7 +70,8 @@ func _noise_tex(freq: float, seed_v: int) -> NoiseTexture2D:
 
 func _textures() -> void:
 	height_tex = ImageTexture.create_from_image(island.height_image())
-	mask_tex = ImageTexture.create_from_image(island.mask_image(1024))
+	mask_tex = ImageTexture.create_from_image(island.mask_image(2048))
+	biome_tex = ImageTexture.create_from_image(island.biome_image())
 	noise_a = _noise_tex(0.012, 3)
 	noise_b = _noise_tex(0.03, 9)
 
@@ -196,6 +198,8 @@ func _terrain() -> void:
 	mat.shader = load("res://shaders/terrain.gdshader")
 	mat.set_shader_parameter("heightmap", height_tex)
 	mat.set_shader_parameter("maskmap", mask_tex)
+	mat.set_shader_parameter("biomemap", biome_tex)
+	mat.set_shader_parameter("hm_cells", float(Island.N - 1))
 	mat.set_shader_parameter("noise_a", noise_a)
 	mat.set_shader_parameter("noise_b", noise_b)
 	mat.set_shader_parameter("map_size", s)
@@ -209,7 +213,7 @@ func _terrain() -> void:
 	mi.mesh = plane
 	mi.material_override = mat
 	mi.position = Vector3(s * 0.5, 0, s * 0.5)
-	mi.custom_aabb = AABB(Vector3(-s * 0.5, -40, -s * 0.5), Vector3(s, 160, s))
+	mi.custom_aabb = AABB(Vector3(-s * 0.5, -40, -s * 0.5), Vector3(s, 300, s))
 	mi.name = "Terrain"
 	root.add_child(mi)
 
@@ -240,6 +244,7 @@ func _water() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/water.gdshader")
 	mat.set_shader_parameter("heightmap", height_tex)
+	mat.set_shader_parameter("hm_cells", float(Island.N - 1))
 	mat.set_shader_parameter("noise_a", noise_a)
 	mat.set_shader_parameter("noise_b", noise_b)
 	mat.set_shader_parameter("map_size", s)
@@ -355,6 +360,25 @@ func _buildings() -> void:
 	var brick_mat := _wall_shader("brick", 1.3, 0.35, 0.8, 0.9)
 	var stone_mat := _wall_shader("stone", 2.2, 0.0, 0.6, 0.95)
 	var floor_mat := _wall_shader("wood", 2.0, 0.5, 0.0, 0.75)
+	var planks_mat := _wall_shader("planks", 2.0, 1.0, 0.6, 0.85)
+	var tin_mat := StandardMaterial3D.new()
+	tin_mat.vertex_color_use_as_albedo = true
+	tin_mat.vertex_color_is_srgb = true
+	tin_mat.albedo_texture = load("res://assets/textures/corrugated_col.jpg")
+	tin_mat.normal_enabled = true
+	tin_mat.normal_texture = load("res://assets/textures/corrugated_nrm.jpg")
+	tin_mat.uv1_triplanar = true
+	tin_mat.uv1_scale = Vector3(0.5, 0.5, 0.5)
+	tin_mat.metallic = 0.3
+	tin_mat.roughness = 0.6
+	# Wall paint per region: desert mud-brick, beach-house pastels, jungle
+	# timber, northern painted boards (barn red, blue, ochre, white, green).
+	var style_tints := {
+		"desert": [Color("d2b48c"), Color("c9a77c"), Color("deb887"), Color("bf9b6f"), Color("e0c9a6")],
+		"tropic": [Color("f2efe8"), Color("bfe3e0"), Color("f5d9a8"), Color("e8c6c0"), Color("d8e8c8")],
+		"jungle": [Color("a07850"), Color("8a6a48"), Color("b08a60"), Color("7a6a50"), Color("9a8060")],
+		"nordic": [Color("9a3a2e"), Color("3a5878"), Color("c8a048"), Color("e8e4dc"), Color("5a6a48")],
+	}
 	var trim_mat := StandardMaterial3D.new()
 	trim_mat.vertex_color_use_as_albedo = true
 	trim_mat.vertex_color_is_srgb = true
@@ -395,7 +419,7 @@ func _buildings() -> void:
 		_glass_body.collision_mask = 0
 		node.add_child(_glass_body)
 		var sts := {}
-		for k in ["wall", "glass", "roof", "trim", "stone", "floor", "brick"]:
+		for k in ["wall", "glass", "roof", "trim", "stone", "floor", "brick", "planks", "tin"]:
 			var t := SurfaceTool.new()
 			t.begin(Mesh.PRIMITIVE_TRIANGLES)
 			sts[k] = t
@@ -403,15 +427,18 @@ func _buildings() -> void:
 		if kind == "warehouse" or kind == "barn":
 			_big_shed(node, body, b)
 			continue
-		# About a third of the houses are red brick, the rest painted plaster.
-		var brick: bool = not b.military and (b.tint + b.roof) % 3 == 0
-		var st: SurfaceTool = sts.brick if brick else sts.wall
-		_lining = sts.wall if brick else null
+		var style: String = b.get("style", "plains")
+		# Plains: about a third of the houses are red brick, the rest painted
+		# plaster. Jungle and north: wooden boards. Desert and beach: plaster.
+		var brick: bool = style == "plains" and not b.military and (b.tint + b.roof) % 3 == 0
+		var planks: bool = style in ["jungle", "nordic"] and not b.military
+		var st: SurfaceTool = sts.brick if brick else (sts.planks if planks else sts.wall)
+		_lining = sts.wall if (brick or planks) else null
 		var sx: float = b.size.x
 		var sz: float = b.size.y
 		var hx := sx * 0.5
 		var hz := sz * 0.5
-		var col: Color = Color("a9ada0") if b.military else (Color.WHITE if brick else tints[b.tint])
+		var col: Color = Color("a9ada0") if b.military else (Color.WHITE if brick else (style_tints[style][b.tint] if style_tints.has(style) else tints[b.tint]))
 		var tcol: Color = Color("5c5f58") if b.military else trims[(b.tint * 3 + b.roof) % trims.size()]
 		var doors: Array = b.doors
 		var storeys: int = b.get("storeys", 1)
@@ -465,19 +492,33 @@ func _buildings() -> void:
 		elif b.military:
 			for side in [-1, 1]:
 				_add_box(st, Vector3(0, top_y + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
+		elif style == "desert" or (style == "tropic" and b.roof % 2 == 0):
+			# Flat roof behind a parapet, with roof-top water tanks and wooden beam ends.
+			for side in [-1, 1]:
+				_add_box(sts.wall, Vector3(0, top_y + 0.5, side * hz), Vector3(sx + 0.2, 0.6, 0.22), col.darkened(0.08))
+				_add_box(sts.wall, Vector3(side * hx, top_y + 0.5, 0), Vector3(0.22, 0.6, sz + 0.2), col.darkened(0.08))
+			if style == "desert":
+				for k in int(sx / 1.6):
+					_add_box(sts.floor, Vector3(-hx + 0.8 + k * 1.6, top_y - 0.25, hz + 0.2), Vector3(0.14, 0.14, 0.5), Color("6a4a30"))
+			_add_box(sts.trim, Vector3(hx * 0.4, top_y + 0.85, -hz * 0.3), Vector3(1.0, 1.1, 1.0), Color("2a2a2a") if style == "desert" else Color("e8e8e8"))
 		else:
-			var rh := 2.2 if sx > sz else 2.0
-			_gable(sts.roof, Vector3(0, top_y + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz, roofs[b.roof])
+			var rh := (2.2 if sx > sz else 2.0) * (1.35 if style == "nordic" else 1.0)   # steep northern roofs
+			var rst: SurfaceTool = sts.tin if style == "jungle" else sts.roof
+			var rcol: Color = roofs[b.roof]
+			if style == "nordic": rcol = [Color("5a5a60"), Color("6a5048"), Color("4a5a50"), Color("707070"), Color("5a4a40")][b.roof]
+			elif style == "jungle": rcol = [Color("b0a898"), Color("a07858"), Color("8a9090"), Color("c09070"), Color("9a9a88")][b.roof]
+			_gable(rst, Vector3(0, top_y + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz, rcol)
 			_roof_shape(body, Vector3(0, top_y + 0.2, 0), sx + 0.8, sz + 0.8, rh, sx >= sz)
-			sts.roof.generate_normals()
-			# Brick chimney poking through the roof, off-centre along the ridge.
-			var cx := (hx * 0.45) * (1.0 if b.tint % 2 == 0 else -1.0)
-			var cpos := Vector3(cx, top_y + 1.6, hz * 0.2) if sx >= sz else Vector3(hx * 0.2, top_y + 1.6, cx * sz / sx)
-			_add_box(sts.brick, cpos, Vector3(0.6, 2.6, 0.6), Color.WHITE)
-			_add_box(sts.stone, cpos + Vector3(0, 1.35, 0), Vector3(0.72, 0.1, 0.72), Color.WHITE)
+			rst.generate_normals()
+			if style in ["plains", "nordic"]:
+				# Chimney poking through the roof, off-centre along the ridge.
+				var cx := (hx * 0.45) * (1.0 if b.tint % 2 == 0 else -1.0)
+				var cpos := Vector3(cx, top_y + 1.6 + (0.6 if style == "nordic" else 0.0), hz * 0.2) if sx >= sz else Vector3(hx * 0.2, top_y + 1.6, cx * sz / sx)
+				_add_box(sts.brick if style == "plains" else sts.stone, cpos, Vector3(0.6, 2.6, 0.6), Color.WHITE)
+				_add_box(sts.stone, cpos + Vector3(0, 1.35, 0), Vector3(0.72, 0.1, 0.72), Color.WHITE)
 		# One mesh per material (a SurfaceTool with no vertices cannot be committed).
 		var mats := {"wall": plaster_mat, "brick": brick_mat, "glass": glass_mat, "roof": roof_mat,
-			"trim": trim_mat, "stone": stone_mat, "floor": floor_mat}
+			"trim": trim_mat, "stone": stone_mat, "floor": floor_mat, "planks": planks_mat, "tin": tin_mat}
 		for k in sts:
 			var mesh: ArrayMesh = sts[k].commit()
 			if mesh == null or mesh.get_surface_count() == 0:
@@ -1035,6 +1076,20 @@ func _trees() -> void:
 	var leaf_mat := ShaderMaterial.new()
 	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
 	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
+	var palm_bark := bark_mat.duplicate() as StandardMaterial3D
+	palm_bark.albedo_color = Color("c9b28c")
+	palm_bark.uv1_scale = Vector3(1.0, 3.0, 1.0)
+	var frond_mat := ShaderMaterial.new()
+	frond_mat.shader = load("res://shaders/leaf_card.gdshader")
+	frond_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/palm_frond.png"))
+	frond_mat.set_shader_parameter("translucency", 0.45)
+	frond_mat.set_shader_parameter("sway", 1.4)
+	var cactus_mat := StandardMaterial3D.new()
+	cactus_mat.albedo_color = Color("4f6b38")
+	cactus_mat.albedo_texture = load("res://assets/textures/moss_col.jpg")
+	cactus_mat.uv1_scale = Vector3(4.0, 3.0, 1.0)
+	cactus_mat.roughness = 0.75
+	cactus_mat.vertex_color_use_as_albedo = false
 	var needle_mat := ShaderMaterial.new()
 	needle_mat.shader = load("res://shaders/leaf_card.gdshader")
 	needle_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/pine_branch.png"))
@@ -1050,21 +1105,68 @@ func _trees() -> void:
 		pn.surface_set_material(0, bark_mat)
 		pn.surface_set_material(1, needle_mat)
 		near_meshes["pn%d" % v] = pn
+		var pm := TreeModels.palm(7 + v * 31)
+		pm.surface_set_material(0, palm_bark)
+		pm.surface_set_material(1, frond_mat)
+		near_meshes["pm%d" % v] = pm
+	# Cactus and dead trees are simple: the same mesh near and far.
+	var mid_meshes := {}
+	for v in 2:
+		var ca := TreeModels.cactus(11 + v * 7)
+		ca.surface_set_material(0, cactus_mat)
+		mid_meshes["ca%d" % v] = ca
+	var dd := TreeModels.dead(13)
+	dd.surface_set_material(0, bark_mat)
+	mid_meshes["dd0"] = dd
 	var near_tints := [Color(0.82, 0.86, 0.8), Color(0.72, 0.84, 0.7), Color(0.92, 0.88, 0.66), Color(0.7, 0.8, 0.74), Color(0.86, 0.82, 0.62)]
 	var chunks := {}
-	var body := StaticBody3D.new()
-	body.name = "TreeBodies"
-	root.add_child(body)
+	# Collision cylinders go into one static body per chunk: thousands of shapes
+	# on a single body make adding each one slower than the last.
+	var bodies := {}
+	var tree_root := Node3D.new()
+	tree_root.name = "TreeBodies"
+	root.add_child(tree_root)
 	var pine_cols := [Color("23401f"), Color("2a4a24"), Color("1f3a20"), Color("30502a")]
 	var leaf_cols := [Color("3f6a26"), Color("4a7228"), Color("557a2e"), Color("3a5f24"), Color("6a7a2c")]
 	for t in island.trees:
 		var key := Vector2i(int(t.pos.x / 256.0), int(t.pos.y / 256.0))
 		if not chunks.has(key):
-			chunks[key] = {"trunk": [], "pine": [], "leaf": [], "bl0": [], "bl1": [], "pn0": [], "pn1": []}
+			chunks[key] = {"trunk": [], "pine": [], "leaf": [], "bl0": [], "bl1": [], "pn0": [], "pn1": [], "pm0": [], "pm1": [], "ca0": [], "ca1": [], "dd0": []}
 		var ch: Dictionary = chunks[key]
+		if not bodies.has(key):
+			var bb := StaticBody3D.new()
+			tree_root.add_child(bb)
+			bodies[key] = bb
+		var body: StaticBody3D = bodies[key]
 		var g := island.height_at(t.pos.x, t.pos.y) - 0.3
 		var p := Vector3(t.pos.x, g, t.pos.y)
 		var h: float = t.h
+		var tk: String = t.get("kind", "pine" if t.pine else "broad")
+		if tk in ["palm", "cactus", "dead"]:
+			var rot2 := Basis(Vector3.UP, t.shade * TAU)
+			var v2 := int(t.shade * 997.0) % 2
+			var tint2: Color = near_tints[int(t.shade * 31.0) % near_tints.size()]
+			match tk:
+				"palm":
+					var k2 := h / 10.0
+					ch["pm%d" % v2].append([Transform3D(rot2.scaled(Vector3(k2, k2, k2)), p + Vector3(0, 0.3, 0)), tint2])
+					# Far away: the trunk and a flat green crown.
+					ch.trunk.append([Transform3D(Basis.from_scale(Vector3(t.r, h, t.r)), p + Vector3(0, h * 0.5, 0)), Color.WHITE])
+					ch.leaf.append([Transform3D(rot2.scaled(Vector3(h * 0.75, h * 0.22, h * 0.75)), p + Vector3(0, h * 0.97, 0)), Color("4f7a2a")])
+				"cactus":
+					var k3 := h / 4.0
+					ch["ca%d" % v2].append([Transform3D(rot2.scaled(Vector3(k3, k3, k3)), p + Vector3(0, 0.25, 0)), Color.WHITE])
+				"dead":
+					var k4 := h / 4.5
+					ch.dd0.append([Transform3D(rot2.scaled(Vector3(k4, k4, k4)), p + Vector3(0, 0.25, 0)), Color.WHITE])
+			var cs2 := CollisionShape3D.new()
+			var cyl2 := CylinderShape3D.new()
+			cyl2.radius = t.r + 0.1
+			cyl2.height = 4.0
+			cs2.shape = cyl2
+			cs2.position = p + Vector3(0, 2.0, 0)
+			body.add_child(cs2)
+			continue
 		var trunk_h := h * (0.4 if t.pine else 0.55)
 		ch.trunk.append([Transform3D(Basis.from_scale(Vector3(t.r, trunk_h, t.r)), p + Vector3(0, trunk_h * 0.5, 0)), Color.WHITE])
 		var rot := Basis(Vector3.UP, t.shade * TAU)
@@ -1089,18 +1191,22 @@ func _trees() -> void:
 		body.add_child(cs)
 	var meshes := {"trunk": trunk, "pine": pine_mesh, "leaf": leafy_mesh}
 	meshes.merge(near_meshes)
+	meshes.merge(mid_meshes)
 	for key in chunks:
 		for kind in meshes:
 			var list: Array = chunks[key][kind]
 			if list.is_empty(): continue
-			var mm := _multimesh(meshes[kind], list.size(), kind != "trunk")
+			var colored: bool = kind != "trunk" and not mid_meshes.has(kind)
+			var mm := _multimesh(meshes[kind], list.size(), colored)
 			for i in list.size():
 				mm.set_instance_transform(i, list[i][0])
-				if kind != "trunk": mm.set_instance_color(i, list[i][1])
+				if colored: mm.set_instance_color(i, list[i][1])
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = mm
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-			if near_meshes.has(kind):
+			if mid_meshes.has(kind):
+				mmi.visibility_range_end = 700.0
+			elif near_meshes.has(kind):
 				mmi.visibility_range_end = near_d
 				mmi.visibility_range_end_margin = 40.0
 			else:
@@ -1155,10 +1261,15 @@ func _rocks() -> void:
 	rm.roughness = 0.95
 	rock.surface_set_material(0, rm)
 	var mm := _multimesh(rock, island.rocks.size(), false)
-	var body := StaticBody3D.new()
-	root.add_child(body)
+	var bodies := {}
 	var i := 0
 	for r in island.rocks:
+		var key := Vector2i(int(r.pos.x / 512.0), int(r.pos.y / 512.0))
+		if not bodies.has(key):
+			var bb := StaticBody3D.new()
+			root.add_child(bb)
+			bodies[key] = bb
+		var body: StaticBody3D = bodies[key]
 		var p := Vector3(r.pos.x, island.height_at(r.pos.x, r.pos.y) + r.r * 0.2, r.pos.y)
 		mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, i * 1.7).scaled(Vector3(r.r * 1.2, r.r * 0.8, r.r)), p))
 		i += 1
@@ -1317,6 +1428,8 @@ func _grass() -> void:
 	grass_mat.shader = load("res://shaders/grass.gdshader")
 	grass_mat.set_shader_parameter("heightmap", height_tex)
 	grass_mat.set_shader_parameter("maskmap", mask_tex)
+	grass_mat.set_shader_parameter("biomemap", biome_tex)
+	grass_mat.set_shader_parameter("hm_cells", float(Island.N - 1))
 	grass_mat.set_shader_parameter("noise_a", noise_a)
 	grass_mat.set_shader_parameter("map_size", island.size)
 	grass_mat.set_shader_parameter("grass_c", load("res://assets/textures/grass_col.jpg"))

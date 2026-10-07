@@ -143,6 +143,89 @@ static func pine(seed: int) -> ArrayMesh:
 		_card(needles, Vector3(0, 9.0, 0), Vector3.UP, side, 1.6, 0.8, centre, squash, 0.9, 1.0, true)
 	return _commit([bark, needles])
 
+## Palm (10 m): a slender curved trunk with rings, a crown of long drooping
+## fronds (frond cards, stem at u = 0) and a few coconuts.
+static func palm(seed: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var bark := SurfaceTool.new()
+	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var bend := Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized() * rng.randf_range(0.8, 1.8)
+	var tp := []
+	var tr := []
+	for i in 9:
+		var t := i / 8.0
+		tp.append(Vector3(0, -0.3 + t * 10.0, 0) + bend * t * t)
+		tr.append(lerpf(0.26, 0.15, t) * (1.08 if i % 2 == 0 else 1.0))
+	_tube(bark, tp, tr, 8)
+	var top: Vector3 = tp[-1]
+	# Coconuts under the crown.
+	for k in 4:
+		var a := TAU * k / 4.0 + rng.randf()
+		var c := top + Vector3(cos(a) * 0.25, -0.35, sin(a) * 0.25)
+		_tube(bark, [c - Vector3(0, 0.12, 0), c, c + Vector3(0, 0.12, 0)], [0.06, 0.13, 0.06], 6)
+	bark.generate_tangents()
+	var fronds := SurfaceTool.new()
+	fronds.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var centre := top
+	var squash := Vector3(4.0, 2.0, 4.0)
+	var n := rng.randi_range(11, 14)
+	for k in n:
+		var a := TAU * k / n + rng.randf_range(-0.2, 0.2)
+		var up := rng.randf_range(-0.15, 0.55) if k % 3 != 0 else rng.randf_range(0.5, 0.9)
+		var out := Vector3(cos(a), up, sin(a)).normalized()
+		var side := Vector3(-sin(a), 0, cos(a))
+		var length := rng.randf_range(3.6, 4.6)
+		# Two segments so the frond arches over and droops at the tip.
+		_card(fronds, top, out, side, length * 0.55, length * 0.32, centre, squash, 0.5, 1.0, true)
+		var out2 := Vector3(cos(a), up - 0.75, sin(a)).normalized()
+		_card(fronds, top + out * length * 0.5, out2, side, length * 0.55, length * 0.3, centre, squash, 0.6, 1.0, true)
+	return _commit([bark, fronds])
+
+## Saguaro cactus (built 4 m tall): a ribbed column with two or three arms.
+static func cactus(seed: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var col := []
+	var rad := []
+	for i in 7:
+		var t := i / 6.0
+		col.append(Vector3(0, -0.2 + t * 4.0, 0))
+		rad.append(0.26 if t < 0.92 else 0.18)
+	_tube(st, col, rad, 12)
+	for k in rng.randi_range(1, 3):
+		var a := rng.randf() * TAU
+		var y := rng.randf_range(1.3, 2.4)
+		var dir := Vector3(cos(a), 0, sin(a))
+		var arm := [Vector3(0, y, 0), Vector3(0, y, 0) + dir * 0.55, Vector3(0, y + 0.2, 0) + dir * 0.75,
+			Vector3(0, y + 0.9, 0) + dir * 0.78, Vector3(0, y + 1.5, 0) + dir * 0.75]
+		_tube(st, arm, [0.15, 0.16, 0.16, 0.15, 0.11], 10)
+	st.generate_tangents()
+	return _commit([st])
+
+## Dead desert tree: bare twisted trunk and branches (bark only).
+static func dead(seed: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var bark := SurfaceTool.new()
+	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var tp := []
+	var tr := []
+	for i in 5:
+		var t := i / 4.0
+		tp.append(Vector3(sin(t * 3.0 + seed) * 0.3, -0.3 + t * 4.5, cos(t * 2.0 + seed) * 0.3))
+		tr.append(lerpf(0.28, 0.1, t))
+	_tube(bark, tp, tr, 7)
+	for k in rng.randi_range(4, 6):
+		var a := TAU * k / 5.0 + rng.randf()
+		var from: Vector3 = tp[rng.randi_range(2, 4)]
+		var br := _branch(rng, from, Vector3(cos(a), rng.randf_range(0.3, 0.9), sin(a)).normalized(), rng.randf_range(1.5, 2.8), 0.08)
+		_tube(bark, br[0], br[1], 5)
+	bark.generate_tangents()
+	return _commit([bark])
+
 static func _commit(sts: Array) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	for st in sts:

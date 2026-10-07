@@ -852,6 +852,7 @@ var map_zoom := 1.0
 var map_focus := Vector2.ZERO        # world point at the middle of the map view
 var marker := Vector2.INF            # your map marker (world x, z)
 var _map_rect := Rect2()
+var _region_centres := {}
 var _map_drag := false
 var _map_press := Vector2.ZERO
 
@@ -934,6 +935,22 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 			_text(c, Vector2(mx, r.position.y - 8), letters[i], 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
 		if my > r.position.y + 10 and my < r.end.y - 10:
 			_text(c, Vector2(r.position.x - 14, my + 5), str(i + 1), 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
+	# Region names, large and faint, when the whole map is in view.
+	if map_zoom < 1.8:
+		if _region_centres.is_empty():
+			var sums := {}
+			for t in world.island.towns:
+				var reg: String = t.get("region", "")
+				if reg == "": continue
+				if not sums.has(reg): sums[reg] = [Vector2.ZERO, 0]
+				sums[reg][0] += t.pos
+				sums[reg][1] += 1
+			for reg in sums:
+				_region_centres[reg] = sums[reg][0] / float(sums[reg][1])
+		for reg in _region_centres:
+			var rp := _w2m(_region_centres[reg]) + Vector2(0, 34)
+			if r.has_point(rp):
+				_text(c, rp, Island.REGION_TITLES.get(reg, ""), 26, Color(1, 1, 1, 0.32), HORIZONTAL_ALIGNMENT_CENTER, bold, 300)
 	# Places: a dot and the name (gold for the military base).
 	var taken: Array[Rect2] = []
 	for t in world.island.towns:

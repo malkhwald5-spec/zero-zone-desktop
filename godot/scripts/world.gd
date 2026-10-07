@@ -137,7 +137,7 @@ func _make_plane() -> void:
 	var d := Vector2(cos(a), sin(a)) * s * 0.75
 	plane_from = Vector3(c.x - d.x, Player.PLANE_ALT, c.y - d.y)
 	plane_to = Vector3(c.x + d.x, Player.PLANE_ALT, c.y + d.y)
-	plane_dur = plane_from.distance_to(plane_to) / 90.0
+	plane_dur = plane_from.distance_to(plane_to) / (90.0 if s <= 4096.0 else 125.0)
 	plane = _plane_model()
 	plane.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(plane)

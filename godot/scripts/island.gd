@@ -2,12 +2,27 @@ class_name Island
 extends RefCounted
 ## Procedural island data: heightmap, towns, roads, bridges, building lots,
 ## trees and rocks. Pure data — world.gd turns it into nodes.
+## The big map (8 km) has five regions, each in the style of a battle-royale
+## classic: a cold pine north-west (rocky, wooden cabins), green farmland
+## plains in the north and middle (brick and plaster villages), a jungle in
+## the south-west (palms, rivers, wooden huts), a desert in the south-east
+## (mesas, cactus, flat-roofed mud-brick towns) and a small beach island off
+## the north-east coast; plus the military base island in the south.
 
-const N := 513                 # heightmap samples per side
+const N := 1025                # heightmap samples per side
 const WATER := 0.0             # sea level (m)
 const DEEP := -1.7             # deeper than this: too deep to wade
 const TOWN_NAMES := ["الميناء", "المدينة القديمة", "المزرعة", "المحطة", "الوادي", "القلعة", "السوق", "المصنع",
-	"التلال", "الواحة", "المنارة", "الجسر", "المطار", "النخيل", "المنجم", "الصخرة"]
+	"التلال", "المنارة", "الجسر", "المطار", "الصخرة", "السهل الأخضر", "الطاحونة", "الكنيسة القديمة"]
+## Town names per region (the plains use TOWN_NAMES).
+const REGION_NAMES := {
+	"nordic": ["خليج الثلج", "قرية الصنوبر", "الميناء الشمالي", "وادي الذئاب", "الكوخ الأحمر", "بحيرة الجبل", "المنشرة", "قمة النسر"],
+	"jungle": ["معبد الغابة", "قرية النخيل", "الشلال", "مخيم الأدغال", "الكهف", "البحيرة الخضرا", "الأطلال", "سوق الخيزران"],
+	"desert": ["واحة السراب", "مدينة الرمال", "الحصن الطيني", "المنجم المهجور", "الأخدود", "سوق القوافل", "بئر الشمس", "المحجر"],
+	"tropic": ["منتجع الشاطئ", "قرية الصيادين", "المرفأ"],
+}
+const REGION_TITLES := {"plains": "السهول الخضرا", "nordic": "الشمال البارد", "jungle": "الأدغال", "desert": "الصحراء", "tropic": "جزيرة الشاطئ"}
+const BIOME_N := 256           # biome grid samples per side
 
 var size: float
 var step: float
@@ -29,6 +44,11 @@ var river_amp := 0.0
 var river_phase := 0.0
 var river_base := 0.0
 var south := Vector2.ZERO
+var isle := Vector2.ZERO       # the beach island (north-east)
+var warp := FastNoiseLite.new()
+var ridge := FastNoiseLite.new()
+## Region weights on a coarse grid: desert, jungle, nordic, tropic (plains = the rest).
+var biome := PackedFloat32Array()
 
 func _init(seed_value: int, map_size: float) -> void:
 	size = map_size
@@ -41,6 +61,14 @@ func _init(seed_value: int, map_size: float) -> void:
 	detail.seed = seed_value + 7
 	detail.frequency = 1.0 / 260.0
 	detail.fractal_octaves = 3
+	warp.seed = seed_value + 13
+	warp.frequency = 1.0 / 1400.0
+	warp.fractal_octaves = 2
+	ridge.seed = seed_value + 21
+	ridge.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	ridge.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	ridge.frequency = 1.0 / 700.0
+	ridge.fractal_octaves = 4
 
 func generate() -> void:
 	_heights()
@@ -54,25 +82,82 @@ func river_z(x: float) -> float:
 	return river_base + sin(x / (size * 0.12) + river_phase) * size * 0.06 + sin(x / (size * 0.045)) * size * 0.015
 
 func channel_z(x: float) -> float:
-	return size * 0.735 + sin(x / 230.0) * 18.0
+	return size * 0.865 + sin(x / 230.0) * 18.0
 
 func _land_mask(x: float, z: float) -> float:
-	var n := detail.get_noise_2d(x, z) * 0.28
-	var mc := Vector2(size * 0.5, size * 0.45)
-	var mr := size * 0.385
-	var m_main := 1.0 - Vector2((x - mc.x) / mr, (z - mc.y) / (mr * 0.9)).length() + n
-	var sr := size * 0.12
+	var n := detail.get_noise_2d(x, z) * 0.22
+	var mc := Vector2(size * 0.47, size * 0.45)
+	var mr := size * 0.4
+	var m_main := 1.0 - Vector2((x - mc.x) / mr, (z - mc.y) / (mr * 1.0)).length() + n
+	var sr := size * 0.06
 	var m_south := 1.0 - Vector2((x - south.x) / sr, (z - south.y) / (sr * 0.8)).length() + n * 0.6
+	var ir := size * 0.065
+	var m_isle := 1.0 - Vector2((x - isle.x) / ir, (z - isle.y) / (ir * 0.8)).length() + n * 0.5
 	var cz := channel_z(x)
 	var m := -1.0
 	if z < cz - 22.0: m = maxf(m, m_main)
 	if z > cz + 22.0: m = maxf(m, m_south)
+	m = maxf(m, m_isle)
 	return m
+
+# ---------- Regions ----------
+## Coarse region grid, with wavy borders (domain warp) so they don't look drawn with a ruler.
+func _biomes() -> void:
+	biome.resize(BIOME_N * BIOME_N * 4)
+	for j in BIOME_N:
+		for i in BIOME_N:
+			var x := (i + 0.5) / BIOME_N * size
+			var z := (j + 0.5) / BIOME_N * size
+			var u := x / size + warp.get_noise_2d(x, z) * 0.07
+			var v := z / size + warp.get_noise_2d(x + 5000.0, z - 3000.0) * 0.07
+			var tropic := 1.0 - smoothstep(size * 0.05, size * 0.1, Vector2(x, z).distance_to(isle))
+			var desert := smoothstep(0.47, 0.55, u) * smoothstep(0.47, 0.55, v)
+			var jungle := (1.0 - smoothstep(0.44, 0.52, u)) * smoothstep(0.5, 0.58, v)
+			var nordic := (1.0 - smoothstep(0.36, 0.44, u)) * (1.0 - smoothstep(0.36, 0.44, v))
+			# The military island stays plain.
+			var mil := 1.0 - smoothstep(size * 0.05, size * 0.09, Vector2(x, z).distance_to(south))
+			var k := (1.0 - tropic) * (1.0 - mil)
+			var o := (j * BIOME_N + i) * 4
+			biome[o] = desert * k
+			biome[o + 1] = jungle * k
+			biome[o + 2] = nordic * k
+			biome[o + 3] = tropic
+
+## Region weights at a point: [desert, jungle, nordic, tropic].
+func biome_at(x: float, z: float) -> Array:
+	var fx := clampf(x / size * BIOME_N - 0.5, 0.0, BIOME_N - 1.001)
+	var fz := clampf(z / size * BIOME_N - 0.5, 0.0, BIOME_N - 1.001)
+	var i := int(fx)
+	var j := int(fz)
+	var tx := fx - i
+	var tz := fz - j
+	var res := [0.0, 0.0, 0.0, 0.0]
+	for c in 4:
+		var a := biome[(j * BIOME_N + i) * 4 + c]
+		var b := biome[(j * BIOME_N + i + 1) * 4 + c]
+		var d := biome[((j + 1) * BIOME_N + i) * 4 + c]
+		var e := biome[((j + 1) * BIOME_N + i + 1) * 4 + c]
+		res[c] = lerpf(lerpf(a, b, tx), lerpf(d, e, tx), tz)
+	return res
+
+## The strongest region at a point: plains, desert, jungle, nordic or tropic.
+func region_at(x: float, z: float) -> String:
+	var w := biome_at(x, z)
+	var best := "plains"
+	var bw := 0.5
+	var names := ["desert", "jungle", "nordic", "tropic"]
+	for c in 4:
+		if w[c] > bw:
+			bw = w[c]
+			best = names[c]
+	return best
 
 func _heights() -> void:
 	river_phase = rng.randf() * TAU
-	river_base = size * (0.3 + rng.randf() * 0.08)
-	south = Vector2(size * (0.45 + rng.randf() * 0.12), size * 0.86)
+	river_base = size * (0.28 + rng.randf() * 0.06)
+	south = Vector2(size * (0.45 + rng.randf() * 0.1), size * 0.93)
+	isle = Vector2(size * 0.88, size * 0.13)
+	_biomes()
 	heights.resize(N * N)
 	for j in N:
 		for i in N:
@@ -81,11 +166,24 @@ func _heights() -> void:
 			var m := _land_mask(x, z)
 			var h: float
 			if m <= 0.0:
-				var cd := absf(x - south.x) / (size * 0.12 * 1.4)
+				var cd := absf(x - south.x) / (size * 0.06 * 1.4)
 				var in_channel := absf(z - channel_z(x)) < 50.0 and cd < 1.0
 				h = -1.2 - cd * cd * 6.0 if in_channel else maxf(-22.0, -1.0 + m * 70.0)
 			else:
-				var hills := pow((noise.get_noise_2d(x + 2000.0, z + 900.0) + 1.0) * 0.5, 2.2) * 95.0
+				var bw := biome_at(x, z)
+				var n0 := (noise.get_noise_2d(x + 2000.0, z + 900.0) + 1.0) * 0.5
+				var plains := pow(n0, 2.2) * 95.0
+				# North: rugged ridges and peaks.
+				var nordic := pow(n0, 1.6) * 110.0 + maxf(0.0, ridge.get_noise_2d(x, z)) * 75.0
+				# Jungle: steep wooded hills.
+				var jungle := pow((noise.get_noise_2d(x * 1.8, z * 1.8) + 1.0) * 0.5, 1.8) * 85.0
+				# Desert: flat-topped mesas in steps, sand between.
+				var mesa := floorf(n0 * 4.5) / 4.5
+				mesa = lerpf(mesa, n0, 0.25)
+				var desert := 6.0 + pow(mesa, 1.5) * 120.0
+				var tropic := pow(n0, 2.0) * 16.0
+				var sw: float = bw[0] + bw[1] + bw[2] + bw[3]
+				var hills: float = plains * maxf(0.0, 1.0 - sw) + (desert * bw[0] + jungle * bw[1] + nordic * bw[2] + tropic * bw[3]) / maxf(1.0, sw)
 				h = 1.2 + hills * smoothstep(0.0, 0.2, m)
 				# River: shallow and wadeable, with gentle banks.
 				var dr := absf(z - river_z(x))
@@ -141,6 +239,10 @@ func _land_around(p: Vector2, r: float) -> bool:
 func _towns() -> void:
 	var names := TOWN_NAMES.duplicate()
 	names.shuffle()
+	var region_names := {}
+	for k in REGION_NAMES:
+		region_names[k] = REGION_NAMES[k].duplicate()
+		region_names[k].shuffle()
 	# Military base on the southern island.
 	var mil := {"name": "القاعدة العسكرية", "pos": south, "r": 120.0, "military": true, "kind": "military"}
 	for k in 300:
@@ -150,7 +252,7 @@ func _towns() -> void:
 			break
 	towns.append(mil)
 	var tries := 0
-	var want := mini(16, int(12.0 * size / 3072.0))
+	var want := mini(36, int(12.0 * size / 3072.0) + 4)
 	while towns.size() < want and tries < 4000:
 		tries += 1
 		var r := rng.randf_range(75.0, 125.0)
@@ -163,9 +265,12 @@ func _towns() -> void:
 				ok = false
 				break
 		if not ok: continue
-		towns.append({"name": names.pop_back() if names.size() > 0 else "قرية", "pos": p, "r": r, "military": false, "kind": "town"})
+		var reg := region_at(p.x, p.y)
+		var pool: Array = names if reg == "plains" else region_names[reg]
+		if pool.is_empty(): pool = names
+		towns.append({"name": pool.pop_back() if pool.size() > 0 else "قرية", "pos": p, "r": r, "military": false, "kind": "town", "region": reg})
 	# Special places, joined to the road network like towns: factory yards and farms.
-	for spec in [["industrial", ["المنطقة الصناعية", "المصنع القديم"], 72.0], ["farm", ["مزرعة الزيتون", "مزرعة القمح", "مزرعة التلال"], 62.0]]:
+	for spec in [["industrial", ["المنطقة الصناعية", "المصنع القديم", "المستودعات"], 72.0], ["farm", ["مزرعة الزيتون", "مزرعة القمح", "مزرعة التلال", "مزرعة البقر"], 62.0]]:
 		var made := 0
 		var tries2 := 0
 		while made < spec[1].size() and tries2 < 3000:
@@ -174,6 +279,8 @@ func _towns() -> void:
 			var p := Vector2(rng.randf_range(180, size - 180), rng.randf_range(180, channel_z(size * 0.5) - 90))
 			if not _land_around(p, r + 35.0): continue
 			if absf(p.y - river_z(p.x)) < r + 45.0: continue
+			# Farms and factories belong to the plains and the north.
+			if not region_at(p.x, p.y) in ["plains", "nordic"]: continue
 			var ok := true
 			for t in towns:
 				if p.distance_to(t.pos) < t.r + r + 140.0:
@@ -215,21 +322,61 @@ func _roads() -> void:
 				var t2 := minf(1.0, t + 12.0 / length)
 				bridges.append({"a": a.lerp(b, start), "b": a.lerp(b, t2), "w": 9.0})
 				start = -1.0
+	_road_grid()
+
+## Road segments listed per 128 m cell they pass near (built after the roads).
+const RD_CELL := 128.0
+var _rd := {}
+
+func _road_grid() -> void:
+	_rd.clear()
+	for rd in roads:
+		var a: Vector2 = rd.a
+		var b: Vector2 = rd.b
+		var n := int(a.distance_to(b) / 32.0) + 1
+		for k in n + 1:
+			var p := a.lerp(b, float(k) / n)
+			for dj in range(-1, 2):
+				for di in range(-1, 2):
+					var key := Vector2i(floori(p.x / RD_CELL) + di, floori(p.y / RD_CELL) + dj)
+					if not _rd.has(key): _rd[key] = []
+					if not _rd[key].has(rd): _rd[key].append(rd)
 
 func near_road(p: Vector2, pad: float) -> bool:
+	if not _rd.is_empty():
+		for rd in _rd.get(Vector2i(floori(p.x / RD_CELL), floori(p.y / RD_CELL)), []):
+			if Geometry2D.get_closest_point_to_segment(p, rd.a, rd.b).distance_to(p) < rd.w * 0.5 + pad:
+				return true
+		return false
 	for rd in roads:
 		if Geometry2D.get_closest_point_to_segment(p, rd.a, rd.b).distance_to(p) < rd.w * 0.5 + pad:
 			return true
 	return false
 
+## Footprints of buildings and structures in 64 m cells (the big map has
+## thousands of things to check against).
+const FP_CELL := 64.0
+var _fp := {}
+
+func _fp_add(c: Vector2, half: Vector2) -> void:
+	var a := Vector2i(floori((c.x - half.x) / FP_CELL), floori((c.y - half.y) / FP_CELL))
+	var b := Vector2i(floori((c.x + half.x) / FP_CELL), floori((c.y + half.y) / FP_CELL))
+	for j in range(a.y, b.y + 1):
+		for i in range(a.x, b.x + 1):
+			var k := Vector2i(i, j)
+			if not _fp.has(k): _fp[k] = []
+			_fp[k].append([c, half])
+
 func _overlaps(c: Vector2, half: Vector2, pad: float) -> bool:
-	for o in obstacles:
-		if absf(c.x - o.pos.x) < half.x + o.half.x + pad and absf(c.y - o.pos.y) < half.y + o.half.y + pad:
-			return true
-	for b in buildings:
-		var bh: Vector2 = b.size * 0.5
-		if absf(c.x - b.pos.x) < half.x + bh.x + pad and absf(c.y - b.pos.y) < half.y + bh.y + pad:
-			return true
+	var a := Vector2i(floori((c.x - half.x - pad) / FP_CELL), floori((c.y - half.y - pad) / FP_CELL))
+	var b := Vector2i(floori((c.x + half.x + pad) / FP_CELL), floori((c.y + half.y + pad) / FP_CELL))
+	for j in range(a.y, b.y + 1):
+		for i in range(a.x, b.x + 1):
+			for o in _fp.get(Vector2i(i, j), []):
+				var oc: Vector2 = o[0]
+				var oh: Vector2 = o[1]
+				if absf(c.x - oc.x) < half.x + oh.x + pad and absf(c.y - oc.y) < half.y + oh.y + pad:
+					return true
 	return false
 
 func _add_building(c: Vector2, sz: Vector2, military: bool, storeys := 1, kind := "house") -> void:
@@ -245,8 +392,10 @@ func _add_building(c: Vector2, sz: Vector2, military: bool, storeys := 1, kind :
 	if storeys > 1:
 		var free := [0, 1, 2, 3].filter(func(w): return not doors.has(w))
 		stair = free[rng.randi() % free.size()]
+	_fp_add(c, sz * 0.5)
 	buildings.append({"pos": c, "size": sz, "floor": floor_h, "military": military, "doors": doors,
-		"tint": rng.randi_range(0, 4), "roof": rng.randi_range(0, 4), "storeys": storeys, "stair": stair, "kind": kind})
+		"tint": rng.randi_range(0, 4), "roof": rng.randi_range(0, 4), "storeys": storeys, "stair": stair, "kind": kind,
+		"style": "plains" if military else region_at(c.x, c.y)})
 	for k in rng.randi_range(2, 5 if military else 4):
 		loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.35, sz.x * 0.35), rng.randf_range(-sz.y * 0.35, sz.y * 0.35)), "military": military})
 	if storeys > 1:
@@ -258,6 +407,7 @@ func _structure(kind: String, p: Vector2, half: Vector2, extra := {}) -> void:
 	d.merge(extra, true)
 	structures.append(d)
 	obstacles.append({"pos": p, "half": half})
+	_fp_add(p, half)
 
 ## Factory yard: two big warehouses, rows of shipping containers (some
 ## stacked), a tall brick chimney and a water tower.
@@ -385,20 +535,57 @@ func _blocked(p: Vector2, r: float) -> bool:
 func _area() -> float:
 	return pow(size / 3072.0, 2.0)
 
+## Tree kinds per region: [kind, weight] (forests are thicker in the jungle and the north).
+const REGION_TREES := {
+	"plains": [["broad", 0.55], ["pine", 0.45]],
+	"nordic": [["pine", 0.9], ["broad", 0.1]],
+	"jungle": [["palm", 0.45], ["broad", 0.55]],
+	"desert": [["cactus", 0.75], ["dead", 0.25]],
+	"tropic": [["palm", 0.9], ["broad", 0.1]],
+}
+const REGION_FOREST := {"plains": 1.0, "nordic": 1.6, "jungle": 3.0, "desert": 0.12, "tropic": 0.8}
+
+func _tree_kind(reg: String) -> String:
+	var r := rng.randf()
+	for e in REGION_TREES[reg]:
+		r -= e[1]
+		if r <= 0.0: return e[0]
+	return REGION_TREES[reg][0][0]
+
 func _props() -> void:
 	var k_area := _area()
-	# Forests and scattered trees.
+	# Forests and scattered trees, each region with its own kinds.
 	for f in int(70 * k_area):
 		var c := Vector2(rng.randf_range(80, size - 80), rng.randf_range(80, size - 80))
-		var pine := rng.randf() < 0.55
-		for k in rng.randi_range(15, 40):
-			var p := c + Vector2(absf(rng.randfn(0.0, 1.0)) * 55.0, 0).rotated(rng.randf() * TAU)
-			_add_tree(p, pine if rng.randf() < 0.85 else not pine)
+		var reg := region_at(c.x, c.y)
+		var dens: float = REGION_FOREST[reg]
+		if dens < 1.0 and rng.randf() > dens: continue
+		# Thick regions get several forests per try (the jungle is nearly all trees).
+		for rep in int(ceil(dens)):
+			if rep > 0:
+				c = c + Vector2(rng.randf_range(90.0, 220.0), 0).rotated(rng.randf() * TAU)
+			var main := _tree_kind(reg)
+			for k in int(rng.randi_range(15, 40) * maxf(1.0, dens * 0.8)):
+				var p := c + Vector2(absf(rng.randfn(0.0, 1.0)) * 55.0 * (1.4 if reg == "jungle" else 1.0), 0).rotated(rng.randf() * TAU)
+				_add_tree(p, main if rng.randf() < 0.8 else _tree_kind(reg))
 	for k in int(900 * k_area):
-		_add_tree(Vector2(rng.randf_range(40, size - 40), rng.randf_range(40, size - 40)), rng.randf() < 0.4)
+		var p := Vector2(rng.randf_range(40, size - 40), rng.randf_range(40, size - 40))
+		var reg := region_at(p.x, p.y)
+		if reg == "desert" and rng.randf() < 0.5: continue
+		_add_tree(p, _tree_kind(reg))
+		if reg == "jungle":
+			for k2 in 2: _add_tree(p + Vector2(rng.randf_range(-30, 30), rng.randf_range(-30, 30)), _tree_kind(reg))
 	for k in int(260 * k_area):
 		var p := Vector2(rng.randf_range(60, size - 60), rng.randf_range(60, size - 60))
-		var r := rng.randf_range(0.8, 2.6)
+		var reg := region_at(p.x, p.y)
+		var r := rng.randf_range(0.8, 2.6) * (1.6 if reg in ["desert", "nordic"] else 1.0)
+		if _blocked(p, r + 1.0): continue
+		rocks.append({"pos": p, "r": r})
+	# Boulders and rock piles in the desert and the north.
+	for k in int(300 * k_area):
+		var p := Vector2(rng.randf_range(60, size - 60), rng.randf_range(60, size - 60))
+		if not region_at(p.x, p.y) in ["desert", "nordic"]: continue
+		var r := rng.randf_range(1.2, 4.5)
 		if _blocked(p, r + 1.0): continue
 		rocks.append({"pos": p, "r": r})
 	for k in int(90 * k_area):
@@ -406,16 +593,31 @@ func _props() -> void:
 		if _blocked(p, 3.0): continue
 		loot_spots.append({"pos": p, "military": false})
 
-func _add_tree(p: Vector2, pine: bool) -> void:
+func _add_tree(p: Vector2, kind: String) -> void:
 	if _blocked(p, 2.5): return
 	for t in towns:
 		if p.distance_to(t.pos) < t.r * 0.8: return
-	trees.append({"pos": p, "h": rng.randf_range(7.0, 13.0), "r": rng.randf_range(0.18, 0.32), "pine": pine, "shade": rng.randf()})
+	var h := rng.randf_range(7.0, 13.0)
+	var r := rng.randf_range(0.18, 0.32)
+	match kind:
+		"palm": h = rng.randf_range(8.0, 14.0); r = rng.randf_range(0.16, 0.22)
+		"cactus": h = rng.randf_range(2.5, 5.5); r = rng.randf_range(0.18, 0.28)
+		"dead": h = rng.randf_range(4.0, 7.0); r = rng.randf_range(0.12, 0.2)
+	trees.append({"pos": p, "h": h, "r": r, "pine": kind == "pine", "kind": kind, "shade": rng.randf()})
 
 # ---------- Images for shaders and the map ----------
 func height_image() -> Image:
 	var img := Image.create_from_data(N, N, false, Image.FORMAT_RF, heights.to_byte_array())
 	img.convert(Image.FORMAT_RH)
+	return img
+
+## Region weights for the shaders: R desert, G jungle, B north, A beach island.
+func biome_image() -> Image:
+	var img := Image.create(BIOME_N, BIOME_N, false, Image.FORMAT_RGBA8)
+	for j in BIOME_N:
+		for i in BIOME_N:
+			var o := (j * BIOME_N + i) * 4
+			img.set_pixel(i, j, Color(biome[o], biome[o + 1], biome[o + 2], biome[o + 3]))
 	return img
 
 ## RGBA mask for the terrain shader: R = road, G = field, B = town ground.

@@ -26,7 +26,7 @@ void fragment() {
 	land *= 0.62 + 0.5 * shade;
 	// Roads: light asphalt (a little wider than the mask, to cover the photo's).
 	float road = texture(mask, uv).r;
-	float mt = 1.0 / 1024.0;
+	float mt = 1.0 / 2048.0;
 	road = max(road, max(max(texture(mask, uv + vec2(mt, 0.0)).r, texture(mask, uv - vec2(mt, 0.0)).r),
 		max(texture(mask, uv + vec2(0.0, mt)).r, texture(mask, uv - vec2(0.0, mt)).r)));
 		land = mix(land, vec3(0.66, 0.64, 0.6), smoothstep(0.55, 0.75, road));

@@ -67,7 +67,7 @@ func _begin_phase(i: int) -> void:
 		return
 	var ph: Array = PHASES[i]
 	state = "wait"
-	time_left = ph[0]
+	time_left = ph[0] * _time_k()
 	dps = ph[3]
 	_from_center = center
 	_from_radius = radius
@@ -93,10 +93,10 @@ func _process(delta: float) -> void:
 	if state == "wait":
 		if time_left <= 0.0:
 			state = "shrink"
-			time_left = PHASES[phase][1]
+			time_left = PHASES[phase][1] * _time_k()
 			if world.hud: world.hud.show_banner("المنطقة الآمنة عم تصغر!")
 	elif state == "shrink":
-		var dur: float = PHASES[phase][1]
+		var dur: float = PHASES[phase][1] * _time_k()
 		var k := clampf(1.0 - time_left / dur, 0.0, 1.0)
 		center = _from_center.lerp(next_center, k)
 		radius = lerpf(_from_radius, next_radius, k)
@@ -105,6 +105,10 @@ func _process(delta: float) -> void:
 			radius = next_radius
 			_begin_phase(phase + 1)
 	_update_wall()
+
+## The big map gives everyone a bit longer to reach each circle.
+func _time_k() -> float:
+	return clampf(world.island.size / 4096.0, 1.0, 1.35)
 
 func _update_wall() -> void:
 	_wall.position = Vector3(center.x, 300.0, center.y)
