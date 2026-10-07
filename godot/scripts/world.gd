@@ -246,7 +246,7 @@ func _spawn_loot() -> void:
 			var kind: String = ["vest", "helmet", "pack"][randi() % 3]
 			_add_gear(kind, Items.roll_level(spot.military), -1.0, Vector3(p.x - 0.6, y, p.y + 0.3))
 		if randf() < 0.22:
-			_add_pickup({"kind": "throw", "id": "frag" if randf() < 0.65 else "smoke", "n": 1}, Vector3(p.x + 0.4, y, p.y - 0.5))
+			_add_pickup({"kind": "throw", "id": Items.roll_throw(), "n": 1}, Vector3(p.x + 0.4, y, p.y - 0.5))
 		if randf() < (0.6 if spot.military else 0.4):
 			_add_pickup({"kind": "attach", "id": Items.roll_attach(spot.military)}, Vector3(p.x - 0.4, y, p.y - 0.6))
 		if randf() < 0.45:
@@ -417,6 +417,72 @@ func pickup(who: Player, it: Node3D, quiet := false) -> void:
 			data.n = int(data.n) - n
 			if data.n > 0: return
 	_remove_pickup(it)
+
+# ---------- Loot boxes of the fallen ----------
+var crates: Array = []          # Node3D boxes still holding something
+var _crate_look: Array = []     # [box mesh, material, lid mesh, lid material]
+
+## A wooden box where someone died, holding everything they carried (taken
+## out one by one in the bag screen, or all at once). Its name floats above.
+func death_crate(owner_name: String, pos: Vector3, items: Array) -> Node3D:
+	if items.is_empty(): return null
+	# Sit on whatever is under the body (a floor, the ground, a roof).
+	var q := PhysicsRayQueryParameters3D.create(pos + Vector3(0, 1.0, 0), pos + Vector3(0, -6.0, 0), 1)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var at: Vector3 = hit.position if not hit.is_empty() else Vector3(pos.x, ground_height(pos), pos.z)
+	if _crate_look.is_empty():
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.9, 0.5, 0.6)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = load("res://assets/textures/wood_col.jpg")
+		mat.normal_enabled = true
+		mat.normal_texture = load("res://assets/textures/wood_nrm.jpg")
+		mat.uv1_triplanar = true
+		mat.uv1_scale = Vector3(1.5, 1.5, 1.5)
+		mat.albedo_color = Color("c9a070")
+		mat.roughness = 0.8
+		var lm := BoxMesh.new()
+		lm.size = Vector3(0.94, 0.06, 0.64)
+		var lmat := StandardMaterial3D.new()
+		lmat.albedo_color = Color("ffd34d")
+		lmat.emission_enabled = true
+		lmat.emission = Color("ffb300") * 0.6
+		lmat.roughness = 0.5
+		_crate_look = [bm, mat, lm, lmat]
+	var box := Node3D.new()
+	box.name = "LootBox"
+	var mi := MeshInstance3D.new()
+	mi.mesh = _crate_look[0]
+	mi.material_override = _crate_look[1]
+	mi.position.y = 0.25
+	box.add_child(mi)
+	var lid := MeshInstance3D.new()
+	lid.mesh = _crate_look[2]
+	lid.material_override = _crate_look[3]
+	lid.position.y = 0.52
+	box.add_child(lid)
+	var lb := Label3D.new()
+	lb.text = owner_name
+	lb.font = load("res://assets/fonts/Cairo.ttf")
+	lb.font_size = 48
+	lb.pixel_size = 0.004
+	lb.outline_size = 10
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.no_depth_test = false
+	lb.position.y = 1.0
+	lb.visibility_range_end = 40.0
+	box.add_child(lb)
+	add_child(box)
+	box.global_position = at
+	box.rotation.y = randf() * TAU
+	box.set_meta("owner", owner_name)
+	box.set_meta("count", items.size())
+	crates.append(box)
+	for d in items:
+		var it := _add_pickup(d, at + Vector3(0, 0.55, 0))
+		it.get_child(0).visible = false     # inside the box
+		it.set_meta("crate", box)
+	return box
 
 func drop_weapon(id: String, mag: int, pos: Vector3, att := {}) -> void:
 	_add_pickup({"kind": "weapon", "id": id, "mag": mag, "att": att.duplicate()}, pos + Vector3(randf_range(-0.6, 0.6), 0, randf_range(-0.6, 0.6)))
@@ -667,6 +733,13 @@ func notify_shot(pos: Vector3, shooter: Node, suppressed := false) -> void:
 			b.hear(pos, shooter)
 
 ## Everyone still in the match (player and bots).
+## Where the camera is: you, or the player you are watching after dying.
+## Detail, sounds and grass follow this point.
+func view_position() -> Vector3:
+	if player and player.state == "dead" and is_instance_valid(player.spectate):
+		return player.spectate.global_position
+	return player.global_position if player else Vector3.ZERO
+
 ## Built once per physics frame: with 100 players every bot asks for it.
 func actors() -> Array:
 	var f := Engine.get_physics_frames()
@@ -727,6 +800,14 @@ func bot_take(b: Bot, it: Node3D) -> void:
 	_remove_pickup(it)
 
 func _remove_pickup(it: Node3D) -> void:
+	if it.has_meta("crate"):
+		# The last thing taken out of a loot box: the box goes too.
+		var box = it.get_meta("crate")
+		if is_instance_valid(box):
+			box.set_meta("count", int(box.get_meta("count")) - 1)
+			if int(box.get_meta("count")) <= 0:
+				crates.erase(box)
+				box.queue_free()
 	pickups.erase(it)
 	var c := _cell(it.global_position)
 	if _grid.has(c): _grid[c].erase(it)
@@ -747,18 +828,22 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 	if attacker == null: zone_deaths += 1
 	if victim is Bot:
 		var v: Bot = victim
+		# Everything it carried goes into a loot box where it fell.
+		var items := []
 		if v.armed():
-			drop_weapon(v.weapon_id, 0, v.global_position)
-			var at: String = Game.WEAPONS[v.weapon_id].ammo
+			items.append({"kind": "weapon", "id": v.weapon_id, "mag": v.mag, "att": {}})
 			if v.reserve > 0:
-				_add_pickup({"kind": "ammo", "type": at, "amount": mini(v.reserve, 60)}, v.global_position + Vector3(0.5, 0, 0.4))
+				items.append({"kind": "ammo", "type": Game.WEAPONS[v.weapon_id].ammo, "amount": v.reserve})
 		for kind in ["vest", "helmet", "pack"]:
 			if v.gear[kind] > 0:
-				_add_gear(kind, v.gear[kind], float(v.gear.get(kind + "_dur", 0.0)), v.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+				var lvl: int = v.gear[kind]
+				var dur: float = float(v.gear.get(kind + "_dur", 0.0)) if kind != "pack" else 0.0
+				items.append({"kind": "gear", "gear": kind, "lvl": lvl, "dur": dur})
 		for k in v.frags:
-			_add_pickup({"kind": "throw", "id": "frag", "n": 1}, v.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+			items.append({"kind": "throw", "id": "frag", "n": 1})
 		if v.meds > 0:
-			_add_pickup({"kind": "heal", "id": "firstaid", "n": mini(v.meds, 3)}, v.global_position + Vector3(-0.5, 0, -0.4))
+			items.append({"kind": "heal", "id": "firstaid", "n": v.meds})
+		death_crate(v.display_name, v.global_position, items)
 	if player.state != "dead" and alive_count() == 1:
 		_end_match(true)
 
@@ -792,10 +877,11 @@ func _process(delta: float) -> void:
 			player.jump_from_plane()
 		elif plane_t >= 0.995 and player.state == "plane":
 			player.jump_from_plane()
-	builder.update_grass(player.global_position)
+	builder.update_grass(view_position())
 	_update_airdrops(delta)
 	for s in smokes: s.t -= delta
 	smokes = smokes.filter(func(s): return s.t > 0.0)
+	if not fires.is_empty(): _update_fires(delta)
 	# Blue zone damage, once a second.
 	_zone_tick += delta
 	if _zone_tick >= 1.0 and zone.state != "idle":
@@ -943,6 +1029,73 @@ func explode(pos: Vector3, thrower: Node, exclude: Array = []) -> void:
 	var pd := pos.distance_to(player.global_position)
 	if pd < 40.0: player.shake = maxf(player.shake, 1.0 - pd / 40.0)
 
+# ---------- Molotov fire and flashbangs ----------
+const FIRE_RADIUS := 3.2
+const FIRE_TIME := 9.0
+const FIRE_DPS := 14.0
+var fires: Array = []           # {pos, t, thrower, tick}
+
+## A molotov bursts: a pool of fire on the floor or ground under it that
+## burns anyone standing in it.
+func add_fire(pos: Vector3, thrower: Node) -> void:
+	var q := PhysicsRayQueryParameters3D.create(pos + Vector3(0, 0.5, 0), pos + Vector3(0, -4.0, 0), 1)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var at: Vector3 = hit.position if not hit.is_empty() else Vector3(pos.x, ground_height(pos), pos.z)
+	effects.fire(at, FIRE_TIME, FIRE_RADIUS)
+	sound_boom(at, -12.0, 1.6)
+	fires.append({"pos": at, "t": FIRE_TIME, "thrower": thrower, "tick": 0.0})
+	notify_shot(at, thrower)
+
+## Fire burning at p (a pool's centre), or Vector3.INF.
+func fire_at(p: Vector3, pad := 0.0) -> Vector3:
+	for f in fires:
+		var c: Vector3 = f.pos
+		if Vector2(p.x - c.x, p.z - c.z).length() < FIRE_RADIUS + pad and absf(p.y - c.y) < 2.0:
+			return c
+	return Vector3.INF
+
+func _update_fires(delta: float) -> void:
+	for f in fires:
+		f.t -= delta
+		f.tick += delta
+		if f.tick < 0.5: continue
+		f.tick = 0.0
+		for a in actors():
+			if not a.on_ground(): continue
+			if fire_at(a.global_position) != f.pos: continue
+			var killed: bool = a.take_damage(FIRE_DPS * 0.5, f.thrower, false)
+			if f.thrower == player and a != player:
+				hud.hit_t = 0.15
+				if killed: player.kills += 1
+			elif killed and f.thrower is Bot and f.thrower != a and is_instance_valid(f.thrower):
+				f.thrower.kills += 1
+	fires = fires.filter(func(f): return f.t > 0.0)
+
+## Flashbang: a blinding light and a bang. Whoever sees it is blinded for a
+## few seconds (longer when close and looking at it); walls protect.
+func flashbang(pos: Vector3, thrower: Node) -> void:
+	effects.flash(pos)
+	sound_boom(pos, -4.0, 1.9)
+	notify_shot(pos, thrower)
+	var space := get_world_3d().direct_space_state
+	for a in actors():
+		var eye: Vector3 = a.global_position + Vector3(0, 1.5, 0)
+		var d := pos.distance_to(eye)
+		if d > 24.0: continue
+		var q := PhysicsRayQueryParameters3D.create(pos, eye, 1)
+		if not space.intersect_ray(q).is_empty(): continue
+		var to_flash := (pos - eye).normalized()
+		var look: Vector3 = -a.camera.global_basis.z if a == player else Vector3(-sin(a.yaw), 0, -cos(a.yaw))
+		var facing := clampf(look.dot(to_flash), 0.0, 1.0)
+		var amount := clampf(1.0 - d / 24.0, 0.0, 1.0) * (0.35 + 0.65 * facing)
+		if d < 4.0: amount = maxf(amount, 0.8)
+		if amount < 0.08: continue
+		var secs := 0.8 + 4.5 * amount
+		if a == player:
+			hud.flash(amount, secs)
+		else:
+			a.blind_t = maxf(a.blind_t, secs)
+
 func add_smoke(pos: Vector3) -> void:
 	effects.smoke_cloud(pos, 22.0)
 	smokes.append({"pos": pos + Vector3(0, 1.5, 0), "r": 5.0, "t": 22.0})
@@ -1035,17 +1188,17 @@ func _make_boom_sound() -> AudioStreamWAV:
 	w.data = data
 	return w
 
-func sound_boom(pos: Vector3) -> void:
+func sound_boom(pos: Vector3, volume := 4.0, pitch := 1.0) -> void:
 	if not Game.settings.sound: return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = _snd.get("explosion", _boom_stream)
 	p.unit_size = 40.0
 	p.max_distance = 1200.0
-	p.volume_db = 4.0
-	p.pitch_scale = randf_range(0.9, 1.05)
+	p.volume_db = volume
+	p.pitch_scale = randf_range(0.9, 1.05) * pitch
 	add_child(p)
 	p.global_position = pos
-	var d := pos.distance_to(player.global_position) if player else 0.0
+	var d := pos.distance_to(view_position()) if player else 0.0
 	if d > 60.0:
 		get_tree().create_timer(d / SPEED_OF_SOUND).timeout.connect(func():
 			if is_instance_valid(p): p.play())
@@ -1083,7 +1236,8 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click",
 	"step_concrete_1", "step_concrete_2", "step_concrete_3", "step_concrete_4", "step_concrete_5",
 	"step_grass_1", "step_grass_2", "step_grass_3", "step_grass_4", "step_grass_5", "step_grass_6", "step_grass_7", "step_grass_8",
-	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2"]
+	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2",
+	"shot_sniper", "shot_sniper_b", "shot_sniper_far"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
@@ -1093,7 +1247,7 @@ var _snd := {}
 
 func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> void:
 	if not Game.settings.sound: return
-	var d := pos.distance_to(player.global_position)
+	var d := pos.distance_to(view_position())
 	# Cap how many play at once; past ~700 m nothing is heard anyway, and a
 	# suppressed gun only within ~120 m.
 	if not own and (_sounds_playing >= 14 or d > (120.0 if suppressed else 700.0)): return
@@ -1102,9 +1256,18 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 	# Far: a distant shot rolling over the hills, or a short sharp crack.
 	var pick: String
 	var pitch: float = SHOT_PITCH.get(cls, 1.0) * randf_range(0.96, 1.04)
-	if far:
+	var sniper := cls == "sr"
+	if far and sniper and randf() < 0.7:
+		# A sniper far away: a long rolling boom.
+		pick = "shot_sniper_far"
+		pitch = randf_range(0.94, 1.04)
+	elif far:
 		var r0 := randf()
 		pick = "shot_far" if r0 < 0.35 else ("shot_far_2" if r0 < 0.65 else ["far_crack_1", "far_crack_2", "far_crack_3"][randi() % 3])
+	elif sniper:
+		# Bolt-action rifles have their own heavy recordings.
+		pick = "shot_sniper" if randf() < 0.6 else "shot_sniper_b"
+		pitch = randf_range(0.97, 1.03)
 	elif cls == "pistol" or cls == "shotgun":
 		# Their own recordings, at their natural pitch.
 		pick = "shot_" + cls
@@ -1170,7 +1333,7 @@ func surface_at(p: Vector3) -> String:
 ## (crouching is quiet, sprinting loud). Enemies are heard up to ~40 m away.
 func footstep(pos: Vector3, own: bool, loud: float) -> void:
 	if not Game.settings.sound: return
-	if not own and (_sounds_playing >= 14 or pos.distance_to(player.global_position) > 40.0): return
+	if not own and (_sounds_playing >= 14 or pos.distance_to(view_position()) > 40.0): return
 	var surf := surface_at(pos)
 	var snd := ("step_concrete_%d" % (randi() % 5 + 1)) if surf == "concrete" else ("step_grass_%d" % (randi() % 8 + 1))
 	var vol := lerpf(-26.0, -8.0, loud)

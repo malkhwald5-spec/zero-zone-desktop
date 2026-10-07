@@ -53,6 +53,7 @@ var last_pos := Vector3.ZERO
 var far := false
 var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
+var blind_t := 0.0           # seconds left blinded by a flashbang
 var _frame := 0
 var _step_dist := 0.0
 var _far_dt := 0.0
@@ -183,8 +184,7 @@ func _land() -> void:
 	think_t = randf_range(0.0, 0.3)
 
 func _ground(delta: float) -> void:
-	var player: Node3D = world.player
-	var d_player := global_position.distance_to(player.global_position)
+	var d_player := global_position.distance_to(world.view_position())
 	far = d_player > 280.0
 	model.visible = d_player < 650.0
 	fire_cd = maxf(0.0, fire_cd - delta)
@@ -232,6 +232,15 @@ func _ground(delta: float) -> void:
 
 # ---------------------------------------------------------------- decisions
 func _think() -> void:
+	# Standing in a molotov's fire: get out first.
+	var burn: Vector3 = world.fire_at(global_position, 0.8)
+	if burn != Vector3.INF:
+		var away := global_position - burn
+		away.y = 0.0
+		if away.length() < 0.1: away = Vector3(1, 0, 0)
+		mode = "flee"
+		_go(burn + away.normalized() * (world.FIRE_RADIUS + 4.0))
+		return
 	if target and (not is_instance_valid(target) or _is_dead(target) or global_position.distance_to(target.global_position) > 160.0):
 		target = null
 	var seen := _look_for_enemy()
@@ -346,6 +355,7 @@ func _is_dead(n: Node) -> bool:
 
 ## Nearest enemy (player or bot) that is in view and not behind cover.
 func _look_for_enemy() -> Node3D:
+	if blind_t > 0.0: return null
 	var view := 70.0 + skill * 50.0
 	var facing := Vector3(-sin(yaw), 0, -cos(yaw))
 	var best: Node3D = null
@@ -524,6 +534,9 @@ func _move(delta: float) -> void:
 
 # ---------------------------------------------------------------- combat
 func _combat(delta: float) -> void:
+	if blind_t > 0.0:
+		blind_t -= delta
+		return
 	if mode != "fight" or target == null or not is_instance_valid(target): return
 	react_t -= delta
 	engage_t += delta
@@ -599,7 +612,7 @@ func _shoot(e: Node3D) -> void:
 				if target == hit.collider: target = null
 		elif hit and not far and i == 0:
 			world.effects.impact(end, hit.normal, false)
-	if global_position.distance_to(world.player.global_position) < 700.0:
+	if global_position.distance_to(world.view_position()) < 700.0:
 		world.sound_shot(w.cls, global_position, false)
 	world.notify_shot(global_position, self)
 	if mag == 0 and reserve > 0:

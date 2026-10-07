@@ -482,8 +482,8 @@ func _furnish(sts: Dictionary, body: StaticBody3D, b: Dictionary, lv: int, shop:
 		var trim_hi := (along_x and sw == 1) or (not along_x and sw == 2)
 		var trim_lo := (along_x and sw == 3) or (not along_x and sw == 0)
 		for sp in spans:
-			if trim_hi: sp[1] = minf(sp[1], half - WorldBuilder.STAIR_W - 0.6)
-			if trim_lo: sp[0] = maxf(sp[0], -half + WorldBuilder.STAIR_W + 0.6)
+			if trim_hi: sp[1] = minf(sp[1], half - WorldBuilder.STAIR_W - 1.3)
+			if trim_lo: sp[0] = maxf(sp[0], -half + WorldBuilder.STAIR_W + 1.3)
 		for sp in spans:
 			var room: float = sp[1] - sp[0]
 			var options := pool.filter(func(k): return FURNITURE[k][0] <= room)
@@ -760,10 +760,10 @@ static func stair_points(b: Dictionary) -> Array:
 	var start := -length * 0.5 + WALL_T + 1.2
 	var foot := Vector2(start - 0.6, band) if along_x else Vector2(band, start - 0.6)
 	var top := Vector2(start + STAIR_RUN + 0.9, band) if along_x else Vector2(band, start + STAIR_RUN + 0.9)
-	# A step into the room from the foot, so the stairs are walked onto
-	# straight instead of along the end wall (furniture stands there).
+	# A point in the room beside the first steps, so the foot is reached from
+	# the side of the stairs and not along the end wall.
 	var into := -signf(band)
-	var near := Vector2(start - 0.6, band + into * 1.0) if along_x else Vector2(band + into * 1.0, start - 0.6)
+	var near := Vector2(start + 0.4, band + into * 1.05) if along_x else Vector2(band + into * 1.05, start + 0.4)
 	var c: Vector2 = b.pos
 	return [Vector3(c.x + near.x, b.floor, c.y + near.y), Vector3(c.x + foot.x, b.floor, c.y + foot.y), Vector3(c.x + top.x, b.floor + STOREY_H, c.y + top.y)]
 

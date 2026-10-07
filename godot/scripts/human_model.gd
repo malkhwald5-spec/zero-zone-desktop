@@ -30,6 +30,7 @@ var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 ## Skydive / parachute controls, set by the owner each frame.
 var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
 var lean := 0.0               # roll while skydiving (-1..1)
+var peek := 0.0               # leaning round cover: -1 left .. 1 right
 var steer := 0.0              # parachute toggles: -1 pull left .. 1 pull right
 var brake := 0.0              # parachute flare 0..1
 var chute_open := 1.0         # 0 = just pulled (bunched up) .. 1 = fully open
@@ -674,6 +675,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var sw := sin(t * 1.7) * 0.05
 			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
 			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
+	if absf(peek) > 0.01 and pose in ["stand", "crouch"]:
+		body.position.x += peek * PEEK_SHIFT     # weight onto the outer foot
+		_lean_spine()
 	if armed and gun.visible:
 		_place_gun(pose, delta)
 		_bend_spine(pose)
@@ -745,6 +749,11 @@ func _place_gun(pose: String, delta: float) -> void:
 		var piv := AIM_PIVOT + Vector3(0, body.position.y, 0)
 		var pr := Basis(Vector3.RIGHT, aim_pitch * (1.0 if aiming else 0.6))
 		target = Transform3D(pr * target.basis, piv + pr * (target.origin - piv))
+	if absf(peek) > 0.01 and pose != "prone":
+		# Leaning round cover: the gun goes with the upper body.
+		var hip := Vector3(0, 0.95 + body.position.y, 0)
+		var rb := Basis(Vector3.BACK, -peek * PEEK_ROLL)
+		target = Transform3D(rb * target.basis, hip + rb * (target.origin - hip) + Vector3(peek * PEEK_SHIFT, 0, 0))
 	target.origin += target.basis * Vector3(0, 0.01, 0.06) * recoil
 	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.07)
 	var k2 := minf(1.0, delta * 14.0)
@@ -760,6 +769,20 @@ func _place_gun(pose: String, delta: float) -> void:
 		elif p >= 0.6 and p < 0.8: drop = 1.0 - (p - 0.6) / 0.2
 		mag.position = Vector3(0, -0.28 * drop, 0.05 * drop)
 		mag.visible = not (p >= 0.3 and p < 0.45)
+
+const PEEK_ROLL := 0.36      # radians the upper body tilts when leaning
+const PEEK_SHIFT := 0.22     # metres the body shifts sideways
+
+## Lean sideways from the hips (Q / E), split over the three spine bones.
+func _lean_spine() -> void:
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var axis_sk := (to_sk.basis * Vector3.BACK).normalized()
+	for bn in ["Spine", "Spine1", "Spine2"]:
+		if not _bone.has(bn): continue
+		var i: int = _bone[bn]
+		var inv := sk.get_bone_global_pose(i).basis.inverse()
+		var q := Quaternion((inv * axis_sk).normalized(), -peek * PEEK_ROLL / 3.0)
+		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
 
 ## Upper body follows the aim up/down; the head looks a bit further.
 func _bend_spine(pose: String) -> void:

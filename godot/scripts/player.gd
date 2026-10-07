@@ -71,10 +71,20 @@ var heal_id := ""                 # item being used
 var heal_t := 0.0                 # seconds left
 
 # Grenades
-var throwables := {"frag": 0, "smoke": 0}
+var throwables := {"frag": 0, "smoke": 0, "molotov": 0, "flash": 0}
 var throw_kind := "frag"
 var throw_ready := false          # holding G: aiming a throw (arc shown)
 var shake := 0.0                  # camera shake from nearby explosions
+var peek := 0.0                   # leaning round cover: -1 left .. 1 right (Q / E)
+var peek_toggle := 0.0            # touch buttons: lean stays on until pressed again
+var killer: Node3D = null         # who killed you (the killcam looks at them)
+var spectate: Node3D = null       # player you are watching after dying
+var dead_t := 0.0                 # seconds since you died
+var vault_t := -1.0               # 0..1 while climbing over something (Space)
+var _vault_from := Vector3.ZERO
+var _vault_to := Vector3.ZERO
+var _vault_top := 0.0
+var _vault_time := 0.5
 
 func _ready() -> void:
 	capsule = CapsuleShape3D.new()
@@ -141,6 +151,8 @@ func action(act: String, pressed: bool) -> void:
 			if pressed: start_throw()
 			else: release_throw()
 		"throw_kind": if pressed: switch_throw()
+		"peek_l": if pressed: peek_toggle = 0.0 if peek_toggle < 0.0 else -1.0
+		"peek_r": if pressed: peek_toggle = 0.0 if peek_toggle > 0.0 else 1.0
 		"slot1": if pressed: switch_slot(0)
 		"slot2": if pressed: switch_slot(1)
 		"slot3": if pressed: switch_slot(2)
@@ -209,7 +221,11 @@ func interact() -> void:
 			var car: Vehicle = world.nearest_vehicle(global_position, 3.5)
 			var it = world.nearest_pickup(global_position, 2.4)
 			if it and (car == null or car.global_position.distance_to(global_position) > 2.8):
-				world.pickup(self, it)
+				if it.has_meta("crate"):
+					# A loot box: look inside (the bag screen lists what it holds).
+					if not world.hud.bag_open: world.hud.toggle_bag()
+				else:
+					world.pickup(self, it)
 			elif car:
 				enter_vehicle(car)
 		"vehicle":
@@ -429,6 +445,7 @@ func _physics_process(delta: float) -> void:
 		"vehicle":
 			_drive(delta)
 		"dead":
+			dead_t += delta
 			velocity.y -= GRAVITY * delta
 			velocity.x = 0
 			velocity.z = 0
@@ -509,6 +526,9 @@ func _land() -> void:
 	message.emit("اجمع الأسلحة بسرعة!")
 
 func _ground(delta: float) -> void:
+	if vault_t >= 0.0:
+		_vault_step(delta)
+		return
 	# Safety net: never stay below the terrain surface.
 	var g: float = world.ground_height(global_position)
 	if global_position.y < g - 0.8 and not world.is_deep(global_position):
@@ -545,10 +565,14 @@ func _ground(delta: float) -> void:
 	var accel := 40.0 if is_on_floor() else 8.0
 	velocity.x = move_toward(velocity.x, target.x, accel * delta)
 	velocity.z = move_toward(velocity.z, target.z, accel * delta)
+	_update_peek(delta)
 	if is_on_floor():
 		if jump_queued:
 			if stance != "stand":
 				set_stance(stance)
+			elif try_vault():
+				jump_queued = false
+				return
 			else:
 				velocity.y = 5.4
 		velocity.y = maxf(velocity.y, -1.0) if not jump_queued else velocity.y
@@ -557,6 +581,7 @@ func _ground(delta: float) -> void:
 	jump_queued = false
 	var before := global_position
 	move_and_slide()
+	_step_up(wish)
 	# Deep water: you cannot swim out to sea (bridges and piers are fine).
 	if global_position.y < Island.WATER - 0.3 and world.is_deep(global_position):
 		global_position = Vector3(before.x, global_position.y, before.z)
@@ -567,6 +592,110 @@ func _ground(delta: float) -> void:
 	if firing and not throw_ready:
 		if heal_id != "": cancel_heal()
 		_try_fire()
+
+## Q / E (held) or the touch buttons: lean out to the side. Not while
+## prone, sprinting or running.
+func _update_peek(delta: float) -> void:
+	var want := peek_toggle
+	if Game.settings.controls == "kbm" and not Game.cursor_free:
+		want = (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0) - (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0)
+	if stance == "prone" or is_sprinting or vault_t >= 0.0:
+		want = 0.0
+		peek_toggle = 0.0
+	peek = move_toward(peek, want, delta * 5.0)
+
+## Walking into a kerb, a step or a low ledge (under 40 cm): step up onto it
+## instead of stopping.
+func _step_up(wish: Vector3) -> void:
+	if not is_on_floor() or not is_on_wall() or wish.length() < 0.1: return
+	var dir := Vector3(wish.x, 0, wish.z).normalized()
+	var space := get_world_3d().direct_space_state
+	var p := global_position
+	var low := space.intersect_ray(PhysicsRayQueryParameters3D.create(p + Vector3(0, 0.12, 0), p + Vector3(0, 0.12, 0) + dir * 0.7, 1, [get_rid()]))
+	if low.is_empty(): return
+	var high := space.intersect_ray(PhysicsRayQueryParameters3D.create(p + Vector3(0, 0.45, 0), p + Vector3(0, 0.45, 0) + dir * 0.9, 1, [get_rid()]))
+	if not high.is_empty(): return
+	var at: Vector3 = low.position + dir * 0.2
+	var top := space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(at.x, p.y + 0.5, at.z), Vector3(at.x, p.y, at.z), 1, [get_rid()]))
+	if top.is_empty(): return
+	var rise: float = top.position.y - p.y
+	if rise > 0.02 and rise < 0.42:
+		global_position = Vector3(p.x, top.position.y + 0.02, p.z) + dir * 0.06
+
+## Space in front of a low wall, fence, crate or window: climb over it (or
+## up onto it when it is deep). True when a vault started.
+func try_vault() -> bool:
+	var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
+	var base := global_position
+	var space := get_world_3d().direct_space_state
+	var ray := func(a: Vector3, b: Vector3) -> Dictionary:
+		var q := PhysicsRayQueryParameters3D.create(a, b, 1, [get_rid()])
+		return space.intersect_ray(q)
+	# Something knee-high right in front?
+	var front: Dictionary = ray.call(base + Vector3(0, 0.45, 0), base + Vector3(0, 0.45, 0) + fwd * 1.2)
+	if front.is_empty(): return false
+	var d: float = Vector2(front.position.x - base.x, front.position.z - base.z).length()
+	# Its top: look down just past the front face (inside a wall's thickness).
+	var probe := base + fwd * (d + 0.1)
+	var top_hit: Dictionary = ray.call(probe + Vector3(0, 2.3, 0), probe + Vector3(0, 0.3, 0))
+	if top_hit.is_empty(): return false
+	var h: float = top_hit.position.y - base.y
+	if h < 0.35 or h > 1.75: return false
+	# Room above it to get over (a window opening is enough).
+	if not ray.call(base + Vector3(0, h + 0.55, 0), base + Vector3(0, h + 0.55, 0) + fwd * (d + 1.2)).is_empty():
+		return false
+	# How deep is it? Look back from the far side.
+	var far_p := base + fwd * (d + 1.6) + Vector3(0, h - 0.15, 0)
+	var back: Dictionary = ray.call(far_p, far_p - fwd * 1.6)
+	var to: Vector3
+	if not back.is_empty() and Vector2(back.position.x - base.x, back.position.z - base.z).length() > d + 0.05:
+		# Thin: over it, down on the other side.
+		var beyond: Vector3 = Vector3(back.position.x, base.y, back.position.z) + fwd * 0.55
+		var down: Dictionary = ray.call(beyond + Vector3(0, h + 0.5, 0), beyond + Vector3(0, -3.0, 0))
+		if down.is_empty(): return false
+		to = down.position
+	else:
+		# Deep (a crate stack, a ledge): up on top of it.
+		to = base + fwd * (d + 0.45)
+		to.y = top_hit.position.y
+	# The landing spot must be free.
+	var shp := PhysicsShapeQueryParameters3D.new()
+	shp.shape = capsule
+	shp.transform = Transform3D(Basis.IDENTITY, to + Vector3(0, capsule.height * 0.5 + 0.05, 0))
+	shp.collision_mask = 1 | 4
+	shp.exclude = [get_rid()]
+	if not space.intersect_shape(shp, 1).is_empty(): return false
+	_vault_from = base
+	_vault_to = to
+	_vault_top = base.y + h + 0.25
+	_vault_time = 0.38 + h * 0.18
+	vault_t = 0.0
+	shape_node.disabled = true
+	velocity = Vector3.ZERO
+	firing = false
+	aiming = false
+	if heal_id != "": cancel_heal()
+	world.footstep(base, true, 0.7)
+	return true
+
+func _vault_step(delta: float) -> void:
+	vault_t = minf(1.0, vault_t + delta / _vault_time)
+	var t := vault_t
+	var p := _vault_from.lerp(_vault_to, smoothstep(0.0, 1.0, t))
+	# Up to the top first, over, then down.
+	var up := smoothstep(0.0, 0.45, t)
+	var y := lerpf(_vault_from.y, _vault_top, up)
+	if t > 0.55:
+		y = lerpf(_vault_top, _vault_to.y, smoothstep(0.55, 1.0, t))
+	p.y = maxf(y, lerpf(_vault_from.y, _vault_to.y, t))
+	global_position = p
+	if vault_t >= 1.0:
+		vault_t = -1.0
+		shape_node.disabled = false
+		var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
+		velocity = fwd * 2.5
+		land_t = 0.2
+		world.footstep(global_position, true, 0.8)
 
 var _step_dist := 0.0
 
@@ -679,6 +808,8 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 		health = 0.0
 		model.death_anim = _death_anim(attacker, _head)
 		state = "dead"
+		killer = attacker if attacker is Node3D and attacker != self else null
+		dead_t = 0.0
 		firing = false
 		world.on_actor_killed(self, attacker)
 		died.emit(attacker.display_name if attacker and "display_name" in attacker else "")
@@ -687,6 +818,9 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 
 # ---------- Camera and model ----------
 func _update_camera(delta: float) -> void:
+	if state == "dead" and (is_instance_valid(spectate) or is_instance_valid(killer)):
+		model.visible = true
+		return
 	var head := global_position + Vector3(0, {"stand": 1.6, "crouch": 1.15, "prone": 0.45}[stance] as float, 0)
 	# Wading: keep the camera above the water surface.
 	head.y = maxf(head.y, Island.WATER + 0.6)
@@ -712,6 +846,15 @@ func _update_camera(delta: float) -> void:
 	if aiming and state == "ground":
 		length = 0.0 if scoped() else 1.5
 		shoulder = 0.0 if scoped() else 0.45
+	if state == "ground" and absf(peek) > 0.01:
+		# Lean: the eyes move out to the side (not into a wall) and drop a little.
+		var side := cam_rig.global_transform.basis.x * signf(peek)
+		var want := absf(peek) * 0.55
+		var qp := PhysicsRayQueryParameters3D.create(head, head + side * (want + 0.25), 1 | WorldBuilder.CAMERA_LAYER, [get_rid()])
+		var hp := get_world_3d().direct_space_state.intersect_ray(qp)
+		if not hp.is_empty():
+			want = minf(want, maxf(0.0, head.distance_to(hp.position) - 0.25))
+		head += side * want + Vector3(0, -0.08 * absf(peek), 0)
 	# Where the camera looks from, relative to the body (applied every rendered
 	# frame in _process, so it is smooth at any frame rate and the mouse reacts
 	# at once).
@@ -742,15 +885,46 @@ var _cam_low_water := false
 
 func _process(delta: float) -> void:
 	if cam_rig == null: return
+	if state == "dead" and _dead_camera(delta): return
 	var body: Node3D = vehicle if state == "vehicle" and is_instance_valid(vehicle) else self
 	var head := body.get_global_transform_interpolated().origin + _cam_offset
 	head.y = maxf(head.y, Island.WATER + 0.6)
 	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
 	cam_rig.rotation = Vector3(0, yaw, 0)
 	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
-	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, 0) + sh
+	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, -peek * 0.12) + sh
 	if _cam_low_water:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
+
+## After dying: first the camera turns to whoever killed you (killcam), then
+## it can follow another player from behind (spectating). True when handled.
+func _dead_camera(delta: float) -> bool:
+	if is_instance_valid(spectate):
+		var hd := spectate.get_global_transform_interpolated().origin + Vector3(0, 1.6, 0)
+		var jump := cam_rig.global_position.distance_to(hd) > 30.0
+		cam_rig.global_position = hd if jump else cam_rig.global_position.lerp(hd, minf(1.0, delta * 10.0))
+		var ty: float = spectate.yaw if "yaw" in spectate else yaw
+		yaw = ty if jump else lerp_angle(yaw, ty, minf(1.0, delta * 4.0))
+		cam_rig.rotation = Vector3(0, yaw, 0)
+		cam_pivot.rotation = Vector3(-0.15, 0, 0)
+		spring.spring_length = lerpf(spring.spring_length, 3.6, minf(1.0, delta * 6.0))
+		spring.position.x = 0.5
+		camera.fov = lerpf(camera.fov, 70.0, minf(1.0, delta * 6.0))
+		return true
+	if is_instance_valid(killer):
+		# Killcam: stay by your body and turn to face the killer.
+		var to := killer.global_position + Vector3(0, 1.2, 0) - cam_rig.global_position
+		var ty := atan2(-to.x, -to.z)
+		var tp := atan2(to.y, Vector2(to.x, to.z).length())
+		yaw = lerp_angle(yaw, ty, minf(1.0, delta * 3.0))
+		pitch = lerpf(pitch, clampf(tp, -0.6, 0.5), minf(1.0, delta * 3.0))
+		cam_rig.rotation = Vector3(0, yaw, 0)
+		cam_pivot.rotation = Vector3(pitch, 0, 0)
+		# Zoom in on them if they are far.
+		var zoom := clampf(to.length() / 25.0, 1.0, 4.0)
+		camera.fov = lerpf(camera.fov, 70.0 / zoom, minf(1.0, delta * 2.0))
+		return true
+	return false
 
 ## Looking through a sight or scope (first person, reticle on screen).
 func scoped() -> bool:
@@ -785,6 +959,7 @@ func _update_model(delta: float) -> void:
 	var w := weapon()
 	model.reload_p = 1.0 - reload_t / float(w.reload) if reload_t > 0.0 and not w.is_empty() else -1.0
 	model.lean = move_input.x if state == "fall" else 0.0
+	model.peek = peek if state == "ground" else 0.0
 	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
 	match state:
@@ -796,6 +971,7 @@ func _update_model(delta: float) -> void:
 			pose = "crouch" if land_t > 0.0 and stance == "stand" else stance
 			# Falling off a roof or a cliff: arms and legs flail.
 			if not is_on_floor() and (velocity.y < -5.0 or velocity.y > 1.5): pose = "airborne"
+			if vault_t >= 0.0: pose = "crouch"
 	var sp := Vector2(velocity.x, velocity.z).length()
 	var fwd := Vector3(-sin(ry), 0, -cos(ry))
 	var rgt := Vector3(cos(ry), 0, -sin(ry))
@@ -919,15 +1095,26 @@ func _tick_heal(delta: float) -> void:
 		heal_id = ""
 
 # ---------- Grenades ----------
+## T: the next kind of grenade you carry.
 func switch_throw() -> void:
-	throw_kind = "smoke" if throw_kind == "frag" else "frag"
+	var order: Array = Items.THROW_ORDER
+	var i := order.find(throw_kind)
+	for k in range(1, order.size() + 1):
+		var nk: String = order[(i + k) % order.size()]
+		if throwables[nk] > 0 or k == order.size():
+			throw_kind = nk
+			break
 	message.emit(Items.THROWS[throw_kind])
 
 func start_throw() -> void:
 	if state != "ground" or throw_ready: return
 	if throwables[throw_kind] <= 0:
-		var other := "smoke" if throw_kind == "frag" else "frag"
-		if throwables[other] <= 0:
+		var other := ""
+		for k in Items.THROW_ORDER:
+			if throwables[k] > 0:
+				other = k
+				break
+		if other == "":
 			message.emit("ما معك قنابل")
 			return
 		throw_kind = other

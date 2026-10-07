@@ -166,6 +166,142 @@ func explosion(pos: Vector3) -> void:
 	for n in [fire, smoke, dirt]:
 		n.create_tween().tween_callback(n.queue_free).set_delay(2.5)
 
+## Molotov: low flames over a round patch, black smoke above and a
+## flickering orange light, for `duration` seconds.
+func fire(pos: Vector3, duration: float, radius: float) -> void:
+	var root := Node3D.new()
+	add_child(root)
+	root.global_position = pos
+	var fl := CPUParticles3D.new()
+	fl.amount = 90
+	fl.lifetime = 0.9
+	fl.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
+	fl.emission_ring_axis = Vector3.UP
+	fl.emission_ring_radius = radius * 0.85
+	fl.emission_ring_inner_radius = radius * 0.4
+	fl.emission_ring_height = 0.1
+	fl.direction = Vector3.UP
+	fl.spread = 15.0
+	fl.initial_velocity_min = 1.0
+	fl.initial_velocity_max = 2.6
+	fl.gravity = Vector3(0, 1.5, 0)
+	fl.scale_amount_min = 0.35
+	fl.scale_amount_max = 0.9
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.3, 1.0])
+	ramp.colors = PackedColorArray([Color(1.0, 0.75, 0.3, 1.0), Color(1.0, 0.35, 0.05, 0.9), Color(0.5, 0.08, 0.0, 0.0)])
+	fl.color_ramp = ramp
+	fl.mesh = _flame_mesh()
+	root.add_child(fl)
+	var fl2: CPUParticles3D = fl.duplicate()
+	fl2.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	fl2.emission_box_extents = Vector3(radius * 0.7, 0.05, radius * 0.7)
+	fl2.amount = 70
+	root.add_child(fl2)
+	var sm := CPUParticles3D.new()
+	sm.amount = 24
+	sm.lifetime = 3.5
+	sm.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	sm.emission_box_extents = Vector3(radius * 0.5, 0.2, radius * 0.5)
+	sm.direction = Vector3.UP
+	sm.spread = 10.0
+	sm.initial_velocity_min = 1.5
+	sm.initial_velocity_max = 3.0
+	sm.gravity = Vector3(0.3, 0.6, 0)
+	sm.scale_amount_min = 1.0
+	sm.scale_amount_max = 2.2
+	var sr := Gradient.new()
+	sr.set_color(0, Color(0.1, 0.08, 0.07, 0.6))
+	sr.set_color(1, Color(0.25, 0.25, 0.25, 0.0))
+	sm.color_ramp = sr
+	sm.mesh = _ball(Color.WHITE, 0.0)
+	sm.position.y = 1.0
+	root.add_child(sm)
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.55, 0.2)
+	l.light_energy = 3.0
+	l.omni_range = radius * 4.0
+	l.position.y = 0.8
+	root.add_child(l)
+	var fk := l.create_tween().set_loops(int(duration / 0.3))
+	fk.tween_property(l, "light_energy", 4.2, 0.15)
+	fk.tween_property(l, "light_energy", 2.4, 0.15)
+	var tw := root.create_tween()
+	tw.tween_interval(duration - 0.8)
+	tw.tween_callback(func():
+		fl.emitting = false
+		fl2.emitting = false
+		sm.emitting = false)
+	tw.tween_property(l, "light_energy", 0.0, 0.8)
+	tw.tween_interval(3.0)
+	tw.tween_callback(root.queue_free)
+
+var _flame: SphereMesh
+
+## Glowing additive blob for flames (the colour comes from the particle).
+func _flame_mesh() -> SphereMesh:
+	if _flame: return _flame
+	var m := SphereMesh.new()
+	m.radius = 0.5
+	m.height = 1.3
+	m.radial_segments = 8
+	m.rings = 4
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_color = Color(1.6, 1.6, 1.6)
+	m.material = mat
+	_flame = m
+	return m
+
+## Flashbang: a white burst of light and a few sparks.
+func flash(pos: Vector3) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.98, 0.92)
+	l.light_energy = 40.0
+	l.omni_range = 26.0
+	add_child(l)
+	l.global_position = pos + Vector3(0, 0.4, 0)
+	var tw := l.create_tween()
+	tw.tween_property(l, "light_energy", 0.0, 0.3)
+	tw.tween_callback(l.queue_free)
+	var sp := CPUParticles3D.new()
+	sp.one_shot = true
+	sp.emitting = true
+	sp.amount = 20
+	sp.lifetime = 0.35
+	sp.explosiveness = 1.0
+	sp.spread = 180.0
+	sp.initial_velocity_min = 4.0
+	sp.initial_velocity_max = 10.0
+	sp.scale_amount_min = 0.05
+	sp.scale_amount_max = 0.15
+	sp.mesh = _ball(Color(1, 1, 0.9), 6.0)
+	add_child(sp)
+	sp.global_position = pos
+	var puff := CPUParticles3D.new()
+	puff.one_shot = true
+	puff.emitting = true
+	puff.amount = 8
+	puff.lifetime = 1.6
+	puff.explosiveness = 1.0
+	puff.spread = 180.0
+	puff.initial_velocity_min = 0.5
+	puff.initial_velocity_max = 1.5
+	puff.scale_amount_min = 0.5
+	puff.scale_amount_max = 1.0
+	var pr := Gradient.new()
+	pr.set_color(0, Color(0.85, 0.85, 0.85, 0.6))
+	pr.set_color(1, Color(0.85, 0.85, 0.85, 0.0))
+	puff.color_ramp = pr
+	puff.mesh = _ball(Color.WHITE, 0.0)
+	add_child(puff)
+	puff.global_position = pos
+	for n in [sp, puff]:
+		n.create_tween().tween_callback(n.queue_free).set_delay(2.0)
+
 ## A thick grey smoke cloud that lasts `duration` seconds.
 func smoke_cloud(pos: Vector3, duration: float, tint := Color(0.8, 0.82, 0.84)) -> void:
 	var p := CPUParticles3D.new()

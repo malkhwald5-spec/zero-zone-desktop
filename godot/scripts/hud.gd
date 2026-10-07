@@ -14,6 +14,8 @@ var pause_panel: PanelContainer
 var map_open := false
 var bag_open := false
 var hit_t := 0.0
+var flash_t := 0.0                  # flashbang: seconds of white-out left
+var flash_len := 1.0
 var hit_head := false
 var dmg_dirs: Array = []     # [{dir: Vector3, t}]
 var _banner_t := 0.0
@@ -86,8 +88,18 @@ func kill_feed(killer: String, victim: String, mine: bool, by_zone := false) -> 
 		feed.get_child(0).queue_free()
 	l.create_tween().tween_callback(l.queue_free).set_delay(6.0)
 
+## Flashbang hit you: white screen and muffled sound for `secs` seconds.
+func flash(amount: float, secs: float) -> void:
+	flash_len = maxf(secs, 0.1)
+	flash_t = maxf(flash_t, secs)
+	AudioServer.set_bus_volume_db(0, -18.0 * amount)
+
 func _process(delta: float) -> void:
 	hit_t = maxf(0.0, hit_t - delta)
+	if flash_t > 0.0:
+		flash_t = maxf(0.0, flash_t - delta)
+		var vol := AudioServer.get_bus_volume_db(0)
+		AudioServer.set_bus_volume_db(0, 0.0 if flash_t <= 0.0 else move_toward(vol, 0.0, delta * 18.0 / flash_len))
 	for d in dmg_dirs: d.t -= delta
 	dmg_dirs = dmg_dirs.filter(func(d): return d.t > 0.0)
 	if _banner_t > 0.0:
@@ -193,10 +205,106 @@ func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> 
 	var sub := "الإقصاءات: %d" % kills
 	if not reward.is_empty():
 		sub += "\n+%d ذهب    +%d خبرة موسم" % [reward.gold, reward.xp]
-	results = _panel(title, [["العودة إلى اللوبي", _to_lobby]], sub)
+	_results_args = [title, sub]
+	var p: Player = world.player
+	if not won and p.state == "dead" and is_instance_valid(p.killer) and p.dead_t < KILLCAM_TIME:
+		# Killcam first: the results come up after a few seconds.
+		get_tree().create_timer(KILLCAM_TIME - p.dead_t).timeout.connect(_show_results_panel)
+	else:
+		_show_results_panel()
+
+const KILLCAM_TIME := 4.0
+var _results_args := ["", ""]
+var spectating := false
+
+func _show_results_panel() -> void:
+	if results or spectating: return
+	var buttons := []
+	if world.player.state == "dead" and world.alive_count() > 0:
+		buttons.append(["مشاهدة اللاعبين", start_spectate])
+	buttons.append(["العودة إلى اللوبي", _to_lobby])
+	results = _panel(_results_args[0], buttons, _results_args[1])
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+## Watch the match go on: your killer first, then whoever is still alive.
+func start_spectate() -> void:
+	var p: Player = world.player
+	var first: Node3D = p.killer if p.killer is Bot and not p.killer.dead else _next_alive(null)
+	if first == null: return
+	if results:
+		results.queue_free()
+		results = null
+	spectating = true
+	p.spectate = first
+	_spec_bar()
+
+func stop_spectate() -> void:
+	spectating = false
+	world.player.spectate = null
+	if _spec_panel:
+		_spec_panel.queue_free()
+		_spec_panel = null
+	_show_results_panel()
+
+## The next player still alive after `cur` (in list order).
+func _next_alive(cur: Node3D) -> Node3D:
+	var alive: Array = world.bots.filter(func(b): return not b.dead)
+	if alive.is_empty(): return null
+	var i: int = alive.find(cur)
+	return alive[(i + 1) % alive.size()]
+
+func spectate_next() -> void:
+	var nxt := _next_alive(world.player.spectate)
+	if nxt: world.player.spectate = nxt
+
+var _spec_panel: Control
+var _spec_switch_t := 0.0
+
+func _spec_bar() -> void:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	hb.add_child(UiKit.button("اللاعب التالي", spectate_next, Vector2(170, 44), UiKit.style(Color(0, 0, 0, 0.55), 8), 16))
+	hb.add_child(UiKit.button("النتيجة", stop_spectate, Vector2(120, 44), UiKit.style(Color(0, 0, 0, 0.55), 8), 16))
+	hb.add_child(UiKit.button("اللوبي", _to_lobby, Vector2(110, 44), UiKit.style(Color(0, 0, 0, 0.55), 8), 16))
+	add_child(hb)
+	hb.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	hb.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	hb.offset_top = -70
+	hb.offset_bottom = -20
+	_spec_panel = hb
+
+## While dead: killcam text, then who you are watching.
+func _draw_dead(c: Control, sz: Vector2, p: Player) -> void:
+	if spectating and is_instance_valid(p.spectate):
+		var s: Bot = p.spectate
+		# The one you watch died: move on to whoever killed them, or the next.
+		if s.dead:
+			_spec_switch_t += get_process_delta_time()
+			if _spec_switch_t > 2.0:
+				_spec_switch_t = 0.0
+				p.spectate = _next_alive(s)
+		var top := Rect2(sz.x * 0.5 - 200, 70, 400, 58)
+		c.draw_rect(top, Color(0, 0, 0, 0.5))
+		_text(c, Vector2(sz.x * 0.5, 96), "تشاهد: " + s.display_name, 20, Color("ffd34d"), HORIZONTAL_ALIGNMENT_CENTER, bold, 400)
+		var wname: String = Game.WEAPONS[s.weapon_id].name if s.armed() else "بدون سلاح"
+		_text(c, Vector2(sz.x * 0.5, 120), "%s • الصحة %d • الإقصاءات %d" % [wname, int(maxf(s.health, 0.0)), s.kills], 14, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, 400)
+		if world.alive_count() <= 1 and not s.dead:
+			_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "الفائز: " + s.display_name + " 🏆", 30, Color("ffd34d"), HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
+		return
+	if is_instance_valid(p.killer) and p.dead_t < KILLCAM_TIME + 0.5 and results == null:
+		var k: Node3D = p.killer
+		var kname: String = k.display_name if "display_name" in k else ""
+		var how := ""
+		if k is Bot and k.armed(): how = " بـ " + Game.WEAPONS[k.weapon_id].name
+		var d := int(k.global_position.distance_to(p.global_position))
+		c.draw_rect(Rect2(0, sz.y * 0.72, sz.x, 74), Color(0, 0, 0, 0.55))
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.72 + 32), "قتلك " + kname + how + " من %d م" % d, 24, Color("ff6a5a"), HORIZONTAL_ALIGNMENT_CENTER, bold, 800)
+		if k is Bot:
+			_text(c, Vector2(sz.x * 0.5, sz.y * 0.72 + 58), "صحته المتبقية %d" % int(maxf(k.health, 0.0)), 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, 400)
 
 func _to_lobby() -> void:
 	get_tree().paused = false
+	AudioServer.set_bus_volume_db(0, 0.0)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
@@ -277,6 +385,11 @@ func _draw_hud() -> void:
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت خارج المنطقة الآمنة!", 22, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
+	if p.state == "dead":
+		_draw_dead(c, sz, p)
+	if flash_t > 0.0:
+		# Blinded: pure white, then it fades out over the last part.
+		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(1, 1, 1, clampf(flash_t / (flash_len * 0.6), 0.0, 1.0)))
 	if map_open:
 		_draw_full_map(c, sz, p)
 
@@ -548,6 +661,9 @@ func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
 	if it == null:
 		if world.nearest_vehicle(p.global_position, 3.5):
 			_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "ركوب السيارة", 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		return
+	if it.has_meta("crate") and is_instance_valid(it.get_meta("crate")):
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "افتح صندوق " + str(it.get_meta("crate").get_meta("owner")), 19, Color("ffd34d"), HORIZONTAL_ALIGNMENT_CENTER, bold)
 		return
 	var label: String = world.pickup_name(it.get_meta("data"))
 	_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "التقاط: " + label, 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
@@ -828,17 +944,20 @@ func _draw_throw_arc(c: Control, p: Player) -> void:
 		prev = sp
 	if pts.size() > 1 and not cam.is_position_behind(pts[-1]):
 		var land := cam.unproject_position(pts[-1])
-		c.draw_arc(land, 10.0, 0, TAU, 20, Color("ff5a3c") if p.throw_kind == "frag" else Color.WHITE, 2.0)
+		c.draw_arc(land, 10.0 if p.throw_kind != "molotov" else 18.0, 0, TAU, 20, THROW_COLORS[p.throw_kind], 2.0)
 	_text(c, Vector2(c.size.x * 0.5, c.size.y * 0.7), "اترك G أو اضغط إطلاق للرمي", 15)
+
+const THROW_COLORS := {"frag": Color("9fb07a"), "smoke": Color("c9cdd2"), "molotov": Color("ff8a3c"), "flash": Color("8fc4ff")}
 
 ## Small card next to the weapons with the selected grenade and how many.
 func _draw_throw_card(c: Control, sz: Vector2, p: Player) -> void:
-	var n: int = p.throwables.frag + p.throwables.smoke
+	var n := 0
+	for k in p.throwables: n += int(p.throwables[k])
 	if n == 0: return
 	var r := Rect2(Hud.slot_rect(0, sz).position.x - 74, sz.y - 98, 66, 62)
 	c.draw_rect(r, Color(0, 0, 0, 0.5) if p.throw_ready else Color(0, 0, 0, 0.3))
 	c.draw_rect(r, Color("ffd34d") if p.throw_ready else Color(1, 1, 1, 0.18), false, 1.2)
-	var col := Color("9fb07a") if p.throw_kind == "frag" else Color("c9cdd2")
+	var col: Color = THROW_COLORS[p.throw_kind]
 	c.draw_circle(r.get_center() + Vector2(0, -6), 11.0, col)
 	c.draw_rect(Rect2(r.get_center() + Vector2(-3, -21), Vector2(6, 5)), col)
 	_text(c, Vector2(r.get_center().x, r.end.y - 6), "×%d" % p.throwables[p.throw_kind], 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)

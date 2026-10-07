@@ -132,7 +132,30 @@ func _rebuild() -> void:
 	var items: Array = world.pickups_near(p.global_position, 3.0)
 	if items.is_empty():
 		near.add_child(UiKit.label("ما في إشي قريب", 14, DIM, null, 0))
+	# Loot boxes first (each with its owner's name and "take all"), then the ground.
+	var boxes := {}
+	var loose := []
 	for it in items:
+		var box = it.get_meta("crate") if it.has_meta("crate") else null
+		if box != null and is_instance_valid(box):
+			if not boxes.has(box): boxes[box] = []
+			boxes[box].append(it)
+		else:
+			loose.append(it)
+	for box in boxes:
+		var list: Array = boxes[box]
+		var head := HBoxContainer.new()
+		var t := UiKit.label("صندوق " + str(box.get_meta("owner")), 16, GOLD, UiKit.bold(), 0)
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(t)
+		head.add_child(_small("أخذ الكل", func(): _take_all(list), true))
+		near.add_child(head)
+		for it in list:
+			var d: Dictionary = it.get_meta("data")
+			_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it), true]])
+	if not boxes.is_empty() and not loose.is_empty():
+		near.add_child(UiKit.label("على الأرض", 15, DIM, UiKit.bold(), 0))
+	for it in loose:
 		var d: Dictionary = it.get_meta("data")
 		_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it), true]])
 	# 2) In the bag.
@@ -203,6 +226,18 @@ func _rebuild() -> void:
 		if g != "pack":
 			sub += "  •  المتانة %d%%" % int(100.0 * float(p.gear[g + "_dur"]) / float((Items.HELMET if g == "helmet" else Items.VEST)[lvl].dur))
 		_row(eq, gname, sub, [["رمي", func(): p.drop_gear(g)]])
+
+## Everything out of a loot box that fits: the better gun into an empty slot
+## first, gear only when better, the rest while there is room.
+func _take_all(list: Array) -> void:
+	for it in list.duplicate():
+		if not is_instance_valid(it) or not world.pickups.has(it): continue
+		var d: Dictionary = it.get_meta("data")
+		if d.kind == "weapon":
+			var cls: String = Game.WEAPONS[d.id].cls
+			var slot := 2 if cls == "pistol" else (0 if player.slots[0] == null else (1 if player.slots[1] == null else -1))
+			if slot < 0 or player.slots[slot] != null: continue
+		world.pickup(player, it, true)
 
 func _kind_name(d: Dictionary) -> String:
 	match d.kind:

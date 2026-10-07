@@ -37,6 +37,8 @@ func _layout() -> void:
 		{"act": "jump", "icon": "⤒", "label": "قفز", "pos": Vector2(s.x - 70, s.y - 285), "r": 30.0},
 		{"act": "crouch", "icon": "⤓", "label": "انحناء", "pos": Vector2(s.x - 205, s.y - 62), "r": 26.0},
 		{"act": "prone", "icon": "▁", "label": "انبطاح", "pos": Vector2(s.x - 135, s.y - 62), "r": 26.0},
+		{"act": "peek_l", "icon": "", "label": "ميلان ←", "pos": Vector2(s.x - 330, s.y - 300), "r": 24.0},
+		{"act": "peek_r", "icon": "", "label": "→ ميلان", "pos": Vector2(s.x - 160, s.y - 300), "r": 24.0},
 		{"act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 330), "r": 24.0},
 		{"act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
 		{"act": "slot1", "icon": "", "label": "", "pos": Hud.slot_rect(0, s).get_center(), "r": 0.0},
@@ -52,7 +54,7 @@ func _interact_label() -> String:
 		"fall": return "افتح المظلة" if p.global_position.y < Player.PLANE_ALT - 40.0 else ""
 		"ground":
 			var it = hud.world.nearest_pickup(p.global_position, 2.4)
-			if it: return "التقاط"
+			if it: return "افتح الصندوق" if it.has_meta("crate") else "التقاط"
 			return "ركوب" if hud.world.nearest_vehicle(p.global_position, 3.5) else ""
 		"vehicle": return "نزول"
 	return ""
@@ -144,6 +146,8 @@ func _draw() -> void:
 			draw_string(font, Vector2(r.position.x, b.pos.y + 8), label, HORIZONTAL_ALIGNMENT_CENTER, 160, 20, Color.WHITE)
 			continue
 		var down: bool = pressed.has(b.act)
+		var pt: float = hud.world.player.peek_toggle
+		if (b.act == "peek_l" and pt < 0.0) or (b.act == "peek_r" and pt > 0.0): down = true
 		draw_circle(b.pos, b.r, Color(0.95, 0.66, 0.0, 0.5) if down else Color(0.06, 0.08, 0.1, 0.38))
 		draw_arc(b.pos, b.r, 0, TAU, 40, Color(1, 1, 1, 0.6), 1.6)
 		_icon(b.act, b.pos, b.r)
@@ -182,6 +186,12 @@ func _icon(act: String, c: Vector2, r: float) -> void:
 			draw_circle(c + Vector2(4, -13) * k, 4.5 * k, w)
 			draw_polyline(PackedVector2Array([c + Vector2(3, -7) * k, c + Vector2(-4, 3) * k, c + Vector2(6, 6) * k, c + Vector2(2, 15) * k]), w, 3.5 * k)
 			draw_line(c + Vector2(1, -3) * k, c + Vector2(11, -1) * k, w, 3.0 * k)
+		"peek_l", "peek_r":
+			# A figure leaning out to that side.
+			var sd := -1.0 if act == "peek_l" else 1.0
+			draw_line(c + Vector2(0, 14) * k, c + Vector2(0, 3) * k, w, 3.5 * k)
+			draw_line(c + Vector2(0, 3) * k, c + Vector2(7 * sd, -8) * k, w, 3.5 * k)
+			draw_circle(c + Vector2(10 * sd, -13) * k, 4.5 * k, w)
 		"prone":
 			draw_circle(c + Vector2(-13, 2) * k, 4.5 * k, w)
 			draw_line(c + Vector2(-7, 4) * k, c + Vector2(15, 5) * k, w, 4.0 * k)

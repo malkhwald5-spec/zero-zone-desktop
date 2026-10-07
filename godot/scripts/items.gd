@@ -34,7 +34,13 @@ const HEALS := {
 const HEAL_ORDER := ["bandage", "firstaid", "medkit", "drink", "pills"]
 const AMMO_SIZE := 0.5            # bag space per round
 const THROW_SIZE := 12.0          # bag space per grenade
-const THROWS := {"frag": "قنبلة متفجرة", "smoke": "قنبلة دخانية"}
+const THROWS := {"frag": "قنبلة متفجرة", "smoke": "قنبلة دخانية", "molotov": "مولوتوف", "flash": "قنبلة ضوئية"}
+const THROW_ORDER := ["frag", "smoke", "molotov", "flash"]
+
+## Grenade found lying around.
+static func roll_throw() -> String:
+	var r := randf()
+	return "frag" if r < 0.48 else ("smoke" if r < 0.68 else ("molotov" if r < 0.86 else "flash"))
 
 static func gear_name(kind: String, lvl: int) -> String:
 	match kind:
