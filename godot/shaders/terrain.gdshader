@@ -20,6 +20,9 @@ uniform sampler2D sand_c : source_color, filter_linear_mipmap_anisotropic, repea
 uniform sampler2D sand_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D rock_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D rock_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+// Layered sandstone (photo scan) for the desert mesas and cliffs.
+uniform sampler2D sandrock_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D sandrock_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D asphalt_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D asphalt_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D forest_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
@@ -94,11 +97,14 @@ void fragment() {
 	float w_forest = smoothstep(0.1, 0.65, mask.a) * (0.75 + 0.25 * n2);
 	float w_field = mask.g;
 	float w_town = mask.b * 0.9;
-	float w_rock = max(smoothstep(0.32, 0.5, slope), smoothstep(48.0, 58.0, hgt));
+	// Desert mesas show bare rock on gentler slopes too.
+	float w_rock = max(smoothstep(0.32 - 0.16 * bio.r, 0.5 - 0.2 * bio.r, slope), smoothstep(48.0, 58.0, hgt));
 	float w_sand = 1.0 - smoothstep(1.6 + bio.a * 3.0, 2.6 + bio.a * 5.0, hgt + (n2 - 0.5) * 0.8);
 	// Desert: sand and red-brown hardpan instead of grass, rust-coloured rock.
 	vec3 desert_g = mix(sand * vec3(1.06, 0.93, 0.76), dirt * vec3(1.18, 0.9, 0.66), smoothstep(0.35, 0.7, n3 * 0.7 + n1 * 0.3));
-	rock = mix(rock, rock * vec3(1.2, 0.86, 0.66), bio.r);
+	vec3 sp = wpos * vec3(1.0, 1.7, 1.0) / 9.0;     // strata run level
+	vec3 srock = texture(sandrock_c, sp.zy).rgb * tw.x + texture(sandrock_c, sp.xz).rgb * tw.y + texture(sandrock_c, sp.xy).rgb * tw.z;
+	rock = mix(rock, srock * vec3(1.18, 0.9, 0.7), bio.r);
 	float w_wet = 1.0 - smoothstep(0.0, 0.7, hgt);
 	float w_road = smoothstep(0.3, 0.6, mask.r);
 
@@ -132,6 +138,21 @@ void fragment() {
 		nb = mix(nb, tnrm(asphalt_n, wpos.xz, 5.0), w_road);
 		// Tangent space (u = +x, v = +z) to world, then to view space.
 		vec3 bent = normalize(wn + vec3(nb.x, 0.0, -nb.y) * 0.9 * near);
+		// Cliffs: rock normals projected from all three sides (no smear on walls).
+		vec3 rp = wpos / 6.0;
+		vec3 nx = texture(rock_n, rp.zy).xyz * 2.0 - 1.0;
+		vec3 ny = texture(rock_n, rp.xz).xyz * 2.0 - 1.0;
+		vec3 nz = texture(rock_n, rp.xy).xyz * 2.0 - 1.0;
+		if (bio.r > 0.5) {
+			nx = texture(sandrock_n, sp.zy).xyz * 2.0 - 1.0;
+			ny = texture(sandrock_n, sp.xz).xyz * 2.0 - 1.0;
+			nz = texture(sandrock_n, sp.xy).xyz * 2.0 - 1.0;
+		}
+		nx = vec3(nx.xy * 1.4 + wn.zy, abs(nx.z) * wn.x);
+		ny = vec3(ny.xy * 1.4 + wn.xz, abs(ny.z) * wn.y);
+		nz = vec3(nz.xy * 1.4 + wn.xy, abs(nz.z) * wn.z);
+		vec3 tri = normalize(nx.zyx * tw.x + ny.xzy * tw.y + nz.xyz * tw.z);
+		bent = normalize(mix(bent, tri, w_rock * max(near, 0.35)));
 		NORMAL = normalize((VIEW_MATRIX * vec4(bent, 0.0)).xyz);
 	}
 }

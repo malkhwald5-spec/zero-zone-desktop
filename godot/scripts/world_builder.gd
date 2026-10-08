@@ -24,6 +24,7 @@ var weather := "clear"          # clear | rain | sunset
 var grass: MultiMeshInstance3D
 var grass_mat: ShaderMaterial
 var grass_snap := 5.04
+var clutter: Array = []         # [MultiMeshInstance3D, ShaderMaterial, spacing] — weeds, branches, stones
 ## Window glass: blocks only the camera (layer 5), not people or bullets.
 const CAMERA_LAYER := 16
 var _glass_body: StaticBody3D
@@ -196,6 +197,8 @@ func _terrain() -> void:
 	plane.subdivide_depth = Island.N - 2
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
+	mat.set_shader_parameter("sandrock_c", load("res://assets/nature/rock_sand_col.jpg"))
+	mat.set_shader_parameter("sandrock_n", load("res://assets/nature/rock_sand_nrm.jpg"))
 	mat.set_shader_parameter("heightmap", height_tex)
 	mat.set_shader_parameter("maskmap", mask_tex)
 	mat.set_shader_parameter("biomemap", biome_tex)
@@ -1224,54 +1227,84 @@ func _with_lods(mesh: ArrayMesh) -> ArrayMesh:
 	im.generate_lods(25.0, 60.0, [])
 	return im.get_mesh()
 
-func _rock_mesh() -> ArrayMesh:
+## A boulder in unit size: a sphere pushed in and out by noise and by the
+## photo-scanned rock height map (cracks, ledges), with a flat underside.
+func _rock_mesh(seed_v: int, disp: Image, flat := 0.0) -> ArrayMesh:
 	var noise := FastNoiseLite.new()
-	noise.seed = 8
-	noise.frequency = 1.4
+	noise.seed = seed_v
+	noise.frequency = 1.1
+	var ridge := FastNoiseLite.new()
+	ridge.seed = seed_v + 50
+	ridge.frequency = 2.6
+	ridge.fractal_type = FastNoiseLite.FRACTAL_RIDGED
 	var sph := SphereMesh.new()
-	sph.radial_segments = 14
-	sph.rings = 8
+	sph.radial_segments = 28
+	sph.rings = 14
 	var arr := sph.get_mesh_arrays()
 	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var dw := disp.get_width()
+	var squash := Vector3(1.0 + 0.25 * sin(seed_v * 1.7), 0.75 - flat * 0.35, 1.0 - 0.2 * cos(seed_v * 2.3))
 	for i in verts.size():
 		var v := verts[i]
 		var d := v.normalized() if v.length() > 0.001 else Vector3.UP
-		v = d * (1.0 + 0.35 * noise.get_noise_3dv(d * 1.5) + 0.12 * noise.get_noise_3dv(d * 5.0))
-		v.y = max(v.y, -0.45)
+		# Height map sampled from two sides (no seams at the poles).
+		var su := Vector2(atan2(d.z, d.x) / TAU + 0.5, d.y * 0.5 + 0.5)
+		var hm := disp.get_pixel(int(su.x * (dw - 1)) % dw, int(su.y * (dw - 1))).r
+		var r := 1.0 + 0.32 * noise.get_noise_3dv(d * 1.3) + 0.1 * ridge.get_noise_3dv(d * 1.8) + 0.16 * (hm - 0.5)
+		v = d * r * squash
+		v.y = maxf(v.y, -0.32)       # sits flat on the ground
 		verts[i] = v
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = null
 	arr[Mesh.ARRAY_TANGENT] = null
-	var st := SurfaceTool.new()
 	var tmp := ArrayMesh.new()
 	tmp.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var st := SurfaceTool.new()
 	st.create_from(tmp, 0)
 	st.generate_normals()
-	return st.commit()
+	st.generate_tangents()
+	return _with_lods(st.commit())
 
+const ROCK_VARIANTS := 4
+const ROCK_CHUNK := 512.0
+
+## Boulders: photo-textured, by region (sandstone in the desert, grey and dark
+## rock elsewhere, moss on top in green areas). Drawn in 512 m chunks.
 func _rocks() -> void:
-	var rock := _rock_mesh()
-	var rm := StandardMaterial3D.new()
-	rm.albedo_color = Color("d8d4cc")
-	rm.albedo_texture = load("res://assets/textures/rock_col.jpg")
-	rm.normal_enabled = true
-	rm.normal_texture = load("res://assets/textures/rock_nrm.jpg")
-	rm.uv1_triplanar = true
-	rm.uv1_scale = Vector3(0.4, 0.4, 0.4)
-	rm.roughness = 0.95
-	rock.surface_set_material(0, rm)
-	var mm := _multimesh(rock, island.rocks.size(), false)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/rock.gdshader")
+	for k in ["grey", "dark", "sand"]:
+		mat.set_shader_parameter("col_" + k, load("res://assets/nature/rock_%s_col.jpg" % k))
+		mat.set_shader_parameter("nrm_" + k, load("res://assets/nature/rock_%s_nrm.jpg" % k))
+	mat.set_shader_parameter("moss_col", load("res://assets/textures/moss_col.jpg"))
+	var meshes := []
+	var disps := ["grey", "dark", "sand", "grey"]
+	for v in ROCK_VARIANTS:
+		var img: Image = load("res://assets/nature/rock_%s_disp.png" % disps[v]).get_image()
+		if img.is_compressed(): img.decompress()
+		var m := _rock_mesh(8 + v * 13, img, 0.6 if v == 2 else 0.0)
+		m.surface_set_material(0, mat)
+		meshes.append(m)
+	var chunks := {}          # Vector2i -> Array per variant of [transform, custom]
 	var bodies := {}
 	var i := 0
 	for r in island.rocks:
-		var key := Vector2i(int(r.pos.x / 512.0), int(r.pos.y / 512.0))
+		var key := Vector2i(int(r.pos.x / ROCK_CHUNK), int(r.pos.y / ROCK_CHUNK))
 		if not bodies.has(key):
 			var bb := StaticBody3D.new()
 			root.add_child(bb)
 			bodies[key] = bb
+			var lists := []
+			for v in ROCK_VARIANTS: lists.append([])
+			chunks[key] = lists
+		var reg := island.region_at(r.pos.x, r.pos.y)
+		var kind := 1.0 if reg == "desert" else (0.5 if (reg == "tropic" or (reg == "nordic" and i % 3 == 0)) else 0.0)
+		var moss := {"plains": 0.8, "jungle": 1.0, "nordic": 0.45}.get(reg, 0.0) as float
+		var variant := i % ROCK_VARIANTS
 		var body: StaticBody3D = bodies[key]
-		var p := Vector3(r.pos.x, island.height_at(r.pos.x, r.pos.y) + r.r * 0.2, r.pos.y)
-		mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, i * 1.7).scaled(Vector3(r.r * 1.2, r.r * 0.8, r.r)), p))
+		var p := Vector3(r.pos.x, island.height_at(r.pos.x, r.pos.y) + r.r * 0.12, r.pos.y)
+		var xf := Transform3D(Basis(Vector3.UP, i * 1.7).scaled(Vector3(r.r * 1.15, r.r * 0.95, r.r)), p)
+		chunks[key][variant].append([xf, Color(kind, moss, fposmod(i * 0.37, 1.0), 0.0)])
 		i += 1
 		var cs := CollisionShape3D.new()
 		var sph := SphereShape3D.new()
@@ -1279,9 +1312,23 @@ func _rocks() -> void:
 		cs.shape = sph
 		cs.position = p
 		body.add_child(cs)
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	root.add_child(mmi)
+	for key in chunks:
+		for v in ROCK_VARIANTS:
+			var list: Array = chunks[key][v]
+			if list.is_empty(): continue
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_custom_data = true
+			mm.mesh = meshes[v]
+			mm.instance_count = list.size()
+			for j in list.size():
+				mm.set_instance_transform(j, list[j][0])
+				mm.set_instance_custom_data(j, list[j][1])
+			var mmi := MultiMeshInstance3D.new()
+			mmi.multimesh = mm
+			mmi.visibility_range_end = 1400.0 * Game.view_k()
+			mmi.visibility_range_end_margin = 100.0
+			root.add_child(mmi)
 
 func _bridges() -> void:
 	var mat := StandardMaterial3D.new()
@@ -1445,7 +1492,8 @@ func _grass() -> void:
 	var n := int(radius / spacing)
 	for j in range(-n, n + 1):
 		for i in range(-n, n + 1):
-			var p := Vector3(i * spacing + rng.randf_range(-0.2, 0.2), 0, j * spacing + rng.randf_range(-0.2, 0.2))
+			# Jittered almost a whole cell so no rows show on hillsides.
+			var p := Vector3((i + rng.randf_range(-0.45, 0.45)) * spacing, 0, (j + rng.randf_range(-0.45, 0.45)) * spacing)
 			if Vector2(p.x, p.z).length() > radius: continue
 			xforms.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), p))
 	var mm := _multimesh(blade, xforms.size(), false)
@@ -1459,6 +1507,113 @@ func _grass() -> void:
 	grass.custom_aabb = AABB(Vector3(-radius, -50, -radius), Vector3(radius * 2, 200, radius * 2))
 	grass.visible = Game.settings.quality != "low"
 	root.add_child(grass)
+	if grass.visible: _clutter()
+
+## Ground clutter layers that follow the player like the grass (see scatter.gdshader).
+func _clutter() -> void:
+	var k := Game.view_k() * (1.25 if Game.quality_level() >= 3 else 1.0)
+	var weeds := _card_mesh()
+	var stones := _rock_mesh(91, (load("res://assets/nature/rock_grey_disp.png") as Texture2D).get_image())
+	var layers := [
+		{"mesh": weeds, "tex": "res://assets/nature/weeds_a.png", "spacing": 2.0, "radius": 42.0, "density": 0.6,
+			"biome": Vector4(0.15, 0.6, 0.9, 0.5), "cluster": 0.7, "size": Vector2(1.1, 1.8), "tint": Vector3(0.95, 0.95, 0.85)},
+		{"mesh": weeds, "tex": "res://assets/nature/weeds_b.png", "spacing": 2.8, "radius": 38.0, "density": 0.35,
+			"biome": Vector4(0.05, 1.0, 0.6, 0.8), "cluster": 0.6, "size": Vector2(0.8, 1.3), "tint": Vector3(0.9, 1.0, 0.85)},
+		{"mesh": _log_mesh(), "tex": "res://assets/nature/log_col.jpg", "nrm": "res://assets/nature/log_nrm.jpg", "spacing": 14.0, "radius": 110.0,
+			"density": 0.22, "biome": Vector4(0.05, 1.0, 0.8, 0.3), "cluster": 0.6, "size": Vector2(1.4, 2.6), "sink": 0.06, "tilt": true, "cards": false},
+		{"mesh": stones, "tex": "res://assets/nature/rock_grey_col.jpg", "nrm": "res://assets/nature/rock_grey_nrm.jpg", "spacing": 7.0, "radius": 90.0,
+			"density": 0.3, "biome": Vector4(1.0, 0.4, 1.2, 0.6), "cluster": 0.5, "size": Vector2(0.14, 0.42), "sink": 0.08, "cards": false, "uv": 2.0,
+			"desert_tint": Vector3(1.25, 1.0, 0.78)},
+	]
+	for L in layers:
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://shaders/scatter.gdshader")
+		mat.set_shader_parameter("heightmap", height_tex)
+		mat.set_shader_parameter("maskmap", mask_tex)
+		mat.set_shader_parameter("biomemap", biome_tex)
+		mat.set_shader_parameter("hm_cells", float(Island.N - 1))
+		mat.set_shader_parameter("noise_a", noise_a)
+		mat.set_shader_parameter("map_size", island.size)
+		var radius: float = L.radius * k
+		var spacing: float = L.spacing
+		mat.set_shader_parameter("radius", radius)
+		mat.set_shader_parameter("spacing", spacing)
+		mat.set_shader_parameter("density", L.density)
+		mat.set_shader_parameter("biome_k", L.biome)
+		mat.set_shader_parameter("cluster", L.cluster)
+		mat.set_shader_parameter("size_range", L.size)
+		mat.set_shader_parameter("sink", L.get("sink", 0.0))
+		mat.set_shader_parameter("cards", L.get("cards", true))
+		mat.set_shader_parameter("tilt_to_ground", L.get("tilt", false))
+		mat.set_shader_parameter("albedo_tex", load(L.tex))
+		mat.set_shader_parameter("tint", L.get("tint", Vector3.ONE))
+		mat.set_shader_parameter("uv_scale", L.get("uv", 1.0))
+		mat.set_shader_parameter("desert_tint", L.get("desert_tint", Vector3.ONE))
+		if L.has("nrm"):
+			mat.set_shader_parameter("normal_tex", load(L.nrm))
+			mat.set_shader_parameter("use_normal", true)
+		var n := int(radius / spacing)
+		var pts := []
+		for j in range(-n, n + 1):
+			for i in range(-n, n + 1):
+				if Vector2(i, j).length() * spacing <= radius: pts.append(Vector3(i * spacing, 0, j * spacing))
+		var mm := _multimesh(L.mesh, pts.size(), false)
+		for i in pts.size():
+			mm.set_instance_transform(i, Transform3D(Basis.IDENTITY, pts[i]))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+		mmi.multimesh = mm
+		mmi.material_override = mat
+		var solid: bool = not L.get("cards", true)
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if solid and Game.quality_level() >= 2 and not Game.laptop() else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.custom_aabb = AABB(Vector3(-radius, -50, -radius), Vector3(radius * 2, 400, radius * 2))
+		root.add_child(mmi)
+		clutter.append([mmi, mat, spacing])
+
+## Three crossed upright cards, 1 m tall (UV.y 0 at the top), for the plant atlases.
+func _card_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var w := 0.32
+	for c in 3:
+		var a := c * PI / 3.0
+		var d := Vector3(cos(a), 0, sin(a)) * w
+		var q := [[-d, Vector2(0, 1)], [d, Vector2(1, 1)], [d + Vector3(0, 1, 0), Vector2(1, 0)], [-d + Vector3(0, 1, 0), Vector2(0, 0)]]
+		for idx in [0, 1, 2, 0, 2, 3]:
+			st.set_normal(Vector3.UP)
+			st.set_uv(q[idx][1])
+			st.add_vertex(q[idx][0])
+	return st.commit()
+
+## The scanned branch, laid along X, about 1.8 m long, resting on y = 0.
+func _log_mesh() -> ArrayMesh:
+	var src: Mesh = load("res://assets/nature/log.obj")
+	var arr := src.surface_get_arrays(0)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var aabb := src.get_aabb()
+	var sz := aabb.size
+	# Longest side becomes X.
+	var b := Basis.IDENTITY
+	if sz.y >= sz.x and sz.y >= sz.z: b = Basis(Vector3.BACK, PI / 2)
+	elif sz.z >= sz.x: b = Basis(Vector3.UP, PI / 2)
+	var longest := maxf(sz.x, maxf(sz.y, sz.z))
+	var c := aabb.get_center()
+	var lo := INF
+	for i in verts.size():
+		verts[i] = b * (verts[i] - c) * (1.8 / longest)
+		lo = minf(lo, verts[i].y)
+		if normals.size() > i: normals[i] = b * normals[i]
+	for i in verts.size(): verts[i].y -= lo
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_TANGENT] = null
+	var tmp := ArrayMesh.new()
+	tmp.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var st := SurfaceTool.new()
+	st.create_from(tmp, 0)
+	st.generate_tangents()
+	return st.commit()
 
 ## Moves the grass patch with the player (snapped so blades do not slide).
 func update_grass(center: Vector3) -> void:
@@ -1466,3 +1621,7 @@ func update_grass(center: Vector3) -> void:
 		return
 	grass.position = Vector3(snappedf(center.x, grass_snap), 0, snappedf(center.z, grass_snap))
 	grass_mat.set_shader_parameter("center", center)
+	for c in clutter:
+		var sp: float = c[2]
+		c[0].position = Vector3(snappedf(center.x, sp), 0, snappedf(center.z, sp))
+		c[1].set_shader_parameter("center", center)

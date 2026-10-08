@@ -61,7 +61,12 @@ func _run() -> void:
 		var gx: float = (isl.height_at(q.x + 1.0, q.y) - isl.height_at(q.x - 1.0, q.y)) * 0.5
 		var gz: float = (isl.height_at(q.x, q.y + 1.0) - isl.height_at(q.x, q.y - 1.0)) * 0.5
 		var g := Vector2(gx, gz).length()
-		if g > 0.36 and g < 0.53 and not isl.near_road(q, 12.0):
+		var clear := true
+		for r in isl.rocks:
+			if q.distance_to(r.pos) < r.r * 1.5 + 6.0:
+				clear = false
+				break
+		if g > 0.36 and g < 0.53 and not isl.near_road(q, 12.0) and clear:
 			spot = q
 			dirv = Vector2(gx, gz).normalized()
 			break
