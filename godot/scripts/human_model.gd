@@ -36,6 +36,10 @@ var flinch := 0.0             # hit reaction: 1 when just hit, fades out
 var foot_ik := false          # set by the owner when standing on the ground near the camera
 var downed := false           # knocked down in a team match: crawls on hands and knees
 var swimming := false         # in deep water: treads water, no weapon
+var reviving := false         # kneeling by a downed teammate
+var turn_dir := 0             # turning on the spot: 1 left, -1 right (0 = not turning)
+var turn_yaw := 0.0           # how far the turn clip has turned the body so far (radians)
+var _turn_h0 := Quaternion.IDENTITY
 var _foot_dy := [0.0, 0.0]    # smoothed ground height under each foot (left, right)
 var _foot_n := [Vector3.UP, Vector3.UP]
 var _hip_drop := 0.0
@@ -581,6 +585,38 @@ func _skeleton_up() -> Vector3:
 	return _sk_up
 var _action_rise := 0.0
 
+## Starts a 90° turn on the spot (1 = left, -1 = right). The clip's own body
+## turn is taken out of the hips and handed to the owner as `turn_yaw`, who
+## turns the whole model by it, so the feet stay planted as they step round.
+func start_turn(d: int) -> void:
+	turn_dir = d
+	turn_yaw = 0.0
+	var name := "mx/turn90_l" if d > 0 else "mx/turn90_r"
+	var a: Animation = ap.get_animation(name)
+	if a == null:
+		turn_dir = 0
+		return
+	_turn_h0 = Quaternion.IDENTITY
+	for tr in a.get_track_count():
+		if a.track_get_type(tr) == Animation.TYPE_ROTATION_3D and String(a.track_get_path(tr)).ends_with(sk.get_bone_name(0)):
+			_turn_h0 = a.rotation_track_interpolate(tr, 0.0)
+			break
+	ap.play(name, 0.15)
+	ap.seek(0.0, true)
+	_anim = name
+
+func _turn_step() -> void:
+	var up := _skeleton_up()
+	var cur := sk.get_bone_pose_rotation(0)
+	var q := cur * _turn_h0.inverse()
+	var a := 2.0 * atan2(Vector3(q.x, q.y, q.z).dot(up), q.w)
+	a = wrapf(a, -PI, PI)
+	sk.set_bone_pose_rotation(0, Quaternion(up, -a) * cur)
+	turn_yaw = a
+	if ap.current_animation_position >= ap.current_animation_length - 0.02:
+		turn_yaw = PI / 2.0 * turn_dir
+		turn_dir = 0
+
 ## Direction of travel relative to facing, in eight sectors.
 func _dir8() -> String:
 	if move_local.length() < 0.05: return "f"
@@ -618,7 +654,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_action_t -= delta
 		_play("mx/" + _action, _action_speed)
 		ap.advance(delta)
-		if absf(_action_rise) > 0.3:
+		if _action in ["climb", "drop_down"] and absf(_action_rise) > 0.3:
 			# Climbing: the hips never go above where they started (the body is
 			# lifted by the owner); dropping down: never below. Crouches stay.
 			var up := _skeleton_up()
@@ -645,7 +681,13 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	var dir := _dir8()
 	# One-handed guns (pistol, pan) have their own walk, run and idle.
 	var pistol: bool = armed and _cls in ["pistol", "melee"] and ap.has_animation("mx/pidle")
-	if swimming and pose in ["stand", "crouch", "prone"]:
+	if reviving and pose in ["stand", "crouch"]:
+		# Down on one knee by the teammate: loop the kneeling part of the clip.
+		_play("mx/kneel", 1.0)
+		if ap.current_animation_position < 1.8 or ap.current_animation_position > 6.2: ap.seek(3.2, true)
+	elif turn_dir != 0 and pose == "stand" and speed < 0.3:
+		_play("mx/turn90_l" if turn_dir > 0 else "mx/turn90_r", 1.0)
+	elif swimming and pose in ["stand", "crouch", "prone"]:
 		if speed > 0.3: _play_moving("mx/swim", speed, 2.6)
 		else: _play("mx/swim_tread", 1.0)
 	elif pose == "stand" and speed > 0.3 and pistol:
@@ -688,6 +730,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	else:
 		_play("Idle", 1.0)
 	ap.advance(delta)
+	if turn_dir != 0: _turn_step()
 	if _back_dirty and is_inside_tree(): _place_back()
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
@@ -697,8 +740,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
 		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone", "airborne"]
-	# Crawling, knocked down or swimming: hands are busy, the gun is put away.
-	if swimming or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
+	# Crawling, knocked down, swimming or helping a mate up: hands are busy, the gun is put away.
+	if swimming or reviving or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
 	if swimming: body.position.y = 0.4          # afloat: head and shoulders out of the water
 	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:

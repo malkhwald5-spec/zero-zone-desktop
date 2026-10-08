@@ -6,6 +6,8 @@ extends Node
 
 var out := "user://"
 var set2 := false    # --set=2: pistol walk and idle, swimming, climbing, hard landing
+var set3 := false    # --set=3: kneeling to revive, getting down to prone, turning on the spot (left, right)
+var base_yaw := {}
 var models := []
 var poses := []
 
@@ -22,6 +24,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
 		if a == "--set=2": set2 = true
+		if a == "--set=3": set3 = true
 	_run.call_deferred()
 
 func _run() -> void:
@@ -56,6 +59,7 @@ func _run() -> void:
 	add_child(water)
 	var names := ["prone_idle", "prone_crawl", "knocked_crawl", "swim"]
 	if set2: names = ["pistol_walk", "swim_fwd", "climb", "hard_land"]
+	if set3: names = ["revive", "to_prone", "turn_left", "turn_right"]
 	for row in 2:
 		for col in 4:
 			var m := HumanModel.new(Color("4a5d6b"), Color("c84f3a"), Color("33373d"), ["soldier", "lola"][row])
@@ -71,14 +75,22 @@ func _run() -> void:
 	add_child(cam)
 	cam.look_at(Vector3(0, 0.3, 1.0))
 	cam.current = true
-	for k in 2:
+	var frames := 5 if set3 else 2
+	for k in frames:
 		for i in 25: await get_tree().process_frame
 		if set2 and k == 0:
 			for i in models.size():
 				if poses[i] == "climb": models[i].play_action("climb", 6.0)
 				if poses[i] == "hard_land": models[i].play_action("hard_land", 6.0)
 			await wait(1.4)
-		await shot(("moves2_%d" if set2 else "moves_%d") % k)
+		if set3 and k == 0:
+			for i in models.size():
+				base_yaw[i] = models[i].rotation.y
+				if poses[i] == "to_prone": models[i].play_action("kneel_to_prone", 4.0)
+				if poses[i] == "turn_left": models[i].start_turn(1)
+				if poses[i] == "turn_right": models[i].start_turn(-1)
+			await wait(0.1)
+		await shot(("moves3_%d" if set3 else ("moves2_%d" if set2 else "moves_%d")) % k)
 		await wait(0.5)
 	print("MOVES ok")
 	get_tree().quit()
@@ -106,5 +118,11 @@ func _process(delta: float) -> void:
 				m.swimming = true
 				m.move_local = Vector2(0, 1.6)
 				m.set_pose("stand", 1.6, true, delta, 0.0)
-			"climb", "hard_land":
+			"climb", "hard_land", "to_prone":
 				m.set_pose("stand", 0.0, true, delta, 0.0)
+			"revive":
+				m.reviving = true
+				m.set_pose("crouch", 0.0, true, delta, 0.0)
+			"turn_left", "turn_right":
+				m.set_pose("stand", 0.0, true, delta, 0.0)
+				if base_yaw.has(i): m.rotation.y = base_yaw[i] + m.turn_yaw

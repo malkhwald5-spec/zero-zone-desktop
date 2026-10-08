@@ -25,6 +25,8 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"death_crouch": "death_crouching_headshot_front", "death_walk": "walking_to_dying",
 	"toss": "toss_grenade", "hit": "hit_reaction", "prone_fire": "prone_firing", "prone_reload": "prone_reloading",
 	"prone_f": "prone_forward", "prone_stop": "prone_forward_stop", "prone_idle": "prone_idle", "crawl": "crawling",
+	"kneel": "kneel", "prone_to_kneel": "rifle_prone_to_kneel", "kneel_to_prone": "rifle_kneel_to_prone",
+	"turn90_l": "turn_90_left", "turn_l": "turn_left",
 	"swim_tread": "treading_water", "swim": "swimming", "hard_land": "hard_landing", "climb": "climbing", "drop_down": "jumping_down",
 	# Pistol set (the pack's arcs and strafes come in mirrored pairs).
 	"pidle": "pistol_idle", "pkneel": "pistol_kneeling_idle",
@@ -32,15 +34,20 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"pwalk_bl": "pistol_walk_backward_arc", "pwalk_br": "pistol_walk_backward_arc_2",
 	"prun_f": "pistol_run", "prun_b": "pistol_run_backward", "prun_fr": "pistol_run_arc", "prun_fl": "pistol_run_arc_2",
 	"prun_bl": "pistol_run_backward_arc", "prun_br": "pistol_run_backward_arc_2", "pstrafe_l": "pistol_strafe", "pstrafe_r": "pistol_strafe_2"}
+## Made by mirroring a clip left <-> right (there is no right-hand version).
+const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
-	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down"]
+	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
+	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"
 ## Character to retarget onto (-- --target=res://... --out=res://...).
 var TARGET := "res://assets/models/soldier.glb"
 const FPS := 30.0
+var _yaw0 := Quaternion.IDENTITY
+var _yaw1 := Quaternion.IDENTITY
 
 func _globals(sk: Skeleton3D, local_rot: Array) -> Array:
 	var g := []
@@ -77,8 +84,9 @@ func _init() -> void:
 	var lib: AnimationLibrary = load(OUT) if ResourceLoader.exists(OUT) else AnimationLibrary.new()
 	for k in DROP:
 		if lib.has_animation(k): lib.remove_animation(k)
-	for key in SRC:
-		var path := "res://assets/incoming/%s.fbx" % SRC[key]
+	for key in SRC.keys() + MIRROR.keys():
+		var mirror := MIRROR.has(key)
+		var path := "res://assets/incoming/%s.fbx" % (MIRROR[key] if mirror else SRC[key])
 		if not ResourceLoader.exists(path): continue
 		if lib.has_animation(key): lib.remove_animation(key)
 		var sc: Node3D = load(path).instantiate()
@@ -103,7 +111,9 @@ func _init() -> void:
 		# Map target bone -> source bone index by name.
 		var map := {}
 		for i in tsk.get_bone_count():
-			var j := ssk.find_bone(tsk.get_bone_name(i))
+			var bn := tsk.get_bone_name(i)
+			if mirror: bn = bn.replace("Left", "#").replace("Right", "Left").replace("#", "Right")
+			var j := ssk.find_bone(bn)
 			if j >= 0: map[i] = j
 		var rot_tracks := {}
 		for i in map:
@@ -131,6 +141,7 @@ func _init() -> void:
 					continue
 				var j: int = map[i]
 				var d: Quaternion = sg[j] * s_rest_g[j].inverse()        # source world delta
+				if mirror: d = Quaternion(d.x, -d.y, -d.z, d.w)          # reflected across the body's mid plane
 				var dw: Quaternion = Q * d * Q.inverse()                 # in target model frame
 				var dt: Quaternion = C.inverse() * dw * C                # in target skeleton space
 				tg[i] = dt * t_rest_g[i]
@@ -142,7 +153,10 @@ func _init() -> void:
 			var hp := ssk.get_bone_rest(hips_s).origin
 			var ht := src.find_track(NodePath(spath + ":mixamorig_Hips"), Animation.TYPE_POSITION_3D)
 			if ht >= 0: hp = src.position_track_interpolate(ht, t)
-			if f == 0: start_pos = hp
+			if f == 0:
+				start_pos = hp
+				_yaw0 = sg[hips_s]
+			_yaw1 = sg[hips_s]
 			end_pos = hp
 			var rest_w := C * (tsk.get_bone_rest(0).origin * t_scale)
 			var w := Q * (Vector3(0, hp.y, 0) * ratio)
@@ -151,7 +165,9 @@ func _init() -> void:
 		var drift := Q * (end_pos - start_pos) * ratio
 		# Ground speed of the clip (m/s): used to match steps to the real speed.
 		out.set_meta("speed", Vector2(drift.x, drift.z).length() / maxf(src.length, 0.01))
-		print(key, " len=%.2f frames=%d drift=%s ratio=%.2f" % [src.length, frames, str(drift.snapped(Vector3.ONE * 0.01)), ratio])
+		var turn_deg := rad_to_deg((_yaw1 * _yaw0.inverse()).get_euler().y)
+		if mirror: turn_deg = -turn_deg
+		print(key, " len=%.2f frames=%d drift=%s ratio=%.2f turn=%.0f" % [src.length, frames, str(drift.snapped(Vector3.ONE * 0.01)), ratio, turn_deg])
 		lib.add_animation(key, out)
 		sc.free()
 	print("fw target ", _forward(tsk, C, t_scale))

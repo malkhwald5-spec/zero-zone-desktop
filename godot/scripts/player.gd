@@ -303,6 +303,10 @@ func set_stance(s: String) -> void:
 	_force_stance("stand" if stance == s else s)
 
 func _force_stance(s: String) -> void:
+	# Getting down onto the belly and back up (rifle in hand).
+	if state == "ground" and not knocked and is_instance_valid(model):
+		if s == "prone" and stance != "prone": model.play_action("kneel_to_prone", 0.85)
+		elif stance == "prone" and s != "prone": model.play_action("prone_to_kneel", 0.85)
 	stance = s
 	var h := {"stand": 1.8, "crouch": 1.25, "prone": 0.7}[stance] as float
 	capsule.height = maxf(h, capsule.radius * 2.0)
@@ -1060,6 +1064,9 @@ func _update_camera(delta: float) -> void:
 	model.visible = not scoped() and state != "plane"
 
 var _cam_offset := Vector3(0, 1.6, 0)
+var _body_yaw := 0.0            # which way the body faces (lags the camera when standing still)
+var _turn_dir := 0
+var _turn_start := 0.0
 ## Breathing sway through a magnified scope; Shift holds the breath for a few seconds.
 var breath := 1.0               # 1 = rested, 0 = out of breath (held too long)
 var holding_breath := false
@@ -1143,6 +1150,27 @@ func _update_model(delta: float) -> void:
 	if state == "fall" and move_input.length() > 0.1 and move_input.y < 0.0:
 		target_yaw = yaw    # backing up: keep facing forward
 	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (4.0 if state == "fall" else 12.0)))
+	# Standing still and turning the camera: the body stays put until the look
+	# is well round, then steps round 90° on the spot.
+	var still := state == "ground" and stance == "stand" and Vector2(velocity.x, velocity.z).length() < 0.3 \
+		and not aiming and not firing and reload_t <= 0.0 and not swimming() and not knocked and revive_target == null
+	if still:
+		if _turn_dir == 0:
+			var diff := wrapf(yaw - _body_yaw, -PI, PI)
+			if absf(diff) > deg_to_rad(70.0):
+				_turn_dir = 1 if diff > 0.0 else -1
+				_turn_start = _body_yaw
+				model.start_turn(_turn_dir)
+				if model.turn_dir == 0: _turn_dir = 0
+		if _turn_dir != 0:
+			_body_yaw = _turn_start + model.turn_yaw
+			if model.turn_dir == 0: _turn_dir = 0
+		ry = _body_yaw
+	else:
+		if _turn_dir != 0:
+			model.turn_dir = 0
+			_turn_dir = 0
+		_body_yaw = ry
 	if state == "vehicle" and vehicle:
 		# On the driver's seat, facing the front (+Z).
 		model.global_transform = vehicle.global_transform * vehicle.seat_xform()
@@ -1183,6 +1211,7 @@ func _update_model(delta: float) -> void:
 	model.move_local = Vector2(velocity.dot(rgt), velocity.dot(fwd))
 	model.swimming = swimming()
 	model.downed = knocked
+	model.reviving = revive_target != null
 	model.foot_ik = is_on_floor() and state == "ground" and not model.swimming
 	model.set_pose(pose, sp, active >= 0 and not knocked, delta, Time.get_ticks_msec() / 1000.0)
 

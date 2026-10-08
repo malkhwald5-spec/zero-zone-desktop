@@ -303,6 +303,7 @@ func _ground(delta: float) -> void:
 		# Down low behind cover (reloading, healing) and while patching up.
 		var low := (mode == "cover" and global_position.distance_to(goal) < 1.8) or mode == "heal" or revive_mate != null
 		model.downed = knocked
+		model.reviving = revive_mate != null and is_instance_valid(revive_mate) and global_position.distance_to(revive_mate.global_position) < 2.2
 		model.foot_ik = model.visible and is_on_floor() and global_position.distance_squared_to(world.view_position()) < 3600.0
 		model.set_pose("prone" if knocked else ("crouch" if low else "stand"), Vector2(velocity.x, velocity.z).length(), armed() and not knocked, _pose_dt, world.time)
 		_pose_dt = 0.0
