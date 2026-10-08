@@ -33,6 +33,10 @@ var lean := 0.0               # roll while skydiving (-1..1)
 var peek := 0.0               # leaning round cover: -1 left .. 1 right
 var ride := ""               # vehicle kind while driving (hands and feet placed for it)
 var flinch := 0.0             # hit reaction: 1 when just hit, fades out
+var foot_ik := false          # set by the owner when standing on the ground near the camera
+var _foot_dy := [0.0, 0.0]    # smoothed ground height under each foot (left, right)
+var _foot_n := [Vector3.UP, Vector3.UP]
+var _hip_drop := 0.0
 var _flinch_side := 0.0
 var steer := 0.0              # parachute toggles: -1 pull left .. 1 pull right
 var brake := 0.0              # parachute flare 0..1
@@ -692,6 +696,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var sw := sin(t * 1.7) * 0.05
 			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
 			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
+	if pose in ["stand", "crouch"]:
+		_plant_feet(delta)
+	else:
+		_hip_drop = 0.0
 	if absf(peek) > 0.01 and pose in ["stand", "crouch"]:
 		body.position.x += peek * PEEK_SHIFT     # weight onto the outer foot
 		_lean_spine()
@@ -868,6 +876,62 @@ func _hold_gun() -> void:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:
 		_arm("Left", to_local * fore, Vector3(-1, -1, 0))
+
+# ---------------------------------------------------------------- feet on the ground
+const FOOT_RAY := 0.6           # how far above/below the feet we look for ground
+const HIP_DROP_MAX := 0.32
+
+## Slopes and steps: the animations assume flat ground. Each foot is moved
+## onto the ground under it and turned to its slope; the hips drop so the
+## lower foot can reach.
+func _plant_feet(delta: float) -> void:
+	var k := clampf(delta * 14.0, 0.0, 1.0)
+	if not foot_ik or not is_inside_tree():
+		_foot_dy = [lerpf(_foot_dy[0], 0.0, k), lerpf(_foot_dy[1], 0.0, k)]
+		_hip_drop = lerpf(_hip_drop, 0.0, k)
+		if absf(_hip_drop) < 0.005 and absf(_foot_dy[0]) < 0.005 and absf(_foot_dy[1]) < 0.005: return
+	else:
+		var space := get_world_3d().direct_space_state
+		var up := global_basis.y
+		for i in 2:
+			var side: String = ["Left", "Right"][i]
+			var fp: Vector3 = (sk.global_transform * sk.get_bone_global_pose(_bone[side + "Foot"])).origin
+			var flat := fp - up * up.dot(fp - global_position)
+			var q := PhysicsRayQueryParameters3D.create(flat + up * FOOT_RAY, flat - up * FOOT_RAY, 1)
+			var hit := space.intersect_ray(q)
+			var dy := 0.0
+			var n := Vector3.UP
+			if hit:
+				dy = clampf(up.dot(hit.position - global_position), -FOOT_RAY, FOOT_RAY * 0.8)
+				n = global_basis.inverse() * hit.normal
+				if n.y < 0.5: n = Vector3.UP     # a wall, not a floor
+			_foot_dy[i] = lerpf(_foot_dy[i], dy, k)
+			_foot_n[i] = _foot_n[i].lerp(n, k).normalized()
+		_hip_drop = lerpf(_hip_drop, clampf(minf(minf(_foot_dy[0], _foot_dy[1]), 0.0), -HIP_DROP_MAX, 0.0), k)
+	body.position.y += _hip_drop
+	var inv := global_transform.affine_inverse()
+	for i in 2:
+		var side: String = ["Left", "Right"][i]
+		var foot: int = _bone[side + "Foot"]
+		var lift: float = _foot_dy[i] - _hip_drop
+		if absf(lift) < 0.01 and _foot_n[i].y > 0.99: continue
+		# Where the animation put the foot (after the hip drop), raised onto the ground.
+		var fp: Vector3 = inv * (sk.global_transform * sk.get_bone_global_pose(foot)).origin
+		var knee: Vector3 = inv * (sk.global_transform * sk.get_bone_global_pose(_bone[side + "Leg"])).origin
+		var hip: Vector3 = inv * (sk.global_transform * sk.get_bone_global_pose(_bone[side + "UpLeg"])).origin
+		var pole := (knee - (hip + fp) * 0.5)
+		if pole.length() < 0.01: pole = Vector3(0, 0, -1)
+		_leg(side, fp + Vector3(0, lift, 0), pole.normalized())
+		# Turn the foot to the slope.
+		var n: Vector3 = _foot_n[i]
+		if n.y < 0.995:
+			var sk_basis: Basis = (sk.global_transform.affine_inverse() * global_transform).basis
+			var tilt := Quaternion(Vector3.UP, n)
+			var tilt_sk := Quaternion((sk_basis * Basis(tilt) * sk_basis.inverse()).orthonormalized())
+			var gp: Transform3D = sk.get_bone_global_pose(foot)
+			var parent_gp: Transform3D = sk.get_bone_global_pose(sk.get_bone_parent(foot))
+			var new_gp := Basis(tilt_sk.slerp(Quaternion.IDENTITY, 0.3)) * gp.basis
+			sk.set_bone_pose_rotation(foot, (parent_gp.basis.inverse() * new_gp).get_rotation_quaternion())
 
 # ---------------------------------------------------------------- reach solver
 ## Model-space target -> moves the hand there (elbow pushed towards `pole`).

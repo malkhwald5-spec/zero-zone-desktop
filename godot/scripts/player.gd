@@ -1127,6 +1127,7 @@ func _update_model(delta: float) -> void:
 	var fwd := Vector3(-sin(ry), 0, -cos(ry))
 	var rgt := Vector3(cos(ry), 0, -sin(ry))
 	model.move_local = Vector2(velocity.dot(rgt), velocity.dot(fwd))
+	model.foot_ik = is_on_floor() and state == "ground"
 	model.set_pose(pose, sp, active >= 0 and not knocked, delta, Time.get_ticks_msec() / 1000.0)
 
 ## Rushing wind while skydiving, softer flapping under the canopy, engine drone in the plane.

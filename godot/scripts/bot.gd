@@ -302,6 +302,7 @@ func _ground(delta: float) -> void:
 		model.reload_p = 1.0 - reload_t / float(Game.WEAPONS[weapon_id].reload) if reload_t > 0.0 and armed() else -1.0
 		# Down low behind cover (reloading, healing) and while patching up.
 		var low := (mode == "cover" and global_position.distance_to(goal) < 1.8) or mode == "heal" or revive_mate != null
+		model.foot_ik = model.visible and is_on_floor() and global_position.distance_squared_to(world.view_position()) < 3600.0
 		model.set_pose("prone" if knocked else ("crouch" if low else "stand"), Vector2(velocity.x, velocity.z).length(), armed() and not knocked, _pose_dt, world.time)
 		_pose_dt = 0.0
 

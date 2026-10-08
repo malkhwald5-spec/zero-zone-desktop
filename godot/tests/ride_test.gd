@@ -47,9 +47,21 @@ func _run() -> void:
 	# --- Bike ---
 	var bike: Vehicle = bikes[0]
 	# A straight bit of road: put the bike on the longest road, facing along it.
-	var best: Dictionary = world.island.roads[0]
-	for rd in world.island.roads:
-		if rd.a.distance_to(rd.b) > best.a.distance_to(best.b): best = rd
+	# Longest road that stays on dry land and fairly flat (the big map has a river
+	# with bridges and hilly roads).
+	var isl = world.island
+	var best: Dictionary = isl.roads[0]
+	var best_len := 0.0
+	for rd in isl.roads:
+		var ok := true
+		for k in 21:
+			var q: Vector2 = rd.a.lerp(rd.b, k / 20.0)
+			var g: float = absf(isl.height_at(q.x + 2.0, q.y) - isl.height_at(q.x - 2.0, q.y)) + absf(isl.height_at(q.x, q.y + 2.0) - isl.height_at(q.x, q.y - 2.0))
+			if isl.height_at(q.x, q.y) < 1.5 or g > 0.8: ok = false
+		var ln: float = rd.a.distance_to(rd.b)
+		if ok and ln > best_len:
+			best_len = ln
+			best = rd
 	var a2: Vector2 = best.a.lerp(best.b, 0.3)
 	var dir: Vector2 = (best.b - best.a).normalized()
 	bike.global_transform = Transform3D(Basis(Vector3.UP, atan2(dir.x, dir.y)), Vector3(a2.x, world.ground_height(Vector3(a2.x, 0, a2.y)) + 0.7, a2.y))
