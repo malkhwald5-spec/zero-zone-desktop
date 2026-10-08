@@ -7,6 +7,11 @@ var _spark_mat: StandardMaterial3D
 var _dust_mat: StandardMaterial3D
 var _tracer_mesh: BoxMesh             # shared unit box, stretched per tracer
 var _impact_mesh := {}                # flesh(bool) -> shared SphereMesh with material
+var _hole_tex: ImageTexture           # bullet hole (dark centre, chipped ring)
+var _holes: Array[Decal] = []         # oldest first; the oldest is reused when full
+var _puff_mesh: QuadMesh              # soft dust puff billboard
+const HOLE_DIST := 120.0              # bullet holes and dust only this close to the camera
+var _puff_budget := 12.0              # dust puffs allowed right now (refills 12 a second)
 
 func _ready() -> void:
 	_tracer_mat = StandardMaterial3D.new()
@@ -70,6 +75,125 @@ func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
 	add_child(p)
 	p.global_position = pos + normal * 0.05
 	p.create_tween().tween_callback(p.queue_free).set_delay(1.0)
+	if not flesh and _near_view(pos):
+		_bullet_hole(pos, normal)
+		if _puff_budget >= 1.0:
+			_puff_budget -= 1.0
+			_dust_puff(pos, normal)
+
+func _process(delta: float) -> void:
+	_puff_budget = minf(12.0, _puff_budget + delta * 12.0)
+
+func _near_view(pos: Vector3) -> bool:
+	var w = get_parent()
+	return w != null and w.has_method("view_position") and w.view_position().distance_to(pos) < HOLE_DIST
+
+## A hole left by the bullet, projected onto whatever was hit (walls, cars, ground).
+func _bullet_hole(pos: Vector3, normal: Vector3) -> void:
+	if _hole_tex == null: _hole_tex = _make_hole_texture()
+	var max_holes := 50 if Game.laptop() else 120
+	var d: Decal
+	if _holes.size() >= max_holes:
+		d = _holes.pop_front()
+		if not is_instance_valid(d): d = null
+	if d == null:
+		d = Decal.new()
+		d.texture_albedo = _hole_tex
+		d.upper_fade = 0.2
+		d.lower_fade = 0.2
+		d.cull_mask = 1
+		add_child(d)
+	_holes.append(d)
+	var s := randf_range(0.12, 0.18)
+	d.size = Vector3(s, 0.16, s)
+	# A decal projects along its -Y: point Y out of the surface, random spin.
+	var y := normal.normalized()
+	var x := y.cross(Vector3.UP if absf(y.y) < 0.95 else Vector3.RIGHT).normalized().rotated(y, randf() * TAU)
+	d.global_transform = Transform3D(Basis(x, y, x.cross(y)), pos)
+	d.modulate = Color(1, 1, 1, 1)
+
+static func _make_hole_texture() -> ImageTexture:
+	var n := 64
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var chips := []
+	for i in 7: chips.append([rng.randf() * TAU, rng.randf_range(0.55, 0.95)])
+	for y in n:
+		for x in n:
+			var v := Vector2(x + 0.5 - n * 0.5, y + 0.5 - n * 0.5) / (n * 0.5)
+			var r := v.length()
+			var ang := atan2(v.y, v.x)
+			var edge := 0.42
+			for c in chips:
+				var da := absf(wrapf(ang - c[0], -PI, PI))
+				if da < 0.25: edge = maxf(edge, lerpf(c[1], 0.42, da / 0.25))
+			var col := Color(0, 0, 0, 0)
+			if r < 0.2:
+				col = Color(0.03, 0.03, 0.03, 1.0)                       # the hole
+			elif r < 0.3:
+				col = Color(0.12, 0.11, 0.1, lerpf(1.0, 0.85, (r - 0.2) / 0.1))
+			elif r < edge:
+				col = Color(0.55, 0.53, 0.5, 0.55 * (1.0 - (r - 0.3) / maxf(0.01, edge - 0.3)))   # chipped, lighter ring
+			img.set_pixel(x, y, col)
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+## A small cloud of dust kicked up where the bullet hit.
+func _dust_puff(pos: Vector3, normal: Vector3) -> void:
+	if _puff_mesh == null:
+		_puff_mesh = QuadMesh.new()
+		_puff_mesh.size = Vector2(0.35, 0.35)
+		var m := StandardMaterial3D.new()
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		m.vertex_color_use_as_albedo = true
+		m.albedo_texture = _soft_dot()
+		m.disable_receive_shadows = true
+		_puff_mesh.material = m
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.amount = 5
+	p.lifetime = 1.1
+	p.explosiveness = 0.9
+	p.mesh = _puff_mesh
+	p.direction = normal
+	p.spread = 30.0
+	p.initial_velocity_min = 0.4
+	p.initial_velocity_max = 1.4
+	p.damping_min = 2.0
+	p.damping_max = 3.0
+	p.gravity = Vector3(0, 0.15, 0)
+	p.angle_min = 0.0
+	p.angle_max = 360.0
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.2
+	var sc := Curve.new()
+	sc.add_point(Vector2(0, 0.5))
+	sc.add_point(Vector2(1, 2.4))
+	p.scale_amount_curve = sc
+	var g := Gradient.new()
+	g.set_color(0, Color(0.6, 0.57, 0.52, 0.55))
+	g.set_color(1, Color(0.62, 0.6, 0.56, 0.0))
+	p.color_ramp = g
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(p)
+	p.global_position = pos + normal * 0.08
+	p.emitting = true
+	p.create_tween().tween_callback(p.queue_free).set_delay(1.4)
+
+static var _dot: ImageTexture
+static func _soft_dot() -> ImageTexture:
+	if _dot: return _dot
+	var n := 32
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var r := Vector2(x + 0.5 - n * 0.5, y + 0.5 - n * 0.5).length() / (n * 0.5)
+			img.set_pixel(x, y, Color(1, 1, 1, clampf(1.0 - r, 0.0, 1.0) ** 1.6))
+	_dot = ImageTexture.create_from_image(img)
+	return _dot
 
 func muzzle_flash(pos: Vector3) -> void:
 	var l := OmniLight3D.new()

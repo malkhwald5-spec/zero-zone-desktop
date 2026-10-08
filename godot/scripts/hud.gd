@@ -535,6 +535,7 @@ func _draw_hud() -> void:
 		_draw_bottom(c, sz, p)
 		if p.scoped():
 			_draw_scope(c, sz, p.weapon())
+			if p.view_zoom >= 1.9 and Game.settings.controls == "kbm": _draw_breath(c, sz, p)
 		else:
 			_draw_crosshair(c, sz, p)
 		_draw_revive(c, sz, p)
@@ -774,6 +775,16 @@ func _draw_crosshair(c: Control, sz: Vector2, p: Player) -> void:
 
 ## Looking through a sight: reflex sights (red dot, holographic) keep the view
 ## open inside a thin housing; magnified scopes black out all but the lens.
+## Breath bar under the scope: hold Shift to steady the aim.
+func _draw_breath(c: Control, sz: Vector2, p: Player) -> void:
+	var w := 160.0
+	var pos := Vector2(sz.x * 0.5 - w * 0.5, sz.y * 0.5 + minf(sz.x, sz.y) * 0.25)
+	c.draw_rect(Rect2(pos, Vector2(w, 5)), Color(0, 0, 0, 0.5))
+	var col := Color("9fd0ff") if p.breath > 0.3 else Color("ff8a6a")
+	c.draw_rect(Rect2(pos, Vector2(w * p.breath, 5)), col)
+	var t := "حابس نفسك…" if p.holding_breath else "%s: حبس النفس" % Game.key_label(Game.key("sprint"))
+	_text(c, pos + Vector2(w * 0.5, 22), t, 13, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_CENTER, null, 240)
+
 func _draw_scope(c: Control, sz: Vector2, w: Dictionary) -> void:
 	var ctr := sz * 0.5
 	var sight: String = w.get("sight", "")

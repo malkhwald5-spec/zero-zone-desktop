@@ -7,6 +7,7 @@ const BOT_COUNT := 99          # + the player = 100
 var island: Island
 var builder: WorldBuilder
 var effects: Effects
+var birds: Birds
 var player: Player
 var hud: Hud
 var zone: Zone
@@ -97,6 +98,9 @@ func _build() -> void:
 	await get_tree().create_timer(0.6).timeout
 	loading.queue_free()
 	loading = null
+	birds = Birds.new()
+	add_child(birds)
+	birds.setup(self)
 	ready_done = true
 	Game.stats.games += 1
 	Game.save_data()
@@ -761,6 +765,7 @@ func find_cover(from: Vector3, threat: Vector3, reach := 30.0) -> Vector3:
 ## A gunshot: bots that hear it turn towards it and come to have a look.
 func notify_shot(pos: Vector3, shooter: Node, suppressed := false) -> void:
 	var r := 40.0 if suppressed else 130.0
+	if birds and not suppressed: birds.on_noise(pos)
 	for b in bots:
 		if b == shooter or b.dead: continue
 		if b.global_position.distance_squared_to(pos) < r * r:
@@ -1146,6 +1151,7 @@ func explode(pos: Vector3, thrower: Node, exclude: Array = []) -> void:
 	pos.y = maxf(pos.y, ground_height(pos) + 0.3)   # never start inside a slope
 	effects.explosion(pos)
 	sound_boom(pos)
+	if birds: birds.on_noise(pos)
 	var space := get_world_3d().direct_space_state
 	for a in actors():
 		if not a.on_ground(): continue

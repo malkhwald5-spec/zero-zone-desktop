@@ -882,7 +882,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 			if killed:
 				kills += 1
 				if head: head_kills += 1
-			world.effects.impact(end, hit.normal, true)
+			world.effects.impact(end, hit.normal, not (col is Vehicle))     # cars get holes, not blood
 		else:
 			world.effects.impact(end, hit.normal, false)
 
@@ -977,6 +977,7 @@ func _update_camera(delta: float) -> void:
 	head.y = maxf(head.y, Island.WATER + 0.6)
 	var w := weapon()
 	var zoom: float = w.get("zoom", 1.0) if aiming and state == "ground" else 1.0
+	view_zoom = zoom
 	var length := 3.2
 	var shoulder := 0.6
 	match state:
@@ -1032,6 +1033,12 @@ func _update_camera(delta: float) -> void:
 	model.visible = not scoped() and state != "plane"
 
 var _cam_offset := Vector3(0, 1.6, 0)
+## Breathing sway through a magnified scope; Shift holds the breath for a few seconds.
+var breath := 1.0               # 1 = rested, 0 = out of breath (held too long)
+var holding_breath := false
+var view_zoom := 1.0            # magnification of the current view (scopes)
+var _sway := Vector2.ZERO
+var _sway_t := 0.0
 var _cam_low_water := false
 
 func _process(delta: float) -> void:
@@ -1043,9 +1050,25 @@ func _process(delta: float) -> void:
 	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
 	cam_rig.rotation = Vector3(0, yaw, 0)
 	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
-	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004, 0, -peek * 0.12) + sh
+	_update_sway(delta)
+	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh
 	if _cam_low_water:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
+
+func _update_sway(delta: float) -> void:
+	var want := Vector2.ZERO
+	holding_breath = false
+	if scoped() and view_zoom >= 1.9:
+		_sway_t += delta
+		holding_breath = Game.settings.controls == "kbm" and Input.is_physical_key_pressed(Game.key("sprint")) and breath > 0.02
+		if holding_breath: breath = maxf(0.0, breath - delta / 4.0)
+		else: breath = minf(1.0, breath + delta / 3.0)
+		var amp: float = 0.0055 * float({"prone": 0.35, "crouch": 0.65}.get(stance, 1.0))
+		amp *= 0.12 if holding_breath else 1.0 + (1.0 - breath) * 1.5
+		want = Vector2(sin(_sway_t * 0.9) + 0.4 * sin(_sway_t * 2.3), 0.6 * sin(_sway_t * 1.7) + 0.3 * sin(_sway_t * 0.55)) * amp
+	else:
+		breath = minf(1.0, breath + delta / 3.0)
+	_sway = _sway.lerp(want, minf(1.0, delta * 6.0))
 
 ## After dying: first the camera turns to whoever killed you (killcam), then
 ## it can follow another player from behind (spectating). True when handled.
