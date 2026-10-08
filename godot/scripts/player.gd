@@ -53,6 +53,8 @@ var chute_heading := 0.0          # direction the canopy flies
 var chute_bank := 0.0             # roll from turning (radians)
 var chute_swing := 0.0            # pitch swing under the canopy (radians)
 var land_t := 0.0                 # short landing crouch
+var hard_land_t := 0.0            # hard landing after a long fall: rolling back up, can't move
+var _fall_vy := 0.0               # fastest downward speed in the current fall
 var is_sprinting := false
 var _wind: AudioStreamPlayer
 
@@ -617,9 +619,14 @@ func _ground(delta: float) -> void:
 	if aiming: speed = minf(speed, 2.8)
 	if heal_id != "": speed = minf(speed, 2.0)
 	elif boost >= 60.0: speed *= 1.06
-	# Wading through water is slow.
-	if global_position.y < Island.WATER - 0.3:
+	# Wading through water is slow; swimming slower still.
+	if swimming():
+		speed = 1.6
+	elif global_position.y < Island.WATER - 0.3:
 		speed *= 0.55
+	if hard_land_t > 0.0:
+		hard_land_t -= delta
+		speed *= 0.0 if hard_land_t > 0.5 else 0.4
 	var target := wish * speed
 	var accel := 40.0 if is_on_floor() else 8.0
 	velocity.x = move_toward(velocity.x, target.x, accel * delta)
@@ -639,8 +646,17 @@ func _ground(delta: float) -> void:
 		velocity.y -= GRAVITY * delta
 	jump_queued = false
 	var before := global_position
+	var was_air := not is_on_floor()
+	if was_air: _fall_vy = minf(_fall_vy, velocity.y)
 	move_and_slide()
 	_step_up(wish)
+	if was_air and is_on_floor():
+		# A long drop (off a roof, a cliff): a hard landing that takes a moment.
+		if _fall_vy < -11.0 and not knocked and not swimming():
+			hard_land_t = 1.1
+			model.play_action("hard_land", 1.1)
+			world.footstep(global_position, true, 1.0)
+		_fall_vy = 0.0
 	# Deep water: you cannot swim out to sea (bridges and piers are fine).
 	if global_position.y < Island.WATER - 0.3 and world.is_deep(global_position):
 		global_position = Vector3(before.x, global_position.y, before.z)
@@ -740,6 +756,13 @@ func try_vault() -> bool:
 	_vault_to = to
 	_vault_top = base.y + h + 0.25
 	_vault_time = 0.38 + h * 0.18
+	# High walls: a real climb (pull up and over); dropping down the far side: a jump down.
+	if h > 1.15:
+		_vault_time = 1.25 + (h - 1.15) * 0.4
+		model.play_action("climb", _vault_time)
+	elif to.y < base.y - 0.8:
+		_vault_time = 0.9
+		model.play_action("drop_down", _vault_time)
 	vault_t = 0.0
 	shape_node.disabled = true
 	velocity = Vector3.ZERO

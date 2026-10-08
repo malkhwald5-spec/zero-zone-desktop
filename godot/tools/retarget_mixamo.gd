@@ -25,10 +25,16 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"death_crouch": "death_crouching_headshot_front", "death_walk": "walking_to_dying",
 	"toss": "toss_grenade", "hit": "hit_reaction", "prone_fire": "prone_firing", "prone_reload": "prone_reloading",
 	"prone_f": "prone_forward", "prone_stop": "prone_forward_stop", "prone_idle": "prone_idle", "crawl": "crawling",
-	"swim_tread": "treading_water"}
+	"swim_tread": "treading_water", "swim": "swimming", "hard_land": "hard_landing", "climb": "climbing", "drop_down": "jumping_down",
+	# Pistol set (the pack's arcs and strafes come in mirrored pairs).
+	"pidle": "pistol_idle", "pkneel": "pistol_kneeling_idle",
+	"pwalk_f": "pistol_walk", "pwalk_b": "pistol_walk_backward", "pwalk_fr": "pistol_walk_arc", "pwalk_fl": "pistol_walk_arc_2",
+	"pwalk_bl": "pistol_walk_backward_arc", "pwalk_br": "pistol_walk_backward_arc_2",
+	"prun_f": "pistol_run", "prun_b": "pistol_run_backward", "prun_fr": "pistol_run_arc", "prun_fl": "pistol_run_arc_2",
+	"prun_bl": "pistol_run_backward_arc", "prun_br": "pistol_run_backward_arc_2", "pstrafe_l": "pistol_strafe", "pstrafe_r": "pistol_strafe_2"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
-	"death_back_head", "death_crouch", "death_walk", "prone_stop"]
+	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

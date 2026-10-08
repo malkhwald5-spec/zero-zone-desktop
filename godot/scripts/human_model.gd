@@ -557,6 +557,29 @@ func play_action(name: String, seconds: float) -> void:
 	_action_speed = a.length / seconds
 	_anim = ""
 	ap.play("mx/" + name, 0.1)
+	# Climbs and drops carry their own rise/fall; the owner already moves the
+	# body, so that part is taken out of the hips (see set_pose).
+	_action_rise = 0.0
+	var up := _skeleton_up()
+	for tr in a.get_track_count():
+		if a.track_get_type(tr) == Animation.TYPE_POSITION_3D:
+			_action_y0 = a.position_track_interpolate(tr, 0.0).dot(up)
+			_action_rise = a.position_track_interpolate(tr, a.length).dot(up) - _action_y0
+			break
+var _action_y0 := 0.0
+var _sk_up := Vector3.ZERO
+
+## The model's up direction in skeleton space (the soldier's skeleton is turned).
+func _skeleton_up() -> Vector3:
+	if _sk_up == Vector3.ZERO:
+		var t := Transform3D()
+		var n: Node = sk
+		while n != self and n is Node3D:
+			t = (n as Node3D).transform * t
+			n = n.get_parent()
+		_sk_up = (t.basis.inverse() * Vector3.UP).normalized()
+	return _sk_up
+var _action_rise := 0.0
 
 ## Direction of travel relative to facing, in eight sectors.
 func _dir8() -> String:
@@ -595,6 +618,14 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_action_t -= delta
 		_play("mx/" + _action, _action_speed)
 		ap.advance(delta)
+		if absf(_action_rise) > 0.3:
+			# Climbing: the hips never go above where they started (the body is
+			# lifted by the owner); dropping down: never below. Crouches stay.
+			var up := _skeleton_up()
+			var hp := sk.get_bone_pose_position(0)
+			var h := hp.dot(up)
+			var keep := minf(h, _action_y0) if _action_rise > 0.0 else maxf(h, _action_y0)
+			sk.set_bone_pose_position(0, hp + up * (keep - h))
 		gun.visible = false
 		body.position = Vector3.ZERO
 		body.rotation = Vector3.ZERO
@@ -612,19 +643,27 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		return
 	# Base animation from the ground speed and its direction (8-way rifle set).
 	var dir := _dir8()
-	if pose == "stand" and speed > 0.3:
+	# One-handed guns (pistol, pan) have their own walk, run and idle.
+	var pistol: bool = armed and _cls in ["pistol", "melee"] and ap.has_animation("mx/pidle")
+	if swimming and pose in ["stand", "crouch", "prone"]:
+		if speed > 0.3: _play_moving("mx/swim", speed, 2.6)
+		else: _play("mx/swim_tread", 1.0)
+	elif pose == "stand" and speed > 0.3 and pistol:
+		var pset := "prun_" if speed > 3.2 else "pwalk_"
+		_play_moving("mx/" + (("pstrafe_" + dir) if dir in ["l", "r"] else pset + dir), speed)
+	elif pose == "stand" and speed > 0.3:
 		var set := "walk_"
 		if sprinting and dir in ["f", "fl", "fr"]: set = "sprint_"
 		elif speed > 3.2: set = "run_"
 		_play_moving("mx/" + set + dir, speed)
 	elif pose == "crouch" and speed > 0.3:
 		_play_moving("mx/crouch_" + dir, speed)
+	elif pose == "crouch" and pistol and not aiming:
+		_play("mx/pkneel", 1.0)
 	elif pose == "crouch":
 		_play("mx/idle_crouch_aim" if aiming else "mx/idle_crouch", 1.0)
 	elif pose == "airborne":
 		_play("mx/jump_up" if vel_y > 1.0 else ("mx/fall" if vel_y < -9.0 else "mx/jump_loop"), 1.0)
-	elif swimming and pose in ["stand", "crouch", "prone"]:
-		_play("mx/swim_tread", 1.0)
 	elif pose == "prone" and speed > 0.2:
 		# Crawling: on the belly (or on hands and knees when knocked down);
 		# backwards plays the crawl in reverse.
@@ -640,6 +679,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		else: _play("mx/prone_idle", 1.0)
 	elif pose == "stand" and armed and reload_p >= 0.0:
 		_play("mx/reload", 1.4)
+	elif pose == "stand" and pistol:
+		_play("mx/pidle", 1.0)
 	elif pose == "stand" and armed and aiming:
 		_play("mx/fire" if recoil > 0.3 else "mx/idle_aim", 1.0)
 	elif pose == "stand" and armed:

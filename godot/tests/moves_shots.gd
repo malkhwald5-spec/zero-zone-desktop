@@ -5,6 +5,7 @@ extends Node
 ## Run with --out=/dir.
 
 var out := "user://"
+var set2 := false    # --set=2: pistol walk and idle, swimming, climbing, hard landing
 var models := []
 var poses := []
 
@@ -20,6 +21,7 @@ func shot(name: String) -> void:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
+		if a == "--set=2": set2 = true
 	_run.call_deferred()
 
 func _run() -> void:
@@ -53,13 +55,14 @@ func _run() -> void:
 	water.position = Vector3(4.5, 1.0, 1.2)
 	add_child(water)
 	var names := ["prone_idle", "prone_crawl", "knocked_crawl", "swim"]
+	if set2: names = ["pistol_walk", "swim_fwd", "climb", "hard_land"]
 	for row in 2:
 		for col in 4:
 			var m := HumanModel.new(Color("4a5d6b"), Color("c84f3a"), Color("33373d"), ["soldier", "lola"][row])
 			add_child(m)
 			m.position = Vector3(col * 3.0 - 4.5, 0, row * 2.6 - 0.2)
 			m.rotation.y = -PI / 2         # side on to the camera
-			m.set_weapon("m416")
+			m.set_weapon("p92" if names[col] == "pistol_walk" else "m416")
 			models.append(m)
 			poses.append(names[col])
 	var cam := Camera3D.new()
@@ -70,7 +73,12 @@ func _run() -> void:
 	cam.current = true
 	for k in 2:
 		for i in 25: await get_tree().process_frame
-		await shot("moves_%d" % k)
+		if set2 and k == 0:
+			for i in models.size():
+				if poses[i] == "climb": models[i].play_action("climb", 6.0)
+				if poses[i] == "hard_land": models[i].play_action("hard_land", 6.0)
+			await wait(1.4)
+		await shot(("moves2_%d" if set2 else "moves_%d") % k)
 		await wait(0.5)
 	print("MOVES ok")
 	get_tree().quit()
@@ -90,4 +98,13 @@ func _process(delta: float) -> void:
 				m.set_pose("prone", 0.6, false, delta, 0.0)
 			"swim":
 				m.swimming = true
+				m.set_pose("stand", 0.0, true, delta, 0.0)
+			"pistol_walk":
+				m.move_local = Vector2(0, 1.5)
+				m.set_pose("stand", 1.5, true, delta, 0.0)
+			"swim_fwd":
+				m.swimming = true
+				m.move_local = Vector2(0, 1.6)
+				m.set_pose("stand", 1.6, true, delta, 0.0)
+			"climb", "hard_land":
 				m.set_pose("stand", 0.0, true, delta, 0.0)
