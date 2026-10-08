@@ -609,9 +609,9 @@ func _ground(delta: float) -> void:
 		speed = 7.2
 		if stance == "crouch": set_stance("crouch")
 	if stance == "crouch": speed = 2.8
-	elif stance == "prone": speed = 1.2
+	elif stance == "prone": speed = 0.85
 	if knocked:
-		speed = 0.9
+		speed = 0.6
 		is_sprinting = false
 	if revive_target: speed = 0.0
 	if aiming: speed = minf(speed, 2.8)
@@ -655,6 +655,10 @@ func _ground(delta: float) -> void:
 			bleed_out()
 			return
 	_footsteps(delta)
+	if swimming():
+		firing = false
+		aiming = false
+		if stance != "stand": set_stance("stand")
 	if firing and not throw_ready:
 		if heal_id != "": cancel_heal()
 		_try_fire()
@@ -1101,6 +1105,10 @@ func _dead_camera(delta: float) -> bool:
 	return false
 
 ## Looking through a sight or scope (first person, reticle on screen).
+## Deep enough water to tread (not wading): no weapon, standing up.
+func swimming() -> bool:
+	return state == "ground" and global_position.y < Island.WATER - 1.0 and vehicle == null
+
 func scoped() -> bool:
 	if not aiming or state != "ground": return false
 	var w := weapon()
@@ -1150,7 +1158,9 @@ func _update_model(delta: float) -> void:
 	var fwd := Vector3(-sin(ry), 0, -cos(ry))
 	var rgt := Vector3(cos(ry), 0, -sin(ry))
 	model.move_local = Vector2(velocity.dot(rgt), velocity.dot(fwd))
-	model.foot_ik = is_on_floor() and state == "ground"
+	model.swimming = swimming()
+	model.downed = knocked
+	model.foot_ik = is_on_floor() and state == "ground" and not model.swimming
 	model.set_pose(pose, sp, active >= 0 and not knocked, delta, Time.get_ticks_msec() / 1000.0)
 
 ## Rushing wind while skydiving, softer flapping under the canopy, engine drone in the plane.

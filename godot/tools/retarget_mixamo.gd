@@ -23,10 +23,12 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"death_front": "death_from_the_front", "death_back": "death_from_the_back", "death_right": "death_from_right",
 	"death_head": "death_from_front_headshot", "death_back_head": "death_from_back_headshot",
 	"death_crouch": "death_crouching_headshot_front", "death_walk": "walking_to_dying",
-	"toss": "toss_grenade", "hit": "hit_reaction", "prone_fire": "prone_firing", "prone_reload": "prone_reloading"}
+	"toss": "toss_grenade", "hit": "hit_reaction", "prone_fire": "prone_firing", "prone_reload": "prone_reloading",
+	"prone_f": "prone_forward", "prone_stop": "prone_forward_stop", "prone_idle": "prone_idle", "crawl": "crawling",
+	"swim_tread": "treading_water"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
-	"death_back_head", "death_crouch", "death_walk"]
+	"death_back_head", "death_crouch", "death_walk", "prone_stop"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

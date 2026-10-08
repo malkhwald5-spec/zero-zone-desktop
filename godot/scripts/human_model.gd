@@ -34,6 +34,8 @@ var peek := 0.0               # leaning round cover: -1 left .. 1 right
 var ride := ""               # vehicle kind while driving (hands and feet placed for it)
 var flinch := 0.0             # hit reaction: 1 when just hit, fades out
 var foot_ik := false          # set by the owner when standing on the ground near the camera
+var downed := false           # knocked down in a team match: crawls on hands and knees
+var swimming := false         # in deep water: treads water, no weapon
 var _foot_dy := [0.0, 0.0]    # smoothed ground height under each foot (left, right)
 var _foot_n := [Vector3.UP, Vector3.UP]
 var _hip_drop := 0.0
@@ -563,10 +565,10 @@ func _dir8() -> String:
 	return ["f", "fr", "r", "br", "b", "bl", "l", "fl"][k]
 
 ## Locomotion clip with its playback speed matched to the real ground speed.
-func _play_moving(name: String, speed: float) -> void:
+func _play_moving(name: String, speed: float, max_scale := 2.2) -> void:
 	var a: Animation = ap.get_animation(name)
 	var clip_speed: float = a.get_meta("speed", 2.0) if a else 2.0
-	_play(name, clampf(speed / maxf(clip_speed, 0.3), 0.4, 2.2))
+	_play(name, clampf(speed / maxf(clip_speed, 0.15), 0.4, max_scale))
 
 ## Dead: keep playing the death animation until it ends (owners stop calling set_pose).
 func _process(delta: float) -> void:
@@ -621,11 +623,21 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/idle_crouch_aim" if aiming else "mx/idle_crouch", 1.0)
 	elif pose == "airborne":
 		_play("mx/jump_up" if vel_y > 1.0 else ("mx/fall" if vel_y < -9.0 else "mx/jump_loop"), 1.0)
-	elif pose == "prone" and speed > 0.3:
-		_play("Walk", speed / 0.8)
+	elif swimming and pose in ["stand", "crouch", "prone"]:
+		_play("mx/swim_tread", 1.0)
+	elif pose == "prone" and speed > 0.2:
+		# Crawling: on the belly (or on hands and knees when knocked down);
+		# backwards plays the crawl in reverse.
+		var clip := "mx/crawl" if downed else "mx/prone_f"
+		var back := dir in ["b", "bl", "br"]
+		_play_moving(clip, speed, 3.0)
+		if back: ap.speed_scale = -absf(ap.speed_scale)
+	elif pose == "prone" and downed:
+		_play("mx/crawl", 0.08)
 	elif pose == "prone":
 		if reload_p >= 0.0: _play("mx/prone_reload", 6.4 / 2.4)
-		else: _play("mx/prone_fire", 1.0 if recoil > 0.3 else 0.06)
+		elif aiming or recoil > 0.3: _play("mx/prone_fire", 1.0 if recoil > 0.3 else 0.06)
+		else: _play("mx/prone_idle", 1.0)
 	elif pose == "stand" and armed and reload_p >= 0.0:
 		_play("mx/reload", 1.4)
 	elif pose == "stand" and armed and aiming:
@@ -644,12 +656,15 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
 		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone", "airborne"]
+	# Crawling, knocked down or swimming: hands are busy, the gun is put away.
+	if swimming or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
+	if swimming: body.position.y = 0.4          # afloat: head and shoulders out of the water
 	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:
 		"crouch":
 			_gun_drop = -0.42        # the animations crouch the body
 		"prone":
-			if not _anim.begins_with("mx/prone"):
+			if not (_anim.begins_with("mx/prone") or _anim == "mx/crawl"):
 				# Crawling: the walk cycle turned face down.
 				body.rotation.x = -PI / 2
 				body.position = Vector3(0, 0.22, 0.9)
@@ -696,7 +711,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var sw := sin(t * 1.7) * 0.05
 			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
 			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
-	if pose in ["stand", "crouch"]:
+	if pose in ["stand", "crouch"] and not swimming:
 		_plant_feet(delta)
 	else:
 		_hip_drop = 0.0
@@ -712,7 +727,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_hold_gun()
 	else:
 		gun.visible = false
-		if pose in ["stand", "crouch"]:
+		if pose in ["stand", "crouch"] and not swimming:
 			_relaxed_arms(speed)
 	if _wave > 0.0:
 		_wave -= delta
