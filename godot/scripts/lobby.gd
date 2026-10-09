@@ -196,13 +196,52 @@ func _spawn_soldier() -> void:
 	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
-	soldier.rotation.y = PI    # face the camera
+	soldier.set_weapon("m416")
+	soldier.rotation.y = PI - 0.45    # turned a little off the camera: a stronger stance
 	holder.add_child(soldier)
+	_idle_t = 0.0
+	_idle_i = 0
+
+## The character's idle in the lobby: rifle at the ready, looking at you,
+## and every few seconds something else — checks the magazine, raises the
+## sight, looks around.
+const IDLE_STEPS := [["idle", 6.0], ["check", 2.6], ["idle", 5.0], ["aim", 2.4], ["idle", 5.0], ["look", 4.5]]
+var _idle_t := 0.0
+var _idle_i := 0
+
+func _idle_director(delta: float) -> void:
+	_idle_t += delta
+	var step: Array = IDLE_STEPS[_idle_i]
+	if _idle_t >= float(step[1]):
+		_idle_t = 0.0
+		_idle_i = (_idle_i + 1) % IDLE_STEPS.size()
+		step = IDLE_STEPS[_idle_i]
+	var k: float = _idle_t / float(step[1])
+	soldier.reload_p = k if step[0] == "check" else -1.0
+	soldier.aiming = step[0] == "aim"
+	# Where the head turns: at the camera, or sweeping round while looking about.
+	var to_cam := soldier.global_transform.affine_inverse() * cam.global_position
+	var yaw := atan2(-to_cam.x, -to_cam.z)     # the model faces -Z; left is +
+	var pitch := atan2(to_cam.y - 1.6, Vector2(to_cam.x, to_cam.z).length())
+	match step[0]:
+		"aim":
+			yaw = 0.0
+			pitch = 0.0
+		"check":
+			yaw *= 0.2
+			pitch = -0.35
+		"look":
+			yaw = sin(k * TAU) * 0.9
+			pitch = 0.05
+	var w := minf(1.0, delta * 3.0)
+	soldier.look_yaw = lerpf(soldier.look_yaw, yaw, w)
+	soldier.look_pitch = lerpf(soldier.look_pitch, pitch, w)
 
 func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
-	soldier.set_pose("stand", 0.0, false, delta, t)
+	_idle_director(delta)
+	soldier.set_pose("stand", 0.0, true, delta, t)
 	# The backdrop drifts slowly, like a camera breathing.
 	if _art: _art.position.x = sin(t * 0.07) * 1.6
 	_tick_ui(delta)

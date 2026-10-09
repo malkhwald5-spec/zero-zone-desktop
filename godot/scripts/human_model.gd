@@ -38,6 +38,8 @@ var downed := false           # knocked down in a team match: crawls on hands an
 var swimming := false         # in deep water: treads water, no weapon
 var reviving := false         # kneeling by a downed teammate
 var drinking := false         # energy drink / painkillers, standing still
+var look_yaw := 0.0           # head turned left (+) / right (-) from the body, radians
+var look_pitch := 0.0         # head tilted up (+) / down (-)
 var turn_dir := 0             # turning on the spot: 1 left, -1 right (0 = not turning)
 var turn_yaw := 0.0           # how far the turn clip has turned the body so far (radians)
 var _turn_h0 := Quaternion.IDENTITY
@@ -854,6 +856,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink":
 			_relaxed_arms(speed)
 	_place_can()
+	if absf(look_yaw) > 0.01 or absf(look_pitch) > 0.01: _look_head()
 	if _wave > 0.0:
 		_wave -= delta
 		_arm("Right", Vector3(0.45, 1.95 + sin(t * 10.0) * 0.06, -0.1 + sin(t * 10.0) * 0.12), Vector3(1, 0, 0))
@@ -968,6 +971,20 @@ func _lean_spine() -> void:
 		var i: int = _bone[bn]
 		var inv := sk.get_bone_global_pose(i).basis.inverse()
 		var q := Quaternion((inv * axis_sk).normalized(), -peek * PEEK_ROLL / 3.0)
+		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
+
+## Turns the neck and head towards look_yaw / look_pitch (the neck takes 40 %).
+func _look_head() -> void:
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var up_sk := (to_sk.basis * Vector3.UP).normalized()
+	var right_sk := (to_sk.basis * Vector3.RIGHT).normalized()
+	for bn in [["Neck", 0.4], ["Head", 0.6]]:
+		if not _bone.has(bn[0]): continue
+		var i: int = _bone[bn[0]]
+		var inv := sk.get_bone_global_pose(i).basis.inverse()
+		var share: float = bn[1]
+		var q := Quaternion((inv * up_sk).normalized(), clampf(look_yaw, -1.2, 1.2) * share) \
+			* Quaternion((inv * right_sk).normalized(), clampf(look_pitch, -0.5, 0.5) * share)
 		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
 
 ## Upper body follows the aim up/down; the head looks a bit further.

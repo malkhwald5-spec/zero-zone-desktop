@@ -26,6 +26,12 @@ func _run() -> void:
 	await wait(2.5)
 	await shot("ui_lobby")
 	var lobby = tree.current_scene
+	# The idle moves: checking the magazine, raising the sight, looking around.
+	for step in [1, 3, 5]:
+		lobby._idle_i = step
+		lobby._idle_t = 0.0
+		await wait(float(lobby.IDLE_STEPS[step][1]) * 0.45)
+		await shot("ui_idle_%d" % step)
 	lobby._open("settings")
 	await wait(0.6)
 	await shot("ui_page")
