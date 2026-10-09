@@ -11,6 +11,8 @@ const TIPS := [
 	"نصيحة: الطلقة في الرأس تضاعف الضرر.",
 ]
 
+const ART := ["res://assets/textures/ui/art_soldier.jpg", "res://assets/textures/ui/art_city.jpg"]
+
 var progress := 0.0
 var shown := 0.0
 var note := ""
@@ -29,10 +31,9 @@ func _ready() -> void:
 	art.set_anchors_preset(Control.PRESET_FULL_RECT)
 	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	art.texture = Game.key_art
+	# Battlefield art: the soldier in the ruined street, or the rainy city at night.
+	art.texture = load(ART[randi() % ART.size()])
 	add_child(art)
-	if Game.key_art == null:
-		_make_art()
 	var shade := TextureRect.new()
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -44,10 +45,6 @@ func _ready() -> void:
 	canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.draw.connect(_draw_ui)
 	add_child(canvas)
-
-func _make_art() -> void:
-	Game.key_art = await KeyArt.render(self)
-	if is_instance_valid(art): art.texture = Game.key_art
 
 func set_progress(v: float, text := "") -> void:
 	progress = clampf(v, 0.0, 1.0)

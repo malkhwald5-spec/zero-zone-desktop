@@ -53,27 +53,6 @@ func _box(s: Vector3) -> BoxMesh:
 	b.size = s
 	return b
 
-func _cyl(r1: float, r2: float, h: float, seg := 16) -> CylinderMesh:
-	var c := CylinderMesh.new()
-	c.top_radius = r1
-	c.bottom_radius = r2
-	c.height = h
-	c.radial_segments = seg
-	return c
-
-## Concrete roof tiles: noisy slabs with dark joints.
-func _tiles() -> ImageTexture:
-	var n := FastNoiseLite.new()
-	n.frequency = 0.08
-	var img := Image.create(128, 128, true, Image.FORMAT_RGB8)
-	for y in 128:
-		for x in 128:
-			var v := 0.78 + n.get_noise_2d(x, y) * 0.12
-			if x % 64 < 2 or y % 64 < 2: v = 0.5
-			img.set_pixel(x, y, Color(v, v * 0.95, v * 0.9))
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
-
 func _noise(freq: float, seed_v: int, size := 256) -> NoiseTexture2D:
 	var nt := NoiseTexture2D.new()
 	var n := FastNoiseLite.new()
@@ -146,59 +125,42 @@ func _build_scene() -> void:
 	fill.look_at_from_position(Vector3(10, 6, 20), Vector3.ZERO)
 	Game.apply_quality(env, sun)
 
-	# Rooftop: concrete floor with stains, low brick parapets, stair house.
-	var floor_mat := _mat(Color("c9b6a6"), 0.95)
-	floor_mat.albedo_texture = load("res://assets/textures/concrete_col.jpg")
-	floor_mat.normal_enabled = true
-	floor_mat.normal_texture = load("res://assets/textures/concrete_nrm.jpg")
-	floor_mat.uv1_scale = Vector3(8, 6, 1)
+	# The battlefield art (desert camp at dusk) as a big painted backdrop,
+	# sandy ground under the character fading into it, sandbags and ammo crates.
+	_backdrop()
+	var sand := ShaderMaterial.new()
+	sand.shader = load("res://shaders/lobby_ground.gdshader")
+	sand.set_shader_parameter("tex", load("res://assets/textures/sand_col.jpg"))
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(30, 20)
-	_mesh(pm, floor_mat, Vector3(0, 0, -2))
-	var brick := _mat(Color("9a5a44"), 0.9)
-	brick.albedo_texture = _noise(0.08, 11)
-	brick.uv1_scale = Vector3(3, 1, 1)
-	_mesh(_box(Vector3(30, 0.9, 0.35)), brick, Vector3(0, 0.45, -11.5))
-	_mesh(_box(Vector3(0.35, 0.9, 20)), brick, Vector3(-14.5, 0.45, -2))
-	_mesh(_box(Vector3(0.35, 0.9, 20)), brick, Vector3(14.5, 0.45, -2))
-	var house := Node3D.new()
-	house.position = Vector3(-8.5, 0, -6)
-	add_child(house)
-	_mesh(_box(Vector3(4, 3.2, 3.5)), brick, Vector3(0, 1.6, 0), Vector3.ZERO, house)
-	_mesh(_box(Vector3(4.4, 0.15, 3.9)), _mat(Color("5c4a42")), Vector3(0, 3.25, 0), Vector3.ZERO, house)
-	_mesh(_box(Vector3(1.1, 2.1, 0.08)), _mat(Color("3d3a3a"), 0.5, 0.0, 0.5), Vector3(1.0, 1.05, 1.76), Vector3.ZERO, house)
-	# Water tower on legs.
-	var wt := Node3D.new()
-	wt.position = Vector3(7.5, 0, -8.5)
-	add_child(wt)
-	var wood := _mat(Color("7b5a40"), 0.9)
-	_mesh(_cyl(1.3, 1.3, 2.4, 20), wood, Vector3(0, 4.4, 0), Vector3.ZERO, wt)
-	_mesh(_cyl(0.0, 1.45, 1.0, 20), _mat(Color("4a3a30")), Vector3(0, 6.1, 0), Vector3.ZERO, wt)
-	for k in 4:
-		var a := k * TAU / 4.0 + PI / 4
-		_mesh(_cyl(0.06, 0.06, 3.2, 6), _mat(Color("2c2c2e"), 0.6, 0.0, 0.6), Vector3(cos(a), 1.6, sin(a)), Vector3.ZERO, wt)
-	# AC units and antennas with cables.
-	var metal := _mat(Color("8d9298"), 0.5, 0.0, 0.6)
-	for p in [Vector3(4.5, 0, -10.2), Vector3(-4.2, 0, -10.4), Vector3(10.5, 0, -3.5)]:
-		_mesh(_box(Vector3(1.2, 0.9, 0.8)), metal, p + Vector3(0, 0.45, 0))
-	var poles := [Vector3(-12, 0, -9), Vector3(-3, 0, -11), Vector3(12, 0, -10)]
-	for p in poles:
-		_mesh(_cyl(0.05, 0.07, 6.0, 6), _mat(Color("3a3533")), p + Vector3(0, 3.0, 0))
-	var cable := _mat(Color("1d1b1b"))
-	for i in poles.size() - 1:
-		var a: Vector3 = poles[i] + Vector3(0, 5.8, 0)
-		var b: Vector3 = poles[i + 1] + Vector3(0, 5.8, 0)
-		for s in 10:
-			var u0 := s / 10.0
-			var u1 := (s + 1) / 10.0
-			var p0 := a.lerp(b, u0) - Vector3(0, sin(u0 * PI) * 0.8, 0)
-			var p1 := a.lerp(b, u1) - Vector3(0, sin(u1 * PI) * 0.8, 0)
-			var seg := _mesh(_cyl(0.015, 0.015, p0.distance_to(p1), 4), cable, (p0 + p1) * 0.5)
-			seg.look_at_from_position((p0 + p1) * 0.5, p1, Vector3.UP if absf((p1 - p0).normalized().y) < 0.99 else Vector3.RIGHT)
-			seg.rotate_object_local(Vector3.RIGHT, PI / 2)
-
-	_skyline(rng)
-	_car(Vector3(-3.4, 0, -2.2), PI - 0.75)
+	pm.size = Vector2(40, 22)
+	pm.subdivide_width = 8
+	pm.subdivide_depth = 8
+	_mesh(pm, sand, Vector3(0, 0, -6))
+	var bag := _mat(Color("b39c74"), 0.95)
+	bag.albedo_texture = _noise(0.25, 21)
+	for row in [[Vector3(-3.6, 0, -2.8), 7, 0.35], [Vector3(2.9, 0, -3.4), 6, -0.25]]:
+		var at: Vector3 = row[0]
+		var n: int = row[1]
+		var ang: float = row[2]
+		var dir := Vector3(cos(ang), 0, sin(ang))
+		for layer in 3:
+			for k in n - layer:
+				var c := CapsuleMesh.new()
+				c.radius = 0.2
+				c.height = 0.78
+				c.radial_segments = 10
+				c.rings = 4
+				var pos := at + dir * ((k - (n - layer - 1) * 0.5) * 0.66) + Vector3(0, 0.17 + layer * 0.3, 0)
+				var m := _mesh(c, bag, pos, Vector3(0, -ang, PI / 2))
+				m.scale = Vector3(1, 1, 0.75)
+	var crate := _mat(Color("3f4f34"), 0.7)
+	crate.albedo_texture = _noise(0.5, 31)
+	var steel := _mat(Color("2b2f2c"), 0.5, 0.0, 0.6)
+	for c in [[Vector3(2.7, 0, -4.6), 0.3, Vector3(0.8, 0.4, 0.45)], [Vector3(2.8, 0.4, -4.65), 0.15, Vector3(0.7, 0.32, 0.4)],
+			[Vector3(-3.1, 0, -5.0), -0.4, Vector3(0.85, 0.42, 0.48)]]:
+		var box_n := _mesh(_box(c[2]), crate, c[0] + Vector3(0, c[2].y * 0.5, 0), Vector3(0, c[1], 0))
+		_mesh(_box(Vector3(c[2].x + 0.02, 0.06, c[2].z + 0.02)), steel, c[0] + Vector3(0, c[2].y - 0.05, 0), Vector3(0, c[1], 0))
+		box_n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 	holder = Node3D.new()
 	add_child(holder)
@@ -210,108 +172,24 @@ func _build_scene() -> void:
 	cam.look_at_from_position(Vector3(0.2, 1.25, 4.6), Vector3(0.0, 1.05, 0.0))
 	cam.current = true
 
-## Distant city: towers with lit windows, billboards and a spire, mountains behind.
-func _skyline(rng: RandomNumberGenerator) -> void:
-	var img := Image.create(32, 64, false, Image.FORMAT_RGB8)
-	img.fill(Color("4b4650"))
-	for y in range(2, 64, 4):
-		for x in range(2, 32, 4):
-			var lit := rng.randf() < 0.35
-			var c := Color("ffd59a") if lit else Color("2c2f3a").lerp(Color("8fa6c8"), rng.randf() * 0.5)
-			img.fill_rect(Rect2i(x, y, 2, 2), c)
-	var wtex := ImageTexture.create_from_image(img)
-	var tones := [Color("9c8c80"), Color("7d7680"), Color("a8957c"), Color("6a6672"), Color("8c7a66")]
-	for i in 70:
-		var ang := rng.randf_range(-1.25, 1.25)
-		var dist := rng.randf_range(45.0, 170.0)
-		var x := sin(ang) * dist
-		var z := -cos(ang) * dist - 12.0
-		var w := rng.randf_range(6, 16)
-		var d := rng.randf_range(6, 16)
-		var h := rng.randf_range(12, 55) * (1.4 if dist > 80 else 1.0)
-		var base := -30.0
-		var m := StandardMaterial3D.new()
-		m.albedo_texture = wtex
-		m.albedo_color = tones[i % tones.size()]
-		m.uv1_scale = Vector3(w / 8.0, h / 16.0, 1)
-		m.emission_enabled = true
-		m.emission_texture = wtex
-		m.emission = Color(1, 0.8, 0.55)
-		m.emission_energy_multiplier = 0.25
-		m.roughness = 0.8
-		var b := _mesh(_box(Vector3(w, h, d)), m, Vector3(x, base + h * 0.5, z))
-		b.rotation.y = rng.randf_range(-0.2, 0.2)
-		if rng.randf() < 0.22:
-			var bc: Color = [Color("e2483d"), Color("2fb3a3"), Color("f08a2c"), Color("e8e4dc"), Color("4b7de0")][rng.randi() % 5]
-			var bb := _mesh(_box(Vector3(w * 0.6, h * 0.18, 0.2)), _mat(bc, 0.5, 1.2), Vector3(x, base + h * rng.randf_range(0.55, 0.85), z + d * 0.5 + 0.15))
-			bb.rotation.y = b.rotation.y
-	# A tall spire tower, landmark of the city.
-	var sm := _mat(Color("b8aa9a"), 0.7)
-	var y := -30.0
-	for s in [[14.0, 60.0], [10.0, 22.0], [7.0, 14.0], [4.0, 10.0]]:
-		_mesh(_box(Vector3(s[0], s[1], s[0])), sm, Vector3(-38, y + s[1] * 0.5, -120))
-		y += s[1]
-	_mesh(_cyl(0.3, 1.2, 16.0, 8), sm, Vector3(-38, y + 8.0, -120))
-	# Mountains in the haze.
-	var mm := _mat(Color("8a7f8e"), 1.0)
-	for i in 9:
-		var mx := -260.0 + i * 65.0 + rng.randf_range(-20, 20)
-		var mh := rng.randf_range(40, 95)
-		_mesh(_cyl(0.0, rng.randf_range(70, 120), mh, 7), mm, Vector3(mx, -30 + mh * 0.5, -330 - rng.randf_range(0, 60)), Vector3(0, rng.randf(), 0))
+var _art: MeshInstance3D
 
-## A classic convertible parked on the roof.
-func _car(pos: Vector3, yaw: float) -> void:
-	var car := Node3D.new()
-	car.position = pos
-	car.rotation.y = yaw
-	add_child(car)
-	var paint := _mat(Color("4a2f4f"), 0.25, 0.0, 0.55)
-	paint.clearcoat_enabled = true
-	paint.clearcoat = 0.8
-	var chrome := _mat(Color("d8dde2"), 0.15, 0.0, 1.0)
-	var black := _mat(Color("121214"), 0.8)
-	var seat := _mat(Color("6b4a3a"), 0.7)
-	var glass := _mat(Color(0.7, 0.8, 0.9, 0.35), 0.05)
-	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	# Body: lower hull, hood and trunk, with rounded fenders.
-	_mesh(_box(Vector3(1.7, 0.42, 4.3)), paint, Vector3(0, 0.55, 0), Vector3.ZERO, car)
-	_mesh(_box(Vector3(1.66, 0.18, 1.3)), paint, Vector3(0, 0.84, -1.45), Vector3(0.05, 0, 0), car)
-	_mesh(_box(Vector3(1.66, 0.2, 1.1)), paint, Vector3(0, 0.85, 1.55), Vector3(-0.04, 0, 0), car)
-	for side in [-1, 1]:
-		var f := CapsuleMesh.new()
-		f.radius = 0.24
-		f.height = 4.3
-		var fm := _mesh(f, paint, Vector3(side * 0.74, 0.62, 0), Vector3(PI / 2, 0, 0), car)
-		fm.scale = Vector3(1, 1, 1.15)
-		_mesh(_box(Vector3(0.12, 0.5, 1.6)), paint, Vector3(side * 0.8, 0.95, 0.2), Vector3.ZERO, car)  # doors
-	# Interior, seats, steering wheel.
-	_mesh(_box(Vector3(1.4, 0.1, 1.9)), black, Vector3(0, 0.8, 0.25), Vector3.ZERO, car)
-	for x in [-0.36, 0.36]:
-		_mesh(_box(Vector3(0.55, 0.2, 0.55)), seat, Vector3(x, 0.92, 0.1), Vector3.ZERO, car)
-		_mesh(_box(Vector3(0.55, 0.55, 0.14)), seat, Vector3(x, 1.12, 0.4), Vector3(-0.15, 0, 0), car)
-	_mesh(_box(Vector3(1.4, 0.45, 0.2)), seat, Vector3(0, 1.0, 1.0), Vector3(-0.1, 0, 0), car)
-	var wheel := TorusMesh.new()
-	wheel.inner_radius = 0.15
-	wheel.outer_radius = 0.18
-	_mesh(wheel, black, Vector3(-0.36, 1.15, -0.45), Vector3(1.1, 0, 0), car)
-	# Windshield with chrome frame.
-	_mesh(_box(Vector3(1.5, 0.45, 0.03)), glass, Vector3(0, 1.18, -0.75), Vector3(-0.45, 0, 0), car)
-	_mesh(_box(Vector3(1.55, 0.04, 0.05)), chrome, Vector3(0, 1.38, -0.65), Vector3(-0.45, 0, 0), car)
-	# Wheels with chrome hubs.
-	for wx in [-0.78, 0.78]:
-		for wz in [-1.4, 1.35]:
-			_mesh(_cyl(0.34, 0.34, 0.24, 20), black, Vector3(wx, 0.34, wz), Vector3(0, 0, PI / 2), car)
-			_mesh(_cyl(0.2, 0.2, 0.26, 16), chrome, Vector3(wx, 0.34, wz), Vector3(0, 0, PI / 2), car)
-	# Bumpers, grille and round headlights.
-	for z in [-2.18, 2.18]:
-		var bump := CapsuleMesh.new()
-		bump.radius = 0.06
-		bump.height = 1.8
-		_mesh(bump, chrome, Vector3(0, 0.45, z), Vector3(0, 0, PI / 2), car)
-	_mesh(_box(Vector3(0.7, 0.22, 0.05)), chrome, Vector3(0, 0.66, -2.16), Vector3.ZERO, car)
-	for x in [-0.55, 0.55]:
-		_mesh(_cyl(0.11, 0.11, 0.06, 16), _mat(Color("fff6dc"), 0.1, 1.5), Vector3(x, 0.72, -2.16), Vector3(PI / 2, 0, 0), car)
-		_mesh(_box(Vector3(0.22, 0.08, 0.04)), _mat(Color("c62828"), 0.3, 0.8), Vector3(x, 0.7, 2.17), Vector3.ZERO, car)
+## The war art far behind the scene, unlit (it is already painted), with its
+## lower edge fading into the sand.
+func _backdrop() -> void:
+	var tex: Texture2D = load("res://assets/textures/ui/art_desert.jpg")
+	var q := QuadMesh.new()
+	var w := 66.0
+	q.size = Vector2(w, w * float(tex.get_height()) / tex.get_width())
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/lobby_backdrop.gdshader")
+	m.set_shader_parameter("tex", tex)
+	_art = MeshInstance3D.new()
+	_art.mesh = q
+	_art.material_override = m
+	_art.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_art.position = Vector3(0, q.size.y * 0.5 - 3.4, -30)
+	add_child(_art)
 
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
@@ -325,6 +203,8 @@ func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
 	soldier.set_pose("stand", 0.0, false, delta, t)
+	# The backdrop drifts slowly, like a camera breathing.
+	if _art: _art.position.x = sin(t * 0.07) * 1.6
 	_tick_ui(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -729,8 +609,17 @@ func _open(which: String) -> void:
 	root.visible = false
 	# The inventory keeps the character visible on the left.
 	var side := which == "inventory"
+	# The soldier art behind the menu pages, darkened so the panels read well.
+	if not side:
+		var art := TextureRect.new()
+		art.texture = load("res://assets/textures/ui/art_soldier.jpg")
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		art.set_anchors_preset(Control.PRESET_FULL_RECT)
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		page.add_child(art)
 	var bg := ColorRect.new()
-	bg.color = Color(0.03, 0.04, 0.07, 0.86)
+	bg.color = Color(0.03, 0.04, 0.07, 0.86 if side else 0.74)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	if side:
 		bg.anchor_left = 0.5

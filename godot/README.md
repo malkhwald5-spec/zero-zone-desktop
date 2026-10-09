@@ -103,6 +103,7 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
 - نموذج الجندي `assets/models/soldier.glb`: من Mixamo (Adobe)، مأخوذ من أمثلة مشروع three.js. يُسمح باستخدام شخصيات Mixamo داخل الألعاب، ولا يُسمح ببيعها أو توزيعها كملف مستقل.
 - صور الأرض والجدران والطوب والحجر والخشب والأسقف والجذوع والسماء وأوراق الشجر والعشب `assets/textures/`: من ambientCG (رخصة CC0). صور الأوراق والإبر والعشب مركّبة من صور ambientCG بالأداة `tools/make_foliage_textures.py`، والصفائح المعدنية وألواح الحظيرة بالأداة `tools/make_building_textures.py`.
 - ملفات `assets/textures/*.import` محفوظة في المشروع عمداً: تولّد mipmaps وضغط كرت الشاشة (أنعم للأرض البعيدة وأخف بالحجم)، والسماء مضغوطة WebP.
+- صور اللوبي وشاشة التحميل `assets/textures/ui/`: صور حرب بعتها صاحب اللعبة (art_desert و art_city من نفس الصورة، و art_soldier). قبل النشر للعامة تأكد إنه معك حق استعمالها.
 - الطبيعة `assets/nature/`: من ambientCG (رخصة CC0): صور الصخور Rock030 و Rock035 و Rock051 (مع خرائط الارتفاع اللي منها تتشكّل الصخور)، العشب البري والأعشاب Foliage002 و Foliage003، والغصن الممسوح 3D Stick 001. مصغّرة لـ 512 بكسل.
 - بندقية القنص والمسدس `assets/models/weapons/`: من Poly Haven (رخصة CC0).
 - الأصوات المسجلة `assets/sounds/`: من freesound.org، مقصوصة ومعدّلة الصوت داخل المشروع:
