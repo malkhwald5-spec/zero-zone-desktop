@@ -144,8 +144,12 @@ func _ready() -> void:
 func add_look(dx: float, dy: float) -> void:
 	var k := 0.0032 * sens * (float(Game.settings.get("aim_sens", 0.45)) if aiming else 1.0)
 	if aiming and scoped():
-		# Through a scope: slower the more it magnifies.
-		k /= sqrt(maxf(1.0, float(weapon().get("zoom", 1.0))))
+		# Through a sight: each magnification has its own speed (settings).
+		var z := float(weapon().get("zoom", 1.0))
+		var key := "sens_1x" if z < 1.7 else ("sens_2x" if z < 3.0 else ("sens_4x" if z < 6.0 else "sens_8x"))
+		k *= float(Game.settings.get(key, 1.0 / sqrt(maxf(1.0, z))))
+	if _assist_on: k *= 0.6        # aim assist: the view drags a little over an enemy
+	_look_t = 0.0
 	yaw -= dx * k
 	if Game.settings.get("invert_y", false): dy = -dy
 	pitch = clampf(pitch - dy * k, -1.35, 1.0)
@@ -155,9 +159,20 @@ func action(act: String, pressed: bool) -> void:
 		"fire":
 			if throw_ready:
 				if pressed: release_throw()
+			elif _fire_on_release():
+				# Bolt-action / shotgun on "release": aim with the finger down, the shot goes when you let go.
+				if not pressed: firing = true
 			else:
 				firing = pressed
-		"aim": if pressed: aiming = not aiming
+		"aim":
+			# Tap: toggles. Hold: aims while held. Mixed: a short tap toggles, a long press is hold.
+			var mode: String = Game.settings.get("scope_mode", "mixed")
+			if pressed:
+				_aim_was = aiming
+				_aim_t0 = Time.get_ticks_msec()
+				aiming = true if mode == "hold" else not aiming
+			elif mode == "hold" or (mode == "mixed" and not _aim_was and Time.get_ticks_msec() - _aim_t0 > 300):
+				aiming = false
 		"reload": if pressed: start_reload()
 		"jump": if pressed: jump_queued = true
 		"crouch": if pressed: set_stance("crouch")
@@ -171,11 +186,47 @@ func action(act: String, pressed: bool) -> void:
 			if pressed: start_throw()
 			else: release_throw()
 		"throw_kind": if pressed: switch_throw()
-		"peek_l": if pressed: peek_toggle = 0.0 if peek_toggle < 0.0 else -1.0
-		"peek_r": if pressed: peek_toggle = 0.0 if peek_toggle > 0.0 else 1.0
+		"peek_l":
+			if Game.settings.get("lean_mode", "tap") == "hold": peek_toggle = -1.0 if pressed else 0.0
+			elif pressed: peek_toggle = 0.0 if peek_toggle < 0.0 else -1.0
+		"peek_r":
+			if Game.settings.get("lean_mode", "tap") == "hold": peek_toggle = 1.0 if pressed else 0.0
+			elif pressed: peek_toggle = 0.0 if peek_toggle > 0.0 else 1.0
 		"slot1": if pressed: switch_slot(0)
 		"slot2": if pressed: switch_slot(1)
 		"slot3": if pressed: switch_slot(2)
+
+var _aim_was := false
+var _aim_t0 := 0
+var _assist_on := false
+var _assist_t := 0.0
+var _look_t := 0.0                # seconds since the camera was last turned by hand
+
+func _fire_on_release() -> bool:
+	var w := weapon()
+	if w.is_empty(): return false
+	if w.cls in ["sr", "crossbow"]: return Game.settings.get("bolt_fire", "tap") == "release"
+	if w.cls == "shotgun": return Game.settings.get("shotgun_fire", "tap") == "release"
+	return false
+
+## Aim assist: is an enemy right under the crosshair? (checked ten times a second)
+func _update_assist(delta: float) -> void:
+	_assist_t -= delta
+	if _assist_t > 0.0: return
+	_assist_t = 0.1
+	_assist_on = false
+	if not Game.settings.get("aim_assist", true) or state != "ground" or camera == null: return
+	var from := camera.global_position
+	var fwd := -camera.global_basis.z
+	for b in world.bots:
+		if not is_instance_valid(b) or b.dead or world.same_team(self, b): continue
+		var to: Vector3 = b.global_position + Vector3(0, 1.2, 0) - from
+		var d := to.length()
+		if d > 200.0 or d < 1.0: continue
+		# Within about a body width of the crosshair.
+		if fwd.angle_to(to) < atan(0.6 / d) + 0.01:
+			_assist_on = true
+			return
 
 func _unhandled_input(event: InputEvent) -> void:
 	if Game.settings.controls != "kbm" or state == "dead" or world.match_over:
@@ -192,8 +243,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			firing = false
 			aiming = false
 			return
-		if event.button_index == MOUSE_BUTTON_LEFT: firing = event.pressed
-		elif event.button_index == MOUSE_BUTTON_RIGHT: aiming = event.pressed
+		if event.button_index == MOUSE_BUTTON_LEFT: action("fire", event.pressed)
+		elif event.button_index == MOUSE_BUTTON_RIGHT: action("aim", event.pressed)
 	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("throw"):
 		release_throw()
 	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("interact"):
@@ -512,6 +563,14 @@ func _physics_process(delta: float) -> void:
 			velocity.x = 0
 			velocity.z = 0
 			move_and_slide()
+	_update_assist(delta)
+	_look_t += delta
+	if state == "vehicle" and Game.settings.get("veh_cam_follow", true) and _look_t > 1.5 and is_instance_valid(vehicle):
+		# Camera swings back behind the vehicle when you leave it alone.
+		var vv: Vector3 = vehicle.linear_velocity
+		vv.y = 0.0
+		if vv.length() > 3.0 and vehicle.speed() > 0.0:
+			yaw = lerp_angle(yaw, atan2(-vv.x, -vv.z), minf(1.0, delta * 1.5))
 	_update_camera(delta)
 	_update_model(delta)
 
@@ -1025,7 +1084,7 @@ func _update_camera(delta: float) -> void:
 			head.y += 2.6
 		"vehicle":
 			head = vehicle.global_position + Vector3(0, 2.2, 0)
-			length = 7.5
+			length = 10.5 if Game.settings.get("veh_cam_far", false) else 7.5
 			shoulder = 0.0
 	if aiming and state == "ground":
 		length = 0.0 if scoped() else 1.5

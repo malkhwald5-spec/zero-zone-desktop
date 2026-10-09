@@ -60,7 +60,9 @@ func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
 	p.gravity = Vector3(0, -9.8, 0)
 	p.scale_amount_min = 0.03
 	p.scale_amount_max = 0.07
-	if not _impact_mesh.has(flesh):
+	var key = flesh
+	if flesh and Game.settings.get("hit_color", "red") == "green": key = "green"
+	if not _impact_mesh.has(key):
 		var m := SphereMesh.new()
 		m.radius = 0.5
 		m.height = 1.0
@@ -68,10 +70,10 @@ func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
 		m.rings = 2
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.albedo_color = Color(0.6, 0.05, 0.05) if flesh else Color(0.62, 0.56, 0.45)
+		mat.albedo_color = (Color(0.2, 0.75, 0.15) if key is String else Color(0.6, 0.05, 0.05)) if flesh else Color(0.62, 0.56, 0.45)
 		m.material = mat
-		_impact_mesh[flesh] = m
-	p.mesh = _impact_mesh[flesh]
+		_impact_mesh[key] = m
+	p.mesh = _impact_mesh[key]
 	add_child(p)
 	p.global_position = pos + normal * 0.05
 	p.create_tween().tween_callback(p.queue_free).set_delay(1.0)

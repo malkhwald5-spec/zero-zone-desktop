@@ -540,6 +540,11 @@ func _draw_hud() -> void:
 			_draw_crosshair(c, sz, p)
 		_draw_revive(c, sz, p)
 		if not p.knocked and p.revive_target == null and p.downed_mate_near() == null: _draw_prompt(c, sz, p)
+		if Game.settings.get("heal_prompt", true) and not p.knocked and p.heal_id == "" and p.health < 55.0 and p.best_heal() != "":
+			# Hurt and carrying meds: a reminder above the health bar.
+			var hk := "[%s] " % Game.key_label(Game.key("heal")) if Game.settings.controls == "kbm" else ""
+			var a := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.006)
+			_text(c, Vector2(sz.x * 0.5, sz.y - 112), hk + "صحتك قليلة — عالج نفسك (" + Items.HEALS[p.best_heal()].name + ")", 16, Color(0.55, 1.0, 0.6, a), HORIZONTAL_ALIGNMENT_CENTER, bold)
 		if p.throw_ready: _draw_throw_arc(c, p)
 		_draw_throw_card(c, sz, p)
 	elif p.state == "vehicle":
@@ -764,7 +769,7 @@ func _draw_crosshair(c: Control, sz: Vector2, p: Player) -> void:
 	if not p.scoped():
 		var w := p.weapon()
 		var gap := 6.0 + (float(w.get("spread", 2.0)) * (0.4 if p.aiming else 1.0) * 5.0 if not w.is_empty() else 4.0)
-		var col := Color("ffcf5a") if p.reload_t > 0.0 else Color(1, 1, 1, 0.9)
+		var col: Color = Color("ffcf5a") if p.reload_t > 0.0 else Game.CROSSHAIR_COLORS.get(Game.settings.get("crosshair", "white"), Color(1, 1, 1, 0.9))
 		for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
 			c.draw_line(ctr + d * gap, ctr + d * (gap + 9.0), col, 2.0)
 	c.draw_rect(Rect2(ctr - Vector2(1.5, 1.5), Vector2(3, 3)), Color("ff3d4a"))
@@ -788,7 +793,7 @@ func _draw_breath(c: Control, sz: Vector2, p: Player) -> void:
 func _draw_scope(c: Control, sz: Vector2, w: Dictionary) -> void:
 	var ctr := sz * 0.5
 	var sight: String = w.get("sight", "")
-	var red := Color(1.0, 0.16, 0.12)
+	var red := Color(0.25, 1.0, 0.3) if Game.settings.get("dot_color", "red") == "green" else Color(1.0, 0.16, 0.12)
 	if sight == "reddot" or sight == "holo":
 		# Housing: dark frame around a slightly tinted glass.
 		var hw := minf(sz.x, sz.y) * 0.34

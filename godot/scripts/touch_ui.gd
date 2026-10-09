@@ -14,6 +14,8 @@ var sprint_lock := false
 var buttons: Array = []           # {act, label, icon, pos, r}
 var touches := {}                 # index -> {role, last}
 var font: Font
+var edit := false                 # layout editor: nothing is played, every button is drawn
+var selected := ""                # layout editor: the button being moved
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -22,30 +24,60 @@ func _ready() -> void:
 	resized.connect(_layout)
 	_layout()
 
+## Default places, tidied like the mobile shooters: fire, scope and jump on
+## the right, crouch and prone in the corner, reload and grenade left of the
+## fire button, lean buttons above. Each can be moved and resized in the
+## layout editor (settings); `id` names the button in the saved layouts.
+func defaults(s: Vector2) -> Array:
+	return [
+		{"id": "fire", "act": "fire", "icon": "◉", "label": "", "pos": Vector2(s.x - 170, s.y - 170), "r": 60.0},
+		{"id": "fire_l", "act": "fire", "icon": "◉", "label": "", "pos": Vector2(110, s.y * 0.42), "r": 38.0},
+		{"id": "aim", "act": "aim", "icon": "⌖", "label": "منظار", "pos": Vector2(s.x - 75, s.y - 265), "r": 32.0},
+		{"id": "jump", "act": "jump", "icon": "⤒", "label": "قفز", "pos": Vector2(s.x - 60, s.y - 155), "r": 30.0},
+		{"id": "crouch", "act": "crouch", "icon": "⤓", "label": "انحناء", "pos": Vector2(s.x - 135, s.y - 58), "r": 26.0},
+		{"id": "prone", "act": "prone", "icon": "▁", "label": "انبطاح", "pos": Vector2(s.x - 60, s.y - 58), "r": 26.0},
+		{"id": "reload", "act": "reload", "icon": "⟳", "label": "تلقيم", "pos": Vector2(s.x - 315, s.y - 160), "r": 30.0},
+		{"id": "throw", "act": "throw", "icon": "", "label": "قنبلة", "pos": Vector2(s.x - 330, s.y - 262), "r": 26.0},
+		{"id": "peek_l", "act": "peek_l", "icon": "", "label": "ميلان ←", "pos": Vector2(s.x - 300, s.y - 372), "r": 24.0},
+		{"id": "peek_r", "act": "peek_r", "icon": "", "label": "→ ميلان", "pos": Vector2(s.x - 195, s.y - 372), "r": 24.0},
+		{"id": "bag", "act": "bag", "icon": "", "label": "الحقيبة", "pos": Vector2(40, s.y - 64), "r": 24.0},
+		{"id": "heal", "act": "heal", "icon": "", "label": "علاج", "pos": Vector2(Hud.slot_rect(2, s).end.x + 38, s.y - 82), "r": 24.0},
+		{"id": "boost", "act": "boost", "icon": "", "label": "منشّط", "pos": Vector2(Hud.slot_rect(2, s).end.x + 96, s.y - 82), "r": 24.0},
+		{"id": "map", "act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 330), "r": 24.0},
+		{"id": "pause", "act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
+		{"id": "slot1", "act": "slot1", "icon": "", "label": "", "pos": Hud.slot_rect(0, s).get_center(), "r": 0.0},
+		{"id": "slot2", "act": "slot2", "icon": "", "label": "", "pos": Hud.slot_rect(1, s).get_center(), "r": 0.0},
+		{"id": "slot3", "act": "slot3", "icon": "", "label": "", "pos": Hud.slot_rect(2, s).get_center(), "r": 0.0},
+		{"id": "interact", "act": "interact", "icon": "", "label": "", "pos": Vector2(s.x - 470, s.y * 0.55), "r": 0.0},
+	]
+
+const JOY_R := 72.0
+var joy_home := Vector2.ZERO      # where the joystick rests (it can float to the thumb)
+
 func _layout() -> void:
 	var s := size if size.x > 0 else get_viewport_rect().size
-	joy_center = Vector2(150, s.y - 150)
-	buttons = [
-		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(s.x - 130, s.y - 150), "r": 58.0},
-		{"act": "fire", "icon": "◉", "label": "", "pos": Vector2(100, s.y * 0.42), "r": 38.0},
-		{"act": "bag", "icon": "", "label": "الحقيبة", "pos": Vector2(40, s.y - 64), "r": 24.0},
-		{"act": "heal", "icon": "", "label": "علاج", "pos": Vector2(Hud.slot_rect(2, s).end.x + 38, s.y - 82), "r": 24.0},
-		{"act": "throw", "icon": "", "label": "قنبلة", "pos": Vector2(s.x - 335, s.y - 160), "r": 26.0},
-		{"act": "boost", "icon": "", "label": "منشّط", "pos": Vector2(Hud.slot_rect(2, s).end.x + 96, s.y - 82), "r": 24.0},
-		{"act": "aim", "icon": "⌖", "label": "منظار", "pos": Vector2(s.x - 245, s.y - 250), "r": 32.0},
-		{"act": "reload", "icon": "⟳", "label": "تلقيم", "pos": Vector2(s.x - 250, s.y - 140), "r": 30.0},
-		{"act": "jump", "icon": "⤒", "label": "قفز", "pos": Vector2(s.x - 70, s.y - 285), "r": 30.0},
-		{"act": "crouch", "icon": "⤓", "label": "انحناء", "pos": Vector2(s.x - 205, s.y - 62), "r": 26.0},
-		{"act": "prone", "icon": "▁", "label": "انبطاح", "pos": Vector2(s.x - 135, s.y - 62), "r": 26.0},
-		{"act": "peek_l", "icon": "", "label": "ميلان ←", "pos": Vector2(s.x - 330, s.y - 300), "r": 24.0},
-		{"act": "peek_r", "icon": "", "label": "→ ميلان", "pos": Vector2(s.x - 160, s.y - 300), "r": 24.0},
-		{"act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 330), "r": 24.0},
-		{"act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
-		{"act": "slot1", "icon": "", "label": "", "pos": Hud.slot_rect(0, s).get_center(), "r": 0.0},
-		{"act": "slot2", "icon": "", "label": "", "pos": Hud.slot_rect(1, s).get_center(), "r": 0.0},
-		{"act": "slot3", "icon": "", "label": "", "pos": Hud.slot_rect(2, s).get_center(), "r": 0.0},
-		{"act": "interact", "icon": "", "label": "", "pos": Vector2(s.x - 380, s.y * 0.52), "r": 0.0},
-	]
+	buttons = defaults(s)
+	for b in buttons:
+		b.base_r = b.r
+		var o := Game.touch_override(b.id)
+		if not o.is_empty():
+			b.pos = Vector2(float(o[0]) * s.x, float(o[1]) * s.y)
+			if b.r > 0.0: b.r = b.base_r * float(o[2])
+	joy_home = Vector2(150, s.y - 150)
+	joy_radius = JOY_R
+	var jo := Game.touch_override("joy")
+	if not jo.is_empty():
+		joy_home = Vector2(float(jo[0]) * s.x, float(jo[1]) * s.y)
+		joy_radius = JOY_R * float(jo[2])
+	joy_center = joy_home
+
+## Is this button on screen right now? (the left fire button can be off or only while aiming)
+func shown(b: Dictionary) -> bool:
+	if b.id == "fire_l" and not edit:
+		var mode: String = Game.settings.get("left_fire", "always")
+		if mode == "off": return false
+		if mode == "scope" and hud and hud.world.player and not hud.world.player.aiming: return false
+	return true
 
 func _interact_label() -> String:
 	var p: Player = hud.world.player
@@ -64,6 +96,7 @@ func _interact_label() -> String:
 
 func _hit_button(pos: Vector2) -> Dictionary:
 	for b in buttons:
+		if not shown(b): continue
 		if b.act == "interact":
 			if _interact_label() != "" and Rect2(b.pos - Vector2(80, 24), Vector2(160, 48)).has_point(pos): return b
 		elif b.act.begins_with("slot"):
@@ -73,11 +106,15 @@ func _hit_button(pos: Vector2) -> Dictionary:
 	return {}
 
 func _input(event: InputEvent) -> void:
-	if not visible or hud.world.player == null: return
+	if edit or not visible or hud.world.player == null: return
 	var p: Player = hud.world.player
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			if event.position.distance_to(joy_center) < joy_radius * 1.5 and not hud.map_open:
+			var floating: bool = Game.settings.get("joy_float", false) and event.position.x < size.x * 0.35 and event.position.y > size.y * 0.4 \
+				and _hit_button(event.position).is_empty()
+			if floating and not hud.map_open and not _joy_busy():
+				joy_center = event.position
+			if event.position.distance_to(joy_center) < joy_radius * 1.5 and not hud.map_open and not _joy_busy():
 				touches[event.index] = {"role": "joy", "last": event.position}
 				sprint_lock = false
 				_joy(event.position)
@@ -96,6 +133,7 @@ func _input(event: InputEvent) -> void:
 					joy_vec = Vector2(0, -1)
 				else:
 					joy_vec = Vector2.ZERO
+					joy_center = joy_home
 			elif t.role == "btn":
 				_press(t.act, false)
 			touches.erase(event.index)
@@ -109,6 +147,11 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	p.touch_move = Vector2(joy_vec.x, -joy_vec.y)
 	p.sprinting = sprint_lock or joy_vec.y < -0.92
+
+func _joy_busy() -> bool:
+	for t in touches.values():
+		if t.role == "joy": return true
+	return false
 
 func _joy(pos: Vector2) -> void:
 	var d := pos - joy_center
@@ -124,10 +167,11 @@ func _press(act: String, down: bool) -> void:
 		_: p.action(act, down)
 
 func _process(_d: float) -> void:
+	modulate.a = 1.0 if edit else clampf(float(Game.settings.get("touch_alpha", 0.8)), 0.2, 1.0)
 	queue_redraw()
 
 func _draw() -> void:
-	if hud.map_open: return
+	if not edit and hud.map_open: return
 	# Joystick
 	draw_circle(joy_center, joy_radius, Color(1, 1, 1, 0.08))
 	draw_arc(joy_center, joy_radius, 0, TAU, 48, Color(1, 1, 1, 0.4), 2.0)
@@ -139,17 +183,17 @@ func _draw() -> void:
 	for t in touches.values():
 		if t.role == "btn": pressed[t.act] = true
 	for b in buttons:
-		if b.act.begins_with("slot"): continue
+		if b.act.begins_with("slot") or not shown(b): continue
 		if b.act == "interact":
-			var label := _interact_label()
+			var label := "التقاط" if edit else _interact_label()
 			if label == "": continue
 			var r := Rect2(b.pos - Vector2(80, 24), Vector2(160, 48))
 			draw_rect(r, Color(0, 0, 0, 0.6))
 			draw_rect(r, Color("ffd34d"), false, 2.0)
 			draw_string(font, Vector2(r.position.x, b.pos.y + 8), label, HORIZONTAL_ALIGNMENT_CENTER, 160, 20, Color.WHITE)
 			continue
-		var down: bool = pressed.has(b.act)
-		var pt: float = hud.world.player.peek_toggle
+		var down: bool = pressed.has(b.act) or (edit and b.id == selected)
+		var pt: float = 0.0 if edit else hud.world.player.peek_toggle
 		if (b.act == "peek_l" and pt < 0.0) or (b.act == "peek_r" and pt > 0.0): down = true
 		draw_circle(b.pos, b.r, Color(0.95, 0.66, 0.0, 0.5) if down else Color(0.06, 0.08, 0.1, 0.38))
 		draw_arc(b.pos, b.r, 0, TAU, 40, Color(1, 1, 1, 0.6), 1.6)

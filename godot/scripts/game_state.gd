@@ -65,7 +65,62 @@ var settings := {
 	"laptop": false,          # laptop mode: lighter effects, lower render resolution, shorter view
 	"render_scale": 1.0,      # 3D resolution (0.5–1.0), sharpened back up with FSR
 	"show_fps": true,         # frame counter under the minimap
+	# Basic
+	"aim_assist": true,       # look slows down a little over an enemy
+	"bolt_fire": "tap",       # bolt-action rifles and crossbow: shoot on "tap" (press) or "release"
+	"shotgun_fire": "tap",    # pump shotguns: same
+	"lean_mode": "tap",       # touch lean buttons: "tap" toggles, "hold" leans while held
+	"scope_mode": "mixed",    # aim button: "tap" toggles, "hold" while held, "mixed" both (short tap / long press)
+	"left_fire": "always",    # left fire button: "always" | "scope" (only aiming) | "off"
+	"heal_prompt": true,      # a reminder to heal when hurt and carrying meds
+	"hit_color": "red",       # blood when a shot lands: "red" | "green"
+	# Graphics
+	"brightness": 1.0,
+	# Controls (touch buttons)
+	"touch_alpha": 0.8,       # button opacity
+	"joy_float": false,       # joystick starts where the thumb lands
+	"touch_layout": 0,        # which of the three saved layouts is used
+	"touch_layouts": [{}, {}, {}],   # act -> [x, y, size] (x, y as fractions of the screen)
+	# Vehicle
+	"veh_cam_follow": true,   # camera swings back behind the vehicle
+	"veh_cam_far": false,
+	# Sensitivity while aiming, per sight (times aim_sens)
+	"sens_1x": 1.0,
+	"sens_2x": 0.71,
+	"sens_4x": 0.5,
+	"sens_8x": 0.35,
+	# Pick up
+	"auto_pick": true,
+	"pick_ammo": true,        # rounds for the guns you carry
+	"pick_meds": true,
+	"pick_throw": true,
+	"pick_attach": true,      # sights, muzzles, mags and grips that fit your guns (if the slot is free)
+	"max_bandage": 20,
+	"max_firstaid": 5,
+	"max_boost": 6,           # drinks and painkillers together
+	"max_throw": 6,
+	# Scope
+	"crosshair": "white",     # white | red | green | yellow | cyan
+	"dot_color": "red",       # reflex sight dot: red | green
+	# Audio
+	"master_vol": 1.0,
 }
+
+const CROSSHAIR_COLORS := {"white": Color(1, 1, 1, 0.9), "red": Color("ff4a4a"), "green": Color("5dff6a"), "yellow": Color("ffe14d"), "cyan": Color("4de8ff")}
+
+## Volume of everything (Master bus), muted when sound is off.
+func apply_audio() -> void:
+	var v := clampf(float(settings.get("master_vol", 1.0)), 0.0, 1.0)
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(v, 0.0001)))
+	AudioServer.set_bus_mute(0, not bool(settings.get("sound", true)) or v <= 0.001)
+
+## Where a touch button sits in the chosen layout: [x, y, size] or [] for the default.
+func touch_override(act: String) -> Array:
+	var all = settings.get("touch_layouts", [])
+	var i := clampi(int(settings.get("touch_layout", 0)), 0, 2)
+	if typeof(all) != TYPE_ARRAY or all.size() <= i or typeof(all[i]) != TYPE_DICTIONARY: return []
+	var v = all[i].get(act, [])
+	return v if typeof(v) == TYPE_ARRAY and v.size() == 3 else []
 
 const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة"}
 
@@ -215,6 +270,7 @@ func load_data() -> void:
 	for k in settings.keys.keys():
 		settings.keys[k] = int(settings.keys[k])
 	apply_keys()
+	apply_audio()
 
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -378,6 +434,11 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 	var sc := render_scale()
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if sc < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = sc
+	if env:
+		# Brightness on top of the scene's own colour grading.
+		if not env.has_meta("base_brightness"): env.set_meta("base_brightness", env.adjustment_brightness if env.adjustment_enabled else 1.0)
+		env.adjustment_enabled = true
+		env.adjustment_brightness = float(env.get_meta("base_brightness")) * clampf(float(settings.get("brightness", 1.0)), 0.7, 1.4)
 	vp.mesh_lod_threshold = [4.0, 2.0, 1.0, 1.0, 0.5][lv] * (2.0 if lap else 1.0)
 	RenderingServer.directional_soft_shadow_filter_set_quality([RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW, RenderingServer.SHADOW_QUALITY_SOFT_LOW, RenderingServer.SHADOW_QUALITY_SOFT_HIGH, RenderingServer.SHADOW_QUALITY_SOFT_HIGH][mini(lv, 2) if lap else lv])
 	RenderingServer.directional_shadow_atlas_set_size(mini([2048, 2048, 4096, 4096, 8192][lv], 2048 if lap else 8192), true)

@@ -945,18 +945,40 @@ func _process(delta: float) -> void:
 		for a in actors():
 			if a.on_ground() and zone.is_outside(a.global_position):
 				a.take_damage(zone.dps, null)
-	# Auto-pickup ammo for guns the player carries, and meds, while there is room.
-	if player.state == "ground":
+	# Auto-pickup (settings): ammo for guns the player carries, meds and
+	# grenades up to the chosen amounts, attachments that fit a free slot.
+	if player.state == "ground" and Game.settings.get("auto_pick", true):
 		for it in pickups_near(player.global_position, 1.4):
+			if not is_instance_valid(it): continue
 			var data: Dictionary = it.get_meta("data")
 			if it.global_position.distance_to(player.global_position) > 1.4: continue
-			if data.kind == "heal" and player.free_space() >= Items.HEALS[data.id].size:
-				pickup(player, it, true)
-			elif data.kind == "ammo" and player.free_space() >= Items.AMMO_SIZE:
-				for s in player.slots:
-					if s != null and Game.WEAPONS[s.id].ammo == data.type:
-						pickup(player, it, true)
-						break
+			if _auto_wanted(data): pickup(player, it, true)
+
+func _auto_wanted(data: Dictionary) -> bool:
+	var st: Dictionary = Game.settings
+	match data.kind:
+		"heal":
+			if not st.get("pick_meds", true) or player.free_space() < Items.HEALS[data.id].size: return false
+			match data.id:
+				"bandage": return int(player.heals.bandage) < int(st.get("max_bandage", 20))
+				"firstaid": return int(player.heals.firstaid) < int(st.get("max_firstaid", 5))
+				"medkit": return int(player.heals.medkit) < 2
+				_: return int(player.heals.drink) + int(player.heals.pills) < int(st.get("max_boost", 6))
+		"ammo":
+			if not st.get("pick_ammo", true) or player.free_space() < Items.AMMO_SIZE: return false
+			for s in player.slots:
+				if s != null and Game.WEAPONS[s.id].ammo == data.type: return true
+		"throw":
+			if not st.get("pick_throw", true) or player.free_space() < Items.THROW_SIZE: return false
+			var n := 0
+			for k in player.throwables: n += int(player.throwables[k])
+			return n < int(st.get("max_throw", 6))
+		"attach":
+			if not st.get("pick_attach", true): return false
+			var slot: String = Items.ATTACH[data.id].slot
+			for s in player.slots:
+				if s != null and Items.attach_fits(data.id, Game.WEAPONS[s.id].cls) and not s.get("att", {}).has(slot): return true
+	return false
 
 # ---------- Vehicles ----------
 const CAR_COLORS := [Color("b8402f"), Color("2f5fb0"), Color("e0e0dc"), Color("2b2d30"), Color("c9a03a"), Color("3f6b3a")]

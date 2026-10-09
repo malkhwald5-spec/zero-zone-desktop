@@ -696,6 +696,10 @@ func _open(which: String) -> void:
 	body.add_theme_constant_override("separation", 10)
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(body)
+	if which == "settings":
+		scroll.offset_right = -250
+		scroll.offset_left = 24
+		_settings_tabs(page)
 	match which:
 		"inventory": _page_inventory(body)
 		"cards": _page_cards(body)
@@ -1114,63 +1118,189 @@ func _apply_gfx() -> void:
 		elif n is DirectionalLight3D and sun == null: sun = n
 	Game.apply_quality(env, sun)
 
-func _page_settings(body: VBoxContainer) -> void:
-	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "settings")))
-	body.add_child(_row("طريقة التحكم", _seg(["touch", "kbm"], ["أزرار الشاشة", "كيبورد وماوس"], "controls", "settings")))
-	body.add_child(_row("جودة الرسوميات", _seg(Game.QUALITIES, Game.QUALITY_NAMES, "quality", "settings")))
-	body.add_child(_row("عدد الإطارات", _seg(Game.FPS_OPTIONS, Game.FPS_OPTIONS.map(func(f): return str(f)), "fps", "settings")))
-	body.add_child(_row("كرت الشاشة", UiKit.label(RenderingServer.get_video_adapter_name(), 14, Color(1, 1, 1, 0.7), null, 0)))
-	var lap := CheckButton.new()
-	lap.button_pressed = Game.laptop()
-	lap.toggled.connect(func(v): Game.settings.laptop = v; Game.save_data(); _apply_gfx(); _open("settings"))
-	body.add_child(_row("وضع اللابتوب (أسرع، رسوميات أخف شوي)", lap))
-	var rs := HSlider.new()
-	rs.min_value = 0.5
-	rs.max_value = 1.0
-	rs.step = 0.05
-	rs.value = clampf(float(Game.settings.get("render_scale", 1.0)), 0.5, 1.0)
-	rs.custom_minimum_size = Vector2(240, 30)
-	var rs_l := UiKit.label("%d%%" % roundi(Game.render_scale() * 100.0), 15, Color.WHITE, UiKit.bold(), 0)
-	rs.value_changed.connect(func(v):
-		Game.settings.render_scale = v
-		rs_l.text = "%d%%" % roundi(Game.render_scale() * 100.0)
-		_apply_gfx())
-	var rs_box := HBoxContainer.new()
-	rs_box.add_theme_constant_override("separation", 10)
-	rs_box.add_child(rs_l)
-	rs_box.add_child(rs)
-	body.add_child(_row("دقة الرسم ثلاثي الأبعاد (أقل = أسرع)", rs_box))
-	var fps_cb := CheckButton.new()
-	fps_cb.button_pressed = bool(Game.settings.get("show_fps", true))
-	fps_cb.toggled.connect(func(v): Game.settings.show_fps = v)
-	body.add_child(_row("إظهار عدد الإطارات (FPS) باللعب", fps_cb))
+# ---------------------------------------------------------------- settings
+const SET_TABS := [["basic", "أساسي"], ["graphics", "الرسومات"], ["controls", "التحكم"], ["vehicle", "المركبات"],
+	["sens", "الحساسية"], ["pickup", "الالتقاط"], ["scope", "المنظار"], ["audio", "الصوت"]]
+var _set_tab := "basic"
+var _editor: TouchEditor
+
+## Tabs down the right side, as in the mobile game.
+func _settings_tabs(page: Control) -> void:
+	var side := PanelContainer.new()
+	side.add_theme_stylebox_override("panel", UiKit.style(Color(0.06, 0.08, 0.11, 0.92), 0, Color(1, 1, 1, 0.08), 1, 0))
+	side.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	side.offset_left = -230
+	side.offset_top = 56
+	page.add_child(side)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	side.add_child(v)
+	for t in SET_TABS:
+		var on: bool = _set_tab == t[0]
+		var b := UiKit.button(t[1], func(): _set_tab = t[0]; _open("settings"), Vector2(230, 56),
+			UiKit.style(Color("e09a1c") if on else Color(0, 0, 0, 0), 0, Color(1, 1, 1, 0.07), 1, 0), 18, Color.WHITE if on else Color(0.75, 0.8, 0.86))
+		b.focus_mode = Control.FOCUS_NONE
+		v.add_child(b)
+
+## A boxed group of options in two columns.
+func _section(body: VBoxContainer, title: String) -> GridContainer:
+	var pc := _box_panel(Color(0.05, 0.07, 0.1, 0.78))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	pc.add_child(v)
+	if title != "":
+		v.add_child(UiKit.label(title, 15, Color("ffd34d"), UiKit.bold(), 0))
+	var g := GridContainer.new()
+	g.columns = 2
+	g.add_theme_constant_override("h_separation", 34)
+	g.add_theme_constant_override("v_separation", 12)
+	v.add_child(g)
+	body.add_child(pc)
+	return g
+
+## Label + control at a fixed width (one grid cell).
+func _cell(text: String, ctrl: Control) -> HBoxContainer:
+	var hb := HBoxContainer.new()
+	hb.custom_minimum_size = Vector2(470, 40)
+	hb.add_theme_constant_override("separation", 10)
+	var l := UiKit.label(text, 16, Color(0.86, 0.89, 0.93), null, 0)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hb.add_child(l)
+	hb.add_child(ctrl)
+	return hb
+
+## Segmented choice (gold = on) that saves at once and restyles in place.
+func _choice(values: Array, names: Array, key: String, after := Callable()) -> HBoxContainer:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 0)
+	var btns := []
+	var paint := func():
+		for i in btns.size():
+			var on := _same(Game.settings.get(key), values[i])
+			btns[i].add_theme_stylebox_override("normal", UiKit.style(Color("c9a24a") if on else Color(0.07, 0.08, 0.1, 0.95), 0, Color(1, 1, 1, 0.12), 1, 8))
+			btns[i].add_theme_stylebox_override("hover", UiKit.style(Color("d8b45c") if on else Color(0.14, 0.15, 0.18, 0.95), 0, Color(1, 1, 1, 0.2), 1, 8))
+			btns[i].add_theme_color_override("font_color", UiKit.INK if on else Color.WHITE)
+			btns[i].add_theme_color_override("font_hover_color", UiKit.INK if on else Color.WHITE)
+	for i in values.size():
+		var b := UiKit.button(names[i], func():
+			Game.settings[key] = values[i]
+			paint.call()
+			if after.is_valid(): after.call(), Vector2(maxf(78.0, names[i].length() * 11.0 + 24.0), 38), UiKit.style(Color(0, 0, 0, 0), 0), 15)
+		b.focus_mode = Control.FOCUS_NONE
+		btns.append(b)
+		hb.add_child(b)
+	paint.call()
+	return hb
+
+## Equal, without comparing different kinds of value (saved numbers come back as floats).
+func _same(a, b) -> bool:
+	var num := [TYPE_INT, TYPE_FLOAT]
+	if typeof(a) in num and typeof(b) in num: return is_equal_approx(float(a), float(b))
+	return typeof(a) == typeof(b) and a == b
+
+func _onoff(key: String, after := Callable()) -> HBoxContainer:
+	return _choice([false, true], ["إيقاف", "تشغيل"], key, after)
+
+func _slider(key: String, lo: float, hi: float, step: float, def: float, fmt: Callable, after := Callable()) -> HBoxContainer:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
 	var sl := HSlider.new()
-	sl.min_value = 0.3
-	sl.max_value = 3.0
-	sl.step = 0.1
-	sl.value = float(Game.settings.sensitivity)
-	sl.custom_minimum_size = Vector2(240, 30)
-	sl.value_changed.connect(func(v): Game.settings.sensitivity = v)
-	body.add_child(_row("حساسية النظر", sl))
-	var sl2 := HSlider.new()
-	sl2.min_value = 0.15
-	sl2.max_value = 1.2
-	sl2.step = 0.05
-	sl2.value = float(Game.settings.get("aim_sens", 0.45))
-	sl2.custom_minimum_size = Vector2(240, 30)
-	sl2.value_changed.connect(func(v): Game.settings.aim_sens = v)
-	body.add_child(_row("حساسية التصويب والسكوب", sl2))
-	var inv := CheckButton.new()
-	inv.button_pressed = bool(Game.settings.get("invert_y", false))
-	inv.toggled.connect(func(v): Game.settings.invert_y = v)
-	body.add_child(_row("عكس النظر لفوق ولتحت", inv))
-	body.add_child(_row("الطقس بالمباراة", _seg(["random", "clear", "rain", "sunset", "fog"], ["عشوائي", "صافي", "مطر", "غروب", "ضباب"], "weather", "settings")))
-	body.add_child(_row("أزرار الكيبورد", _small_btn("تغيير الأزرار", func(): _open("keys"))))
-	var snd := CheckButton.new()
-	snd.button_pressed = bool(Game.settings.sound)
-	snd.toggled.connect(func(v): Game.settings.sound = v)
-	body.add_child(_row("الصوت", snd))
-	body.add_child(_row("", _small_btn("الخروج من اللعبة", func(): get_tree().quit(), true, false)))
+	sl.min_value = lo
+	sl.max_value = hi
+	sl.step = step
+	sl.value = clampf(float(Game.settings.get(key, def)), lo, hi)
+	sl.custom_minimum_size = Vector2(200, 30)
+	var l := UiKit.label(fmt.call(sl.value), 15, Color.WHITE, UiKit.bold(), 0)
+	l.custom_minimum_size = Vector2(52, 0)
+	sl.value_changed.connect(func(v):
+		Game.settings[key] = v
+		l.text = fmt.call(v)
+		if after.is_valid(): after.call())
+	hb.add_child(l)
+	hb.add_child(sl)
+	return hb
+
+func _pct(v: float) -> String:
+	return "%d%%" % roundi(v * 100.0)
+
+func _page_settings(body: VBoxContainer) -> void:
+	match _set_tab:
+		"basic":
+			var g := _section(body, "التصويب والإطلاق")
+			g.add_child(_cell("مساعدة التصويب", _onoff("aim_assist")))
+			g.add_child(_cell("القناصات والقوس: الإطلاق", _choice(["tap", "release"], ["ضغطة", "عند الإفلات"], "bolt_fire")))
+			g.add_child(_cell("الشوزن: الإطلاق", _choice(["tap", "release"], ["ضغطة", "عند الإفلات"], "shotgun_fire")))
+			g.add_child(_cell("زر المنظار", _choice(["tap", "hold", "mixed"], ["ضغطة", "مطوّل", "مختلط"], "scope_mode")))
+			g.add_child(_cell("أزرار الميلان (الشاشة)", _choice(["tap", "hold"], ["ضغطة", "مطوّل"], "lean_mode")))
+			g = _section(body, "أثناء اللعب")
+			g.add_child(_cell("زر الإطلاق اليسار", _choice(["always", "scope", "off"], ["دائماً", "مع المنظار", "مخفي"], "left_fire")))
+			g.add_child(_cell("تنبيه العلاج", _onoff("heal_prompt")))
+			g.add_child(_cell("لون الإصابة", _choice(["red", "green"], ["أحمر", "أخضر"], "hit_color")))
+			g.add_child(_cell("إظهار عدد الإطارات (FPS)", _onoff("show_fps")))
+			g = _section(body, "المباراة")
+			g.add_child(_cell("مستوى الخصوم", _choice(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty")))
+			g.add_child(_cell("الطقس", _choice(["random", "clear", "rain", "sunset", "fog"], ["عشوائي", "صافي", "مطر", "غروب", "ضباب"], "weather")))
+			body.add_child(_row("", _small_btn("الخروج من اللعبة", func(): get_tree().quit(), true, false)))
+		"graphics":
+			var g := _section(body, "الجودة")
+			g.add_child(_cell("الرسوميات", _choice(Game.QUALITIES, Game.QUALITY_NAMES, "quality", _apply_gfx)))
+			g.add_child(_cell("عدد الإطارات", _choice(Game.FPS_OPTIONS, Game.FPS_OPTIONS.map(func(f): return str(f)), "fps", func(): Game.apply_fps())))
+			g.add_child(_cell("وضع اللابتوب (أسرع)", _onoff("laptop", _apply_gfx)))
+			g.add_child(_cell("دقة الرسم (أقل = أسرع)", _slider("render_scale", 0.5, 1.0, 0.05, 1.0, func(v): return "%d%%" % roundi(Game.render_scale() * 100.0) if Game.laptop() else _pct(v), _apply_gfx)))
+			g.add_child(_cell("السطوع", _slider("brightness", 0.7, 1.4, 0.05, 1.0, _pct, _apply_gfx)))
+			g.add_child(_cell("كرت الشاشة", UiKit.label(RenderingServer.get_video_adapter_name(), 14, Color(1, 1, 1, 0.7), null, 0)))
+		"controls":
+			var g := _section(body, "طريقة اللعب")
+			g.add_child(_cell("التحكم", _choice(["touch", "kbm"], ["أزرار الشاشة", "كيبورد وماوس"], "controls")))
+			g.add_child(_cell("أزرار الكيبورد", _small_btn("تغيير الأزرار", func(): _open("keys"))))
+			g = _section(body, "أزرار الشاشة")
+			g.add_child(_cell("ترتيب الأزرار", _small_btn("تخصيص", _open_touch_editor)))
+			g.add_child(_cell("التصميم المستعمل", _choice([0, 1, 2], ["1", "2", "3"], "touch_layout")))
+			g.add_child(_cell("شفافية الأزرار", _slider("touch_alpha", 0.2, 1.0, 0.05, 0.8, _pct)))
+			g.add_child(_cell("عصا الحركة", _choice([false, true], ["ثابتة", "تلحق إصبعك"], "joy_float")))
+		"vehicle":
+			var g := _section(body, "الكاميرا")
+			g.add_child(_cell("الكاميرا ترجع ورا المركبة", _onoff("veh_cam_follow")))
+			g.add_child(_cell("بُعد الكاميرا", _choice([false, true], ["قريبة", "بعيدة"], "veh_cam_far")))
+			body.add_child(UiKit.label("السيارة والموتور والقارب: W و S للبنزين والفرامل، A و D للتوجيه، F للنزول (أو العصا والأزرار على الشاشة).", 14, Color(1, 1, 1, 0.65), null, 0))
+		"sens":
+			var g := _section(body, "الكاميرا")
+			g.add_child(_cell("حساسية النظر", _slider("sensitivity", 0.3, 3.0, 0.05, 1.0, _pct)))
+			g.add_child(_cell("عكس النظر لفوق ولتحت", _onoff("invert_y")))
+			g = _section(body, "التصويب")
+			g.add_child(_cell("التصويب بدون سكوب", _slider("aim_sens", 0.15, 1.2, 0.05, 0.45, _pct)))
+			g.add_child(_cell("ريد دوت وهولو", _slider("sens_1x", 0.3, 2.0, 0.05, 1.0, _pct)))
+			g.add_child(_cell("سكوب 2", _slider("sens_2x", 0.2, 1.6, 0.05, 0.71, _pct)))
+			g.add_child(_cell("سكوب 4", _slider("sens_4x", 0.1, 1.2, 0.05, 0.5, _pct)))
+			g.add_child(_cell("سكوب 8", _slider("sens_8x", 0.05, 1.0, 0.05, 0.35, _pct)))
+		"pickup":
+			var g := _section(body, "الالتقاط التلقائي")
+			g.add_child(_cell("الالتقاط التلقائي", _onoff("auto_pick")))
+			g.add_child(_cell("طلق أسلحتك", _onoff("pick_ammo")))
+			g.add_child(_cell("العلاجات", _onoff("pick_meds")))
+			g.add_child(_cell("القنابل", _onoff("pick_throw")))
+			g.add_child(_cell("القطع اللي بتركب على سلاحك", _onoff("pick_attach")))
+			g = _section(body, "الحد الأعلى للالتقاط التلقائي")
+			g.add_child(_cell("ضمادات", _choice([10, 20, 30], ["10", "20", "30"], "max_bandage")))
+			g.add_child(_cell("إسعاف أولي", _choice([3, 5, 8], ["3", "5", "8"], "max_firstaid")))
+			g.add_child(_cell("مشروبات ومسكّنات", _choice([4, 6, 10], ["4", "6", "10"], "max_boost")))
+			g.add_child(_cell("قنابل", _choice([3, 6, 9], ["3", "6", "9"], "max_throw")))
+		"scope":
+			var g := _section(body, "علامة التصويب")
+			g.add_child(_cell("لون علامة التصويب", _choice(["white", "red", "green", "yellow", "cyan"], ["أبيض", "أحمر", "أخضر", "أصفر", "سماوي"], "crosshair")))
+			g.add_child(_cell("نقطة الريد دوت والهولو", _choice(["red", "green"], ["أحمر", "أخضر"], "dot_color")))
+		"audio":
+			var g := _section(body, "الصوت")
+			g.add_child(_cell("الصوت", _onoff("sound", func(): Game.apply_audio())))
+			g.add_child(_cell("مستوى الصوت", _slider("master_vol", 0.0, 1.0, 0.05, 1.0, _pct, func(): Game.apply_audio())))
+
+## The on-screen buttons editor, over the whole lobby.
+func _open_touch_editor() -> void:
+	if _editor: return
+	_editor = TouchEditor.new()
+	ui.add_child(_editor)
+	_editor.closed.connect(func(): _editor = null)
 
 var _wait_key := ""         # action waiting for its new key on the keys page
 
