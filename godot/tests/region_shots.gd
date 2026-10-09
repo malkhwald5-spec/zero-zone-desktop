@@ -46,7 +46,8 @@ func _run() -> void:
 		var reg: String = t.get("region", "plains")
 		counts[reg] = counts.get(reg, 0) + 1
 	print("REGION towns ", counts)
-	for reg in ["plains", "nordic", "jungle", "desert", "tropic"]:
+	var extras_only := OS.get_cmdline_user_args().has("--extras")
+	for reg in ([] if extras_only else ["plains", "nordic", "jungle", "desert", "tropic"]):
 		var town = null
 		for t in world.island.towns:
 			if t.get("region", "") == reg and t.get("kind", "town") == "town":
@@ -69,5 +70,30 @@ func _run() -> void:
 		await wait(1.2)
 		await shot("region_%s_air" % reg)
 		p.state = "ground"
+	# A windmill among the lupine fields, and a jungle channel.
+	for st in world.island.structures:
+		if st.kind == "windmill":
+			var w: Vector2 = st.pos
+			var q := w + Vector2(-26.0, 18.0)
+			p.global_position = Vector3(q.x, world.ground_height(Vector3(q.x, 0, q.y)) + 1.5, q.y)
+			p.velocity = Vector3.ZERO
+			p.yaw = atan2(-(w.x - q.x), -(w.y - q.y))
+			p.pitch = 0.12
+			await wait(2.5)
+			await shot("windmill")
+			break
+	var isl = world.island
+	for k in 4000:
+		var q := Vector2(randf_range(400, isl.size * 0.5), randf_range(isl.size * 0.5, isl.size * 0.85))
+		if isl.region_at(q.x, q.y) != "jungle" or isl.height_at(q.x, q.y) > -2.0: continue
+		var land := q + Vector2(60, 0)
+		if not isl.is_land(land.x, land.y): continue
+		p.global_position = Vector3(land.x, world.ground_height(Vector3(land.x, 0, land.y)) + 1.5, land.y)
+		p.velocity = Vector3.ZERO
+		p.yaw = PI * 0.5
+		p.pitch = -0.05
+		await wait(2.5)
+		await shot("jungle_channel")
+		break
 	print("REGION SHOTS DONE")
 	tree.quit()

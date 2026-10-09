@@ -297,8 +297,10 @@ func _add_pickup(data: Dictionary, pos: Vector3) -> Node3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = LootModels.mesh(data)
 	mi.position.y = 0.004
-	mi.visibility_range_end = 120.0
+	# Small things only up close; no shadows (hundreds of extra draws otherwise).
+	mi.visibility_range_end = 120.0 if data.kind in ["weapon", "gear"] else 70.0
 	mi.visibility_range_end_margin = 10.0
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	n.add_child(mi)
 	add_child(n)
@@ -934,6 +936,8 @@ func _process(delta: float) -> void:
 		elif plane_t >= 0.995 and player.state == "plane":
 			player.jump_from_plane()
 	builder.update_grass(view_position())
+	builder.spin(delta, view_position())
+	_perf_governor(delta)
 	_update_airdrops(delta)
 	for s in smokes: s.t -= delta
 	smokes = smokes.filter(func(s): return s.t > 0.0)
@@ -953,6 +957,50 @@ func _process(delta: float) -> void:
 			var data: Dictionary = it.get_meta("data")
 			if it.global_position.distance_to(player.global_position) > 1.4: continue
 			if _auto_wanted(data): pickup(player, it, true)
+
+var _gov_t := 0.0
+var _gov_frames := 0
+var _gov_test := -1
+var _gov_wait := 10.0            # first check after loading hitches and shader compiles
+
+## Auto performance (settings): if the frame rate stays well under the cap,
+## lower the 3D resolution, then the graphics quality, then laptop mode, one
+## step every few seconds, and keep it for the next matches.
+func _perf_governor(delta: float) -> void:
+	if not Game.settings.get("auto_perf", true) or DisplayServer.get_name() == "headless": return
+	if _gov_test == 1: return
+	if _gov_test < 0:
+		# Picture tests (slow software rendering) keep their settings.
+		_gov_test = 0
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--out="): _gov_test = 1
+		if _gov_test == 1: return
+	_gov_wait -= delta
+	if _gov_wait > 0.0: return
+	_gov_t += delta
+	_gov_frames += 1
+	if _gov_t < 3.0: return
+	var fps := _gov_frames / _gov_t
+	_gov_t = 0.0
+	_gov_frames = 0
+	var want := minf(float(Game.settings.get("fps", 60)), 60.0) * 0.75
+	if fps >= want: return
+	var step := ""
+	if Game.render_scale() > 0.55:
+		Game.settings.render_scale = maxf(0.5, Game.render_scale() - 0.1)
+		step = "دقة الرسم %d%%" % roundi(Game.render_scale() * 100.0)
+	elif Game.quality_level() > 0:
+		Game.settings.quality = Game.QUALITIES[Game.quality_level() - 1]
+		step = "الجودة: " + Game.QUALITY_NAMES[Game.quality_level()]
+	elif not Game.laptop():
+		Game.settings.laptop = true
+		step = "وضع اللابتوب"
+	else:
+		return
+	Game.apply_quality(builder.env, builder.sun)
+	Game.save_data()
+	player.message.emit("خففنا الرسوميات لحالها عشان اللعب يصير أسلس (%s)" % step)
+	_gov_wait = 3.0
 
 func _auto_wanted(data: Dictionary) -> bool:
 	var st: Dictionary = Game.settings
@@ -1612,7 +1660,8 @@ func surface_at(p: Vector3) -> String:
 	if p.y < Island.WATER - 0.15: return "water"
 	if island.near_road(q, 0.0): return "concrete"
 	var g := island.height_at(p.x, p.z)
-	if island.region_at(p.x, p.z) == "desert" or g < 2.4: return "sand"
+	var reg := island.region_at(p.x, p.z)
+	if reg == "desert" or reg == "nordic" or g < 2.4: return "sand"     # sand and snow both crunch
 	return "grass"
 
 const STEP_SETS := {"concrete": 5, "grass": 8, "wood": 5, "sand": 6, "water": 4}

@@ -117,12 +117,21 @@ void fragment() {
 	// Towns: yards of trampled grass and dirt, with paved patches.
 	float paved_k = smoothstep(0.5, 0.62, n1);
 	col = mix(col, mix(mix(grass, dirt, 0.5), paved, paved_k), w_town);
+	// The snowy north (in the style of a winter map): snow lies on the flat
+	// and gentle ground, thinner on roads and in towns; rock shows on cliffs.
+	float sl = dot(sand, vec3(0.333));
+	vec3 snow = vec3(0.86, 0.9, 0.97) * (0.82 + 0.35 * sl) * (0.94 + 0.08 * n1);
+	float w_snow = smoothstep(0.35, 0.75, bio.b) * (1.0 - smoothstep(0.18, 0.4, slope)) * (1.0 - w_road * 0.55) * (1.0 - w_town * 0.35);
+	w_snow *= smoothstep(1.2, 3.0, hgt);
+	col = mix(col, snow, w_snow);
+	// Slopes too steep to hold snow are bare rock, not grass.
+	col = mix(col, rock * vec3(0.9, 0.92, 0.95), smoothstep(0.35, 0.75, bio.b) * (1.0 - w_snow) * (1.0 - w_road) * 0.85);
 	col = mix(col, rock, w_rock);
-	col = mix(col, sand, w_sand);
+	col = mix(col, sand, w_sand * (1.0 - w_snow));
 	col = mix(col, wet, w_wet);
 	col = mix(col, asphalt, w_road);
 	col *= 0.85 + 0.3 * n3;     // large-scale colour variation
-	float rough = mix(0.95, 0.8, w_road);
+	float rough = mix(mix(0.95, 0.62, w_snow), 0.8, w_road);
 	float puddle = 0.0;
 	if (rain_wet > 0.0) {
 		// Rain: everything soaks darker (sand less so); flat dips and
@@ -149,6 +158,7 @@ void fragment() {
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), bio.r * 0.9);
 		nb = mix(nb, tnrm(dirt_n, wpos.xz, 3.5) * 0.6, w_town);
 		nb = mix(nb, tnrm(rock_n, wpos.xz, 6.0) * 1.3, w_rock);
+		nb = mix(nb, tnrm(sand_n, wpos.xz, 6.0) * 0.5, w_snow);
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), w_sand);
 		nb = mix(nb, tnrm(asphalt_n, wpos.xz, 5.0), w_road);
 		// Tangent space (u = +x, v = +z) to world, then to view space.

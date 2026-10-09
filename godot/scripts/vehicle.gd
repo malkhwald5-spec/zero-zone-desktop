@@ -421,7 +421,32 @@ func world_sound(name: String) -> AudioStream:
 func speed() -> float:
 	return linear_velocity.dot(global_basis.z)
 
+var _park_t := randf() * 0.5
+
+## Parked far from the camera with nobody in it: frozen in place (no wheel
+## physics at all). Woken again when the camera comes within 120 m.
+func _update_parking() -> void:
+	var far := driver == null and world != null and world.player != null \
+		and global_position.distance_to(world.view_position()) > 120.0
+	if far and not freeze and linear_velocity.length() < 0.6 and angular_velocity.length() < 0.3 and _resting():
+		freeze = true
+	elif not far and freeze:
+		freeze = false
+
+## Standing on its wheels (a boat: always), not in mid-air.
+func _resting() -> bool:
+	if kind == "boat": return true
+	var n := 0
+	for w in _wheels:
+		if w is VehicleWheel3D and (w as VehicleWheel3D).is_in_contact(): n += 1
+	return n >= 2
+
 func _physics_process(delta: float) -> void:
+	_park_t -= delta
+	if _park_t <= 0.0:
+		_park_t = 0.5
+		_update_parking()
+	if freeze: return
 	if kind == "boat":
 		_boat_physics(delta)
 		return

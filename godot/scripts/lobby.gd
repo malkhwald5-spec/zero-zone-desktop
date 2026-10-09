@@ -24,6 +24,23 @@ func _ready() -> void:
 	if not Game.last_reward.is_empty():
 		_show_reward(Game.last_reward)
 		Game.last_reward = {}
+	if Game.is_integrated_gpu(): _gpu_warning()
+
+## The game is running on the built-in graphics chip (very slow): say how to
+## move it onto the real graphics card.
+func _gpu_warning() -> void:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", UiKit.style(Color(0.35, 0.06, 0.04, 0.94), 6, Color("ffb070"), 2, 14))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	box.add_child(v)
+	v.add_child(UiKit.label("⚠ اللعبة شغالة على كرت الشاشة المدمج: %s" % RenderingServer.get_video_adapter_name(), 17, Color("ffd34d"), UiKit.bold(), 0))
+	v.add_child(UiKit.label("هاد الكرت ضعيف وبيعطي FPS قليل. خلّي الويندوز يشغّل اللعبة على كرت NVIDIA:\n1) إعدادات ويندوز ← النظام ← الشاشة ← الرسومات (Graphics)\n2) اختار ZeroZone.exe (أو استعراض وزيده) ← خيارات ← أداء عالي (High performance) ← حفظ\n3) سكّر اللعبة وافتحها من جديد", 15, Color.WHITE, null, 0))
+	v.add_child(_small_btn("تمام", func(): box.queue_free()))
+	ui.add_child(box)
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.grow_vertical = Control.GROW_DIRECTION_BOTH
 
 # =====================================================================
 # 3D scene: rooftop at sunset
@@ -1249,6 +1266,7 @@ func _page_settings(body: VBoxContainer) -> void:
 			g.add_child(_cell("وضع اللابتوب (أسرع)", _onoff("laptop", _apply_gfx)))
 			g.add_child(_cell("دقة الرسم (أقل = أسرع)", _slider("render_scale", 0.5, 1.0, 0.05, 1.0, func(v): return "%d%%" % roundi(Game.render_scale() * 100.0) if Game.laptop() else _pct(v), _apply_gfx)))
 			g.add_child(_cell("السطوع", _slider("brightness", 0.7, 1.4, 0.05, 1.0, _pct, _apply_gfx)))
+			g.add_child(_cell("ضبط تلقائي للأداء (يخفف لما اللعبة تعلّق)", _onoff("auto_perf")))
 			g.add_child(_cell("كرت الشاشة", UiKit.label(RenderingServer.get_video_adapter_name(), 14, Color(1, 1, 1, 0.7), null, 0)))
 		"controls":
 			var g := _section(body, "طريقة اللعب")

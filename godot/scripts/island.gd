@@ -3,9 +3,10 @@ extends RefCounted
 ## Procedural island data: heightmap, towns, roads, bridges, building lots,
 ## trees and rocks. Pure data — world.gd turns it into nodes.
 ## The big map (8 km) has five regions, each in the style of a battle-royale
-## classic: a cold pine north-west (rocky, wooden cabins), green farmland
-## plains in the north and middle (brick and plaster villages), a jungle in
-## the south-west (palms, rivers, wooden huts), a desert in the south-east
+## classic: a snowy pine north-west (rocky, wooden cabins), green farmland
+## plains in the north and middle with a river (brick and plaster villages,
+## lupine fields and windmills), a jungle cut by lagoon channels in the
+## south-west (palms, wooden huts), a desert in the south-east
 ## (mesas, cactus, flat-roofed mud-brick towns) and a small beach island off
 ## the north-east coast; plus the military base island in the south.
 
@@ -21,7 +22,7 @@ const REGION_NAMES := {
 	"desert": ["واحة السراب", "مدينة الرمال", "الحصن الطيني", "المنجم المهجور", "الأخدود", "سوق القوافل", "بئر الشمس", "المحجر"],
 	"tropic": ["منتجع الشاطئ", "قرية الصيادين", "المرفأ"],
 }
-const REGION_TITLES := {"plains": "السهول الخضرا", "nordic": "الشمال البارد", "jungle": "الأدغال", "desert": "الصحراء", "tropic": "جزيرة الشاطئ"}
+const REGION_TITLES := {"plains": "السهول الخضرا", "nordic": "الشمال الثلجي", "jungle": "الأدغال", "desert": "الصحراء", "tropic": "جزيرة الشاطئ"}
 const BIOME_N := 256           # biome grid samples per side
 
 var size: float
@@ -47,6 +48,7 @@ var south := Vector2.ZERO
 var isle := Vector2.ZERO       # the beach island (north-east)
 var warp := FastNoiseLite.new()
 var ridge := FastNoiseLite.new()
+var lagoon := FastNoiseLite.new()     # jungle water channels follow its zero lines
 ## Region weights on a coarse grid: desert, jungle, nordic, tropic (plains = the rest).
 var biome := PackedFloat32Array()
 
@@ -69,6 +71,10 @@ func _init(seed_value: int, map_size: float) -> void:
 	ridge.fractal_type = FastNoiseLite.FRACTAL_RIDGED
 	ridge.frequency = 1.0 / 700.0
 	ridge.fractal_octaves = 4
+	lagoon.seed = seed_value + 33
+	lagoon.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	lagoon.frequency = 1.0 / 950.0
+	lagoon.fractal_octaves = 2
 
 func generate() -> void:
 	_heights()
@@ -85,7 +91,8 @@ func channel_z(x: float) -> float:
 	return size * 0.865 + sin(x / 230.0) * 18.0
 
 func _land_mask(x: float, z: float) -> float:
-	var n := detail.get_noise_2d(x, z) * 0.22
+	# Coast: small wiggles plus big bays and headlands.
+	var n := detail.get_noise_2d(x, z) * 0.22 + warp.get_noise_2d(x * 2.2 + 700.0, z * 2.2) * 0.2
 	var mc := Vector2(size * 0.47, size * 0.45)
 	var mr := size * 0.4
 	var m_main := 1.0 - Vector2((x - mc.x) / mr, (z - mc.y) / (mr * 1.0)).length() + n
@@ -185,6 +192,17 @@ func _heights() -> void:
 				var sw: float = bw[0] + bw[1] + bw[2] + bw[3]
 				var hills: float = plains * maxf(0.0, 1.0 - sw) + (desert * bw[0] + jungle * bw[1] + nordic * bw[2] + tropic * bw[3]) / maxf(1.0, sw)
 				h = 1.2 + hills * smoothstep(0.0, 0.2, m)
+				# Jungle (in the style of the lagoon map): winding channels of
+				# green water cut it into islands, deep in the middle.
+				if bw[1] > 0.3:
+					var c := absf(lagoon.get_noise_2d(x, z))
+					var cw := 0.055 * smoothstep(0.3, 0.75, bw[1])
+					if c < cw * 2.8:
+						var t := c / maxf(cw, 0.0001)
+						if t < 1.0:
+							h = lerpf(-3.0, -0.7, t * t)
+						else:
+							h = minf(h, lerpf(0.7, h, smoothstep(1.0, 2.8, t)))
 				# River: shallow and wadeable, with gentle banks.
 				var dr := absf(z - river_z(x))
 				var rw := 22.0 + (detail.get_noise_2d(x, 99.0) + 1.0) * 8.0
@@ -512,6 +530,7 @@ func _buildings() -> void:
 			_add_building(c, sz, t.military, storeys)
 			placed += 1
 	_gas_stations()
+	_windmills()
 	# Lone houses in the countryside.
 	var lone := 0
 	var tries := 0
@@ -530,6 +549,30 @@ func _buildings() -> void:
 		if near_road(c, 10.0): continue
 		_add_building(c, sz, false)
 		lone += 1
+
+## Windmills (as on the small flowery map): one by each farm and a few more
+## on open plains hills, among the lupine fields.
+func _windmills() -> void:
+	for t in towns:
+		if t.get("kind", "") != "farm": continue
+		for k in 12:
+			var p: Vector2 = t.pos + Vector2(rng.randf_range(45, 75), 0).rotated(rng.randf() * TAU)
+			if _land_around(p, 8.0) and not _overlaps(p, Vector2(4, 4), 6.0) and not near_road(p, 8.0):
+				_structure("windmill", p, Vector2(3.4, 3.4), {"rot": rng.randf() * TAU})
+				break
+	var made := 0
+	var tries := 0
+	while made < int(6.0 * _area()) and tries < 3000:
+		tries += 1
+		var p := Vector2(rng.randf_range(200, size - 200), rng.randf_range(200, size - 200))
+		if region_at(p.x, p.y) != "plains" or not _land_around(p, 12.0): continue
+		if height_at(p.x, p.y) < 12.0 or near_road(p, 25.0) or _overlaps(p, Vector2(4, 4), 40.0): continue
+		var far_town := true
+		for t in towns:
+			if p.distance_to(t.pos) < t.r + 60.0: far_town = false
+		if not far_town: continue
+		_structure("windmill", p, Vector2(3.4, 3.4), {"rot": rng.randf() * TAU})
+		made += 1
 
 func _blocked(p: Vector2, r: float) -> bool:
 	if not _land_around(p, r) or height_at(p.x, p.y) < 1.4: return true

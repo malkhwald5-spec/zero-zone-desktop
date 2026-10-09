@@ -76,6 +76,7 @@ var settings := {
 	"hit_color": "red",       # blood when a shot lands: "red" | "green"
 	# Graphics
 	"brightness": 1.0,
+	"auto_perf": true,        # lower the 3D resolution / quality by itself when the game runs slowly
 	# Controls (touch buttons)
 	"touch_alpha": 0.8,       # button opacity
 	"joy_float": false,       # joystick starts where the thumb lands
@@ -218,7 +219,14 @@ func _auto_quality() -> void:
 	if is_laptop_gpu(): settings.laptop = true
 
 ## Graphics chips made only for laptops (or named as laptop parts).
+## Built-in graphics (Intel UHD / Iris, AMD Radeon Graphics in the processor).
+func is_integrated_gpu() -> bool:
+	var gpu := RenderingServer.get_video_adapter_name().to_lower()
+	if gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris"): return true
+	return gpu.contains("radeon") and gpu.contains("graphics") and not gpu.contains(" rx")
+
 func is_laptop_gpu() -> bool:
+	if is_integrated_gpu(): return true
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
 	for k in ["laptop", "mobile", "max-q", "rtx 2050", "rtx 3050 ti", " mx1", " mx2", " mx3", " mx4", " mx5"]:
 		if gpu.contains(k): return true
@@ -396,6 +404,9 @@ func quality_level() -> int:
 
 ## Frame-rate cap. V-sync is off so the cap (not the monitor) decides.
 func apply_fps() -> void:
+	# A slow frame must not pile up physics steps (a slow frame then makes the
+	# next one slower still): at most 3 steps per frame, the game slows instead.
+	Engine.max_physics_steps_per_frame = 3
 	if DisplayServer.get_name() == "headless":
 		return    # tests run as fast as they can
 	Engine.max_fps = int(settings.get("fps", 60))

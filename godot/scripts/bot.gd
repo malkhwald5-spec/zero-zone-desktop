@@ -284,10 +284,11 @@ func _ground(delta: float) -> void:
 		think_t = randf_range(0.8, 1.3) if far else randf_range(0.2, 0.35)
 		_think()
 	# Away from the player and not fighting: move every other frame in double
-	# steps (100 players cost a lot of physics otherwise).
+	# steps, every fourth far away (100 players cost a lot of physics otherwise).
 	if d_player > 120.0 and target == null:
 		_far_dt += delta
-		if (_frame + get_instance_id()) % 2 == 0:
+		var every := 4 if d_player > 400.0 else 2
+		if (_frame + get_instance_id()) % every == 0:
 			_move(_far_dt)
 			_far_dt = 0.0
 	else:

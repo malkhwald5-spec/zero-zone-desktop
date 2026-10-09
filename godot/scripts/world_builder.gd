@@ -839,6 +839,28 @@ func _structures() -> void:
 				hm.rotation = Vector3(0, deg_to_rad(st.rot), PI * 0.5)
 				node.add_child(hm)
 				_cyl_shape(body, node.position + Vector3(0, 0.75, 0), 0.75, 1.5)
+			"windmill":
+				# White tower, dark wooden cap, four lattice sails turning in the wind.
+				node.rotation.y = float(st.get("rot", 0.0))
+				_mesh_cyl(node, Vector3(0, 6.0, 0), 2.3, 3.3, 12.0, white)
+				_mesh_cyl(node, Vector3(0, 0.3, 0), 3.5, 3.5, 0.6, stone)
+				_mesh_cyl(node, Vector3(0, 13.4, 0), 0.4, 2.6, 2.8, _windmill_wood())
+				_mesh_box(node, Vector3(0, 1.2, -3.1), Vector3(1.2, 2.4, 0.3), dark)        # door
+				_mesh_box(node, Vector3(0, 7.5, -2.75), Vector3(0.8, 1.0, 0.2), dark)       # window
+				var hub := Node3D.new()
+				hub.position = Vector3(0, 12.4, -2.9)
+				node.add_child(hub)
+				_mesh_cyl(hub, Vector3(0, 0, 0.3), 0.35, 0.35, 1.0, dark)
+				hub.get_child(0).rotation.x = PI * 0.5
+				for a in 4:
+					var arm := Node3D.new()
+					arm.rotation.z = a * PI * 0.5
+					hub.add_child(arm)
+					_mesh_box(arm, Vector3(0, 4.2, 0), Vector3(0.22, 8.4, 0.18), _windmill_wood())
+					_mesh_box(arm, Vector3(0.75, 5.0, 0.05), Vector3(1.3, 6.2, 0.06), _windmill_sail())
+				hub.set_meta("speed", randf_range(0.5, 0.75))
+				spinners.append(hub)
+				_cyl_shape(body, node.position + Vector3(0, 6.0, 0), 3.0, 12.0)
 			"canopy":
 				var dir: Vector2 = st.get("dir", Vector2(1, 0))
 				node.rotation.y = -atan2(dir.y, dir.x)
@@ -855,6 +877,32 @@ func _structures() -> void:
 					_mesh_box(node, pp + Vector3(0, 0.25, 0.27), Vector3(0.4, 0.3, 0.04), dark)
 					_shape(body, node.transform * pp, Vector3(0.8, 1.7, 0.5))
 				_mesh_box(node, Vector3(0, 0.08, 0), Vector3(10.5, 0.16, 3.0), stone)
+
+var spinners: Array = []        # windmill sails (turned in spin())
+
+## Windmill sails turn (only the ones near enough to be seen).
+func spin(delta: float, view: Vector3) -> void:
+	for h in spinners:
+		if (h as Node3D).global_position.distance_squared_to(view) < 640000.0:
+			h.rotation.z -= delta * float(h.get_meta("speed"))
+
+var _wm_wood: StandardMaterial3D
+var _wm_sail: StandardMaterial3D
+
+func _windmill_wood() -> StandardMaterial3D:
+	if _wm_wood == null:
+		_wm_wood = StandardMaterial3D.new()
+		_wm_wood.albedo_color = Color("4a3426")
+		_wm_wood.roughness = 0.85
+	return _wm_wood
+
+func _windmill_sail() -> StandardMaterial3D:
+	if _wm_sail == null:
+		_wm_sail = StandardMaterial3D.new()
+		_wm_sail.albedo_color = Color("e6dfcf")
+		_wm_sail.roughness = 0.9
+		_wm_sail.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return _wm_sail
 
 func _mesh_box(node: Node3D, pos: Vector3, size: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()
@@ -1570,9 +1618,11 @@ func _clutter() -> void:
 	var stones := _rock_mesh(91, (load("res://assets/nature/rock_grey_disp.png") as Texture2D).get_image())
 	var layers := [
 		{"mesh": weeds, "tex": "res://assets/nature/weeds_a.png", "spacing": 2.0, "radius": 42.0, "density": 0.6,
-			"biome": Vector4(0.15, 0.6, 0.9, 0.5), "cluster": 0.7, "size": Vector2(1.1, 1.8), "tint": Vector3(0.95, 0.95, 0.85)},
+			"biome": Vector4(0.15, 0.6, 0.12, 0.5), "cluster": 0.7, "size": Vector2(1.1, 1.8), "tint": Vector3(0.95, 0.95, 0.85)},
 		{"mesh": weeds, "tex": "res://assets/nature/weeds_b.png", "spacing": 2.8, "radius": 38.0, "density": 0.35,
-			"biome": Vector4(0.05, 1.0, 0.6, 0.8), "cluster": 0.6, "size": Vector2(0.8, 1.3), "tint": Vector3(0.9, 1.0, 0.85)},
+			"biome": Vector4(0.05, 1.0, 0.08, 0.8), "cluster": 0.6, "size": Vector2(0.8, 1.3), "tint": Vector3(0.9, 1.0, 0.85)},
+		{"mesh": weeds, "tex": "res://assets/nature/lupine_atlas.png", "spacing": 1.7, "radius": 46.0, "density": 0.55,
+			"biome": Vector4(0.0, 0.0, 0.0, 0.15), "cluster": 0.95, "size": Vector2(0.75, 1.2)},
 		{"mesh": _log_mesh(), "tex": "res://assets/nature/log_col.jpg", "nrm": "res://assets/nature/log_nrm.jpg", "spacing": 14.0, "radius": 110.0,
 			"density": 0.22, "biome": Vector4(0.05, 1.0, 0.8, 0.3), "cluster": 0.6, "size": Vector2(1.4, 2.6), "sink": 0.06, "tilt": true, "cards": false},
 		{"mesh": stones, "tex": "res://assets/nature/rock_grey_col.jpg", "nrm": "res://assets/nature/rock_grey_nrm.jpg", "spacing": 7.0, "radius": 90.0,

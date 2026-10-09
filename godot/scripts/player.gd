@@ -1467,6 +1467,7 @@ func enter_vehicle(v: Vehicle) -> void:
 	if v.dead or v.driver != null or knocked: return
 	vehicle = v
 	v.driver = self
+	v.freeze = false
 	state = "vehicle"
 	stance = "stand"
 	shape_node.disabled = true

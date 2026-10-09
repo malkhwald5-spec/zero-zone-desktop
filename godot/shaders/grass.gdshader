@@ -34,6 +34,8 @@ void vertex() {
 	float hz = textureLod(heightmap, ((uv + vec2(0.0, 1.5 / map_size)) * hm_cells + 0.5) / (hm_cells + 1.0), 0.0).r;
 	float steep = length(vec2(hx - h, hz - h)) / 1.5;
 	keep *= 1.0 - smoothstep(0.75 - 0.3 * bio.r, 1.0 - 0.35 * bio.r, steep);
+	// None under the snow in the north.
+	keep *= 1.0 - smoothstep(0.35, 0.75, bio.b);
 	// Hardly any grass in the desert (a few dry tufts), tall in the jungle.
 	keep *= 1.0 - bio.r * step(0.18, textureLod(noise_a, base.xz / 13.0, 0.0).r) * 0.97;
 	tip = 1.0 - UV.y;
