@@ -1540,6 +1540,9 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"flyby_1", "flyby_2", "flyby_3", "reload_rifle", "reload_bolt", "bolt_cycle", "dry_click",
 	"step_concrete_1", "step_concrete_2", "step_concrete_3", "step_concrete_4", "step_concrete_5",
 	"step_grass_1", "step_grass_2", "step_grass_3", "step_grass_4", "step_grass_5", "step_grass_6", "step_grass_7", "step_grass_8",
+	"step_wood_1", "step_wood_2", "step_wood_3", "step_wood_4", "step_wood_5",
+	"step_sand_1", "step_sand_2", "step_sand_3", "step_sand_4", "step_sand_5", "step_sand_6",
+	"step_water_1", "step_water_2", "step_water_3", "step_water_4",
 	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2",
 	"shot_sniper", "shot_sniper_b", "shot_sniper_far"]
 var _ambience: AudioStreamPlayer
@@ -1595,6 +1598,7 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 	if own:
 		# Your own gun: straight into the ears, not placed in the world.
 		var p2 := AudioStreamPlayer.new()
+		p2.bus = _room_bus()
 		p2.stream = stream
 		p2.volume_db = -15.0 if suppressed else -3.0
 		p2.pitch_scale = pitch * (1.25 if suppressed else 1.0)
@@ -1607,6 +1611,7 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 			sound_local("shotgun_pump", 0.45, 1.0, -6.0)
 	else:
 		var p3 := AudioStreamPlayer3D.new()
+		p3.bus = _bus_at(pos)
 		p3.stream = stream
 		p3.unit_size = 30.0 if not far else 120.0
 		p3.max_distance = 900.0
@@ -1633,11 +1638,21 @@ func _update_auto_tail() -> void:
 		sound_local("auto_tail", 0.0, 1.0, -2.0)
 
 ## What the ground under a point sounds like.
+## What the ground is made of: "wood" (house floors), "concrete" (roads,
+## warehouses, the base), "water", "sand" (desert, beaches) or "grass".
 func surface_at(p: Vector3) -> String:
 	var q := Vector2(p.x, p.z)
-	if building_at(q) >= 0 or island.near_road(q, 0.0):
-		return "concrete"
+	var bi := building_at(q)
+	if bi >= 0:
+		var bl: Dictionary = island.buildings[bi]
+		return "concrete" if bl.military or bl.get("kind", "house") in ["warehouse", "shop"] else "wood"
+	if p.y < Island.WATER - 0.15: return "water"
+	if island.near_road(q, 0.0): return "concrete"
+	var g := island.height_at(p.x, p.z)
+	if island.region_at(p.x, p.z) == "desert" or g < 2.4: return "sand"
 	return "grass"
+
+const STEP_SETS := {"concrete": 5, "grass": 8, "wood": 5, "sand": 6, "water": 4}
 
 ## One footstep. own = your own feet (not placed in the world); loud 0..1
 ## (crouching is quiet, sprinting loud). Enemies are heard up to ~40 m away.
@@ -1645,7 +1660,8 @@ func footstep(pos: Vector3, own: bool, loud: float) -> void:
 	if not Game.settings.sound: return
 	if not own and (_sounds_playing >= 14 or pos.distance_to(view_position()) > 40.0): return
 	var surf := surface_at(pos)
-	var snd := ("step_concrete_%d" % (randi() % 5 + 1)) if surf == "concrete" else ("step_grass_%d" % (randi() % 8 + 1))
+	var snd := "step_%s_%d" % [surf, randi() % int(STEP_SETS[surf]) + 1]
+	if not _snd.has(snd): snd = "step_grass_%d" % (randi() % 8 + 1)
 	var vol := lerpf(-26.0, -8.0, loud)
 	if own:
 		sound_local(snd, 0.0, randf_range(0.92, 1.08), vol - 6.0)
@@ -1653,6 +1669,7 @@ func footstep(pos: Vector3, own: bool, loud: float) -> void:
 	var p := AudioStreamPlayer3D.new()
 	p.stream = _snd.get(snd)
 	if p.stream == null: return
+	p.bus = _bus_at(pos)
 	p.unit_size = 3.0
 	p.max_distance = 45.0
 	p.volume_db = vol + 6.0
@@ -1677,9 +1694,35 @@ func sound_flyby(pos: Vector3) -> void:
 	p.finished.connect(p.queue_free)
 
 ## Your own non-positional sounds (reload, bolt, empty click), optionally delayed.
+## Indoors your own gun, steps and voices ring off the walls: a small room
+## reverb on its own bus (made once, kept for the session).
+func _room_bus() -> StringName:
+	if _air_building < 0: return &"Master"
+	if AudioServer.get_bus_index("Room") < 0:
+		AudioServer.add_bus()
+		var i := AudioServer.bus_count - 1
+		AudioServer.set_bus_name(i, "Room")
+		AudioServer.set_bus_send(i, "Master")
+		var rv := AudioEffectReverb.new()
+		rv.room_size = 0.32
+		rv.damping = 0.55
+		rv.spread = 0.8
+		rv.predelay_msec = 12.0
+		rv.hipass = 0.15
+		rv.wet = 0.3
+		rv.dry = 1.0
+		AudioServer.add_bus_effect(i, rv)
+	return &"Room"
+
+## A sound placed in the world rings like the room when it is in your building.
+func _bus_at(pos: Vector3) -> StringName:
+	if _air_building < 0 or building_at(Vector2(pos.x, pos.z)) != _air_building: return &"Master"
+	return _room_bus()
+
 func sound_local(name: String, delay := 0.0, pitch := 1.0, volume := -4.0) -> void:
 	if not Game.settings.sound or not _snd.has(name): return
 	var p := AudioStreamPlayer.new()
+	p.bus = _room_bus()
 	p.stream = _snd[name]
 	p.volume_db = volume
 	p.pitch_scale = pitch

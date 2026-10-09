@@ -49,6 +49,27 @@ func _run() -> void:
 	var road: Dictionary = world.island.roads[0]
 	var rp: Vector2 = (road.a + road.b) * 0.5
 	check(world.surface_at(Vector3(rp.x, 0, rp.y)) == "concrete", "road sounds like concrete")
+	# Other grounds: house floors are wood, the desert is sand, deep water splashes.
+	var isl = world.island
+	var house := -1
+	for i in isl.buildings.size():
+		if not isl.buildings[i].military and isl.buildings[i].get("kind", "house") == "house":
+			house = i
+			break
+	var hp: Vector2 = isl.buildings[house].pos
+	check(world.surface_at(Vector3(hp.x, isl.buildings[house].floor, hp.y)) == "wood", "house floor sounds like wood")
+	var sand_ok := false
+	for k in 4000:
+		var q := Vector2(randf_range(300, isl.size - 300), randf_range(300, isl.size - 300))
+		if isl.region_at(q.x, q.y) == "desert" and isl.height_at(q.x, q.y) > 3.0 and world.building_at(q) < 0 and not isl.near_road(q, 2.0):
+			sand_ok = world.surface_at(Vector3(q.x, isl.height_at(q.x, q.y), q.y)) == "sand"
+			break
+	check(sand_ok, "desert sounds like sand")
+	check(world.surface_at(Vector3(isl.size * 0.5, -1.0, 20.0)) == "water", "wading sounds like water")
+	# Indoors your own sounds ring off the walls.
+	p.global_position = Vector3(hp.x, isl.buildings[house].floor + 0.3, hp.y)
+	await wait(0.6)
+	check(world._air_building == house and world._room_bus() == &"Room" and AudioServer.get_bus_index("Room") >= 0, "room echo indoors")
 	var n1: int = world.get_child_count()
 	world.footstep(p.global_position, true, 0.5)
 	world.footstep(p.global_position + Vector3(10, 0, 0), false, 0.9)
