@@ -286,79 +286,20 @@ func pickup_name(data: Dictionary) -> String:
 ## Pickups are kept in a coarse grid so nearby lookups don't scan the whole map.
 const CELL := 16.0
 var _grid := {}                 # Vector2i -> Array[Node3D]
-var _pickup_res := {}           # shared meshes/materials per kind
 
 func _cell(p: Vector3) -> Vector2i:
 	return Vector2i(floori(p.x / CELL), floori(p.z / CELL))
 
-func _pickup_look(data: Dictionary) -> Array:
-	var key: String
-	match data.kind:
-		"weapon": key = Game.WEAPONS[data.id].cls
-		"ammo": key = "ammo_" + data.type
-		"gear": key = "gear_%s_%d" % [data.gear, data.lvl]
-		"throw": key = "throw_" + data.id
-		"attach": key = "attach_" + data.id
-		_: key = "heal_" + data.id
-	if not _pickup_res.has(key):
-		var mat := StandardMaterial3D.new()
-		var mesh: Mesh
-		if data.kind == "weapon":
-			var len := {"pistol": 0.3, "smg": 0.55, "shotgun": 0.85, "ar": 0.9, "sr": 1.15, "dmr": 1.05, "crossbow": 0.75, "melee": 0.45}.get(key, 0.8) as float
-			mesh = _box(Vector3(len, 0.1, 0.08))
-			mat.albedo_color = Color("2a2c30")
-			mat.metallic = 0.5
-			mat.roughness = 0.35
-		elif data.kind == "ammo":
-			mesh = _box(Vector3(0.28, 0.2, 0.2))
-			mat.albedo_color = {"9mm": Color("c9a64a"), "556": Color("5f9a4f"), "762": Color("b8673f"), "12g": Color("b03a3a"), "300": Color("6a4fa8"), "bolt": Color("8a6a3a")}[data.type]
-		elif data.kind == "gear":
-			var tint: Color = [Color.WHITE, Color("8d9a6b"), Color("4e6fa8"), Color("2b2b2b")][data.lvl]
-			match data.gear:
-				"vest": mesh = _box(Vector3(0.5, 0.12, 0.42))
-				"helmet":
-					var sp := SphereMesh.new()
-					sp.radius = 0.17
-					sp.height = 0.22
-					sp.is_hemisphere = true
-					mesh = sp
-				_:
-					mesh = _box(Vector3(0.4, 0.22, 0.5))
-					tint = [Color.WHITE, Color("7a6648"), Color("5a5a3c"), Color("3a3a32")][data.lvl]
-			mat.albedo_color = tint
-		elif data.kind == "attach":
-			match Items.ATTACH[data.id].slot:
-				"sight":
-					mesh = _cyl(0.035, 0.035, 0.22 if data.id.begins_with("x") else 0.09)
-				"muzzle": mesh = _cyl(0.025, 0.025, 0.2 if data.id == "suppressor" else 0.1)
-				"mag": mesh = _box(Vector3(0.05, 0.2, 0.09))
-				_: mesh = _box(Vector3(0.05, 0.12, 0.05))
-			mat.albedo_color = Color("1e2024")
-			mat.metallic = 0.6
-			mat.roughness = 0.35
-		elif data.kind == "throw":
-			mesh = Grenade.model_mesh(data.id)
-			mat.albedo_color = Color("3d4a2c") if data.id == "frag" else Color("6f7a6a")
-			mat.metallic = 0.3
-			mat.roughness = 0.55
-		else:
-			mesh = _box(Vector3(0.22, 0.12, 0.16))
-			mat.albedo_color = {"bandage": Color("e8e2d6"), "firstaid": Color("f2f2f2"), "medkit": Color("d93a3a"), "drink": Color("2f86d6"), "pills": Color("e8b23a")}[data.id]
-		mat.emission_enabled = true
-		mat.emission = mat.albedo_color * 0.25
-		_pickup_res[key] = [mesh, mat]
-	return _pickup_res[key]
-
 func _add_pickup(data: Dictionary, pos: Vector3) -> Node3D:
 	var n := Node3D.new()
 	n.set_meta("data", data)
-	var look := _pickup_look(data)
+	# The real thing lying there: the gun itself, a box of rounds, a first-aid kit...
 	var mi := MeshInstance3D.new()
-	mi.mesh = look[0]
-	mi.material_override = look[1]
-	mi.position.y = 0.12
+	mi.mesh = LootModels.mesh(data)
+	mi.position.y = 0.004
 	mi.visibility_range_end = 120.0
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visibility_range_end_margin = 10.0
+	mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	n.add_child(mi)
 	add_child(n)
 	n.global_position = pos
