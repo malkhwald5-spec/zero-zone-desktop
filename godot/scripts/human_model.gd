@@ -37,6 +37,7 @@ var foot_ik := false          # set by the owner when standing on the ground nea
 var downed := false           # knocked down in a team match: crawls on hands and knees
 var swimming := false         # in deep water: treads water, no weapon
 var reviving := false         # kneeling by a downed teammate
+var drinking := false         # energy drink / painkillers, standing still
 var turn_dir := 0             # turning on the spot: 1 left, -1 right (0 = not turning)
 var turn_yaw := 0.0           # how far the turn clip has turned the body so far (radians)
 var _turn_h0 := Quaternion.IDENTITY
@@ -553,14 +554,18 @@ var _action_t := 0.0
 var _action_speed := 1.0
 
 ## Plays a whole-body action once ("toss" = grenade throw) for `seconds`.
-func play_action(name: String, seconds: float) -> void:
+## `from`/`to` pick part of a longer clip (seconds into it).
+func play_action(name: String, seconds: float, from := 0.0, to := -1.0) -> void:
 	var a: Animation = ap.get_animation("mx/" + name)
 	if a == null: return
+	if to < 0.0: to = a.length
 	_action = name
 	_action_t = seconds
-	_action_speed = a.length / seconds
-	_anim = ""
+	_action_speed = (to - from) / seconds
+	_anim = "mx/" + name
 	ap.play("mx/" + name, 0.1)
+	ap.seek(from, true)
+	ap.speed_scale = _action_speed
 	# Climbs and drops carry their own rise/fall; the owner already moves the
 	# body, so that part is taken out of the hips (see set_pose).
 	_action_rise = 0.0
@@ -584,6 +589,33 @@ func _skeleton_up() -> Vector3:
 		_sk_up = (t.basis.inverse() * Vector3.UP).normalized()
 	return _sk_up
 var _action_rise := 0.0
+
+var _can: MeshInstance3D
+
+## The energy drink can in the left hand while drinking.
+func _place_can() -> void:
+	var on := _anim == "mx/drink"
+	if on and _can == null:
+		_can = MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.033
+		cm.bottom_radius = 0.033
+		cm.height = 0.12
+		cm.radial_segments = 12
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color("2a6fd6")
+		mat.metallic = 0.7
+		mat.roughness = 0.3
+		cm.material = mat
+		_can.mesh = cm
+		_can.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_can)
+	if _can:
+		_can.visible = on and is_inside_tree()
+		if _can.visible:
+			var hand: Transform3D = sk.global_transform * sk.get_bone_global_pose(_bone["LeftHand"])
+			var b := hand.basis.orthonormalized()
+			_can.global_transform = Transform3D(b, hand.origin + b * Vector3(0.0, 0.07, 0.04))
 
 ## Starts a 90° turn on the spot (1 = left, -1 = right). The clip's own body
 ## turn is taken out of the hips and handed to the owner as `turn_yaw`, who
@@ -654,6 +686,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_action_t -= delta
 		_play("mx/" + _action, _action_speed)
 		ap.advance(delta)
+		if _action == "melee" and _has_weapon:
+			# The pan swings in the right hand (handle along the fingers).
+			var hand: Transform3D = sk.global_transform * sk.get_bone_global_pose(_bone["RightHand"])
+			gun.global_transform = Transform3D(hand.basis.orthonormalized() * Basis(Vector3.RIGHT, PI / 2.0), hand.origin)
 		if _action in ["climb", "drop_down"] and absf(_action_rise) > 0.3:
 			# Climbing: the hips never go above where they started (the body is
 			# lifted by the owner); dropping down: never below. Crouches stay.
@@ -662,7 +698,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var h := hp.dot(up)
 			var keep := minf(h, _action_y0) if _action_rise > 0.0 else maxf(h, _action_y0)
 			sk.set_bone_pose_position(0, hp + up * (keep - h))
-		gun.visible = false
+		gun.visible = _action == "melee" and _has_weapon
 		body.position = Vector3.ZERO
 		body.rotation = Vector3.ZERO
 		canopy.visible = false
@@ -681,7 +717,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	var dir := _dir8()
 	# One-handed guns (pistol, pan) have their own walk, run and idle.
 	var pistol: bool = armed and _cls in ["pistol", "melee"] and ap.has_animation("mx/pidle")
-	if reviving and pose in ["stand", "crouch"]:
+	if drinking and pose in ["stand", "crouch"] and speed < 0.3:
+		# Bottle to the mouth: loop the drinking part of the clip.
+		_play("mx/drink", 1.0)
+		if ap.current_animation_position < 1.9 or ap.current_animation_position > 5.7: ap.seek(2.0, true)
+	elif reviving and pose in ["stand", "crouch"]:
 		# Down on one knee by the teammate: loop the kneeling part of the clip.
 		_play("mx/kneel", 1.0)
 		if ap.current_animation_position < 1.8 or ap.current_animation_position > 6.2: ap.seek(3.2, true)
@@ -741,7 +781,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone", "airborne"]
 	# Crawling, knocked down, swimming or helping a mate up: hands are busy, the gun is put away.
-	if swimming or reviving or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
+	if swimming or reviving or (drinking and _anim == "mx/drink") or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
 	if swimming: body.position.y = 0.4          # afloat: head and shoulders out of the water
 	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:
@@ -811,8 +851,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_hold_gun()
 	else:
 		gun.visible = false
-		if pose in ["stand", "crouch"] and not swimming:
+		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink":
 			_relaxed_arms(speed)
+	_place_can()
 	if _wave > 0.0:
 		_wave -= delta
 		_arm("Right", Vector3(0.45, 1.95 + sin(t * 10.0) * 0.06, -0.1 + sin(t * 10.0) * 0.12), Vector3(1, 0, 0))

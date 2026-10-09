@@ -6,6 +6,7 @@ extends Node
 
 var out := "user://"
 var set2 := false    # --set=2: pistol walk and idle, swimming, climbing, hard landing
+var set4 := false    # --set=4: pan swing, picking up, drinking
 var set3 := false    # --set=3: kneeling to revive, getting down to prone, turning on the spot (left, right)
 var base_yaw := {}
 var models := []
@@ -25,6 +26,7 @@ func _ready() -> void:
 		if a.begins_with("--out="): out = a.substr(6)
 		if a == "--set=2": set2 = true
 		if a == "--set=3": set3 = true
+		if a == "--set=4": set4 = true
 	_run.call_deferred()
 
 func _run() -> void:
@@ -60,13 +62,14 @@ func _run() -> void:
 	var names := ["prone_idle", "prone_crawl", "knocked_crawl", "swim"]
 	if set2: names = ["pistol_walk", "swim_fwd", "climb", "hard_land"]
 	if set3: names = ["revive", "to_prone", "turn_left", "turn_right"]
+	if set4: names = ["melee", "pickup", "drink", "pistol_idle"]
 	for row in 2:
 		for col in 4:
 			var m := HumanModel.new(Color("4a5d6b"), Color("c84f3a"), Color("33373d"), ["soldier", "lola"][row])
 			add_child(m)
 			m.position = Vector3(col * 3.0 - 4.5, 0, row * 2.6 - 0.2)
 			m.rotation.y = -PI / 2         # side on to the camera
-			m.set_weapon("p92" if names[col] == "pistol_walk" else "m416")
+			m.set_weapon({"pistol_walk": "p92", "melee": "pan", "pistol_idle": "p92"}.get(names[col], "m416"))
 			models.append(m)
 			poses.append(names[col])
 	var cam := Camera3D.new()
@@ -75,7 +78,7 @@ func _run() -> void:
 	add_child(cam)
 	cam.look_at(Vector3(0, 0.3, 1.0))
 	cam.current = true
-	var frames := 5 if set3 else 2
+	var frames := 5 if set3 else (3 if set4 else 2)
 	for k in frames:
 		for i in 25: await get_tree().process_frame
 		if set2 and k == 0:
@@ -83,6 +86,11 @@ func _run() -> void:
 				if poses[i] == "climb": models[i].play_action("climb", 6.0)
 				if poses[i] == "hard_land": models[i].play_action("hard_land", 6.0)
 			await wait(1.4)
+		if set4:
+			for i in models.size():
+				if poses[i] == "melee": models[i].play_action("melee", 3.0, 0.35, 1.15)
+				if poses[i] == "pickup": models[i].play_action("pickup", 3.0)
+			await wait(0.6 + k * 0.5)
 		if set3 and k == 0:
 			for i in models.size():
 				base_yaw[i] = models[i].rotation.y
@@ -90,7 +98,7 @@ func _run() -> void:
 				if poses[i] == "turn_left": models[i].start_turn(1)
 				if poses[i] == "turn_right": models[i].start_turn(-1)
 			await wait(0.1)
-		await shot(("moves3_%d" if set3 else ("moves2_%d" if set2 else "moves_%d")) % k)
+		await shot(("moves4_%d" if set4 else ("moves3_%d" if set3 else ("moves2_%d" if set2 else "moves_%d"))) % k)
 		await wait(0.5)
 	print("MOVES ok")
 	get_tree().quit()
@@ -119,6 +127,11 @@ func _process(delta: float) -> void:
 				m.move_local = Vector2(0, 1.6)
 				m.set_pose("stand", 1.6, true, delta, 0.0)
 			"climb", "hard_land", "to_prone":
+				m.set_pose("stand", 0.0, true, delta, 0.0)
+			"melee", "pickup", "pistol_idle":
+				m.set_pose("stand", 0.0, true, delta, 0.0)
+			"drink":
+				m.drinking = true
 				m.set_pose("stand", 0.0, true, delta, 0.0)
 			"revive":
 				m.reviving = true

@@ -27,6 +27,7 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"prone_f": "prone_forward", "prone_stop": "prone_forward_stop", "prone_idle": "prone_idle", "crawl": "crawling",
 	"kneel": "kneel", "prone_to_kneel": "rifle_prone_to_kneel", "kneel_to_prone": "rifle_kneel_to_prone",
 	"turn90_l": "turn_90_left", "turn_l": "turn_left",
+	"melee": "standing_melee", "pickup": "pick_up_item", "drink": "drinking",
 	"swim_tread": "treading_water", "swim": "swimming", "hard_land": "hard_landing", "climb": "climbing", "drop_down": "jumping_down",
 	# Pistol set (the pack's arcs and strafes come in mirrored pairs).
 	"pidle": "pistol_idle", "pkneel": "pistol_kneeling_idle",
@@ -39,7 +40,7 @@ const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
-	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r"]
+	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

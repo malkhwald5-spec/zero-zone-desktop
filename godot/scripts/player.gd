@@ -258,6 +258,7 @@ func interact() -> void:
 					if not world.hud.bag_open: world.hud.toggle_bag()
 				else:
 					world.pickup(self, it)
+					pickup_anim()
 			elif car:
 				enter_vehicle(car)
 		"vehicle":
@@ -851,7 +852,7 @@ func _try_fire() -> void:
 func _swing(w: Dictionary) -> void:
 	fire_cd = w.rate
 	firing = false
-	model.play_action("toss", 0.45)
+	model.play_action("melee", 0.6, 0.35, 1.15)     # the first swing of the clip
 	var fwd := -camera.global_basis.z
 	fwd = Vector3(fwd.x, clampf(fwd.y, -0.4, 0.4), fwd.z).normalized()
 	var space := get_world_3d().direct_space_state
@@ -1212,6 +1213,7 @@ func _update_model(delta: float) -> void:
 	model.swimming = swimming()
 	model.downed = knocked
 	model.reviving = revive_target != null
+	model.drinking = heal_id in ["drink", "pills"]
 	model.foot_ik = is_on_floor() and state == "ground" and not model.swimming
 	model.set_pose(pose, sp, active >= 0 and not knocked, delta, Time.get_ticks_msec() / 1000.0)
 
@@ -1292,6 +1294,11 @@ func best_boost() -> String:
 	if heals.drink > 0 and boost < 85.0: return "drink"
 	if heals.pills > 0 and boost < 85.0: return "pills"
 	return ""
+
+## Bending down to take something off the ground (standing, not on the move).
+func pickup_anim() -> void:
+	if state == "ground" and stance == "stand" and not knocked and Vector2(velocity.x, velocity.z).length() < 1.0:
+		model.play_action("pickup", 0.9)
 
 func use_heal(id: String) -> void:
 	if knocked: return

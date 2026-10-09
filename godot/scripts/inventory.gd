@@ -152,12 +152,12 @@ func _rebuild() -> void:
 		near.add_child(head)
 		for it in list:
 			var d: Dictionary = it.get_meta("data")
-			_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it), true]])
+			_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it); p.pickup_anim(), true]])
 	if not boxes.is_empty() and not loose.is_empty():
 		near.add_child(UiKit.label("على الأرض", 15, DIM, UiKit.bold(), 0))
 	for it in loose:
 		var d: Dictionary = it.get_meta("data")
-		_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it), true]])
+		_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it); p.pickup_anim(), true]])
 	# 2) In the bag.
 	var bag: VBoxContainer = _cols[1]
 	_clear(bag)
@@ -238,6 +238,7 @@ func _take_all(list: Array) -> void:
 			var slot := 2 if cls in ["pistol", "melee"] else (0 if player.slots[0] == null else (1 if player.slots[1] == null else -1))
 			if slot < 0 or player.slots[slot] != null: continue
 		world.pickup(player, it, true)
+		player.pickup_anim()
 
 func _kind_name(d: Dictionary) -> String:
 	match d.kind:
