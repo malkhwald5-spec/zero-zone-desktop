@@ -859,8 +859,12 @@ func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
 	if p.heal_id != "":
 		_draw_heal(c, sz, p)
 		return
-	var it = world.nearest_pickup(p.global_position, 2.4)
 	var key := "[F] " if Game.settings.controls == "kbm" else ""
+	var door := p.door_target()
+	if not door.is_empty():
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + ("سكّر الباب" if door.target > 0.5 else "افتح الباب"), 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		return
+	var it = world.nearest_pickup(p.global_position, 2.4)
 	if it == null:
 		if world.nearest_vehicle(p.global_position, 3.5):
 			_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "ركوب السيارة", 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)

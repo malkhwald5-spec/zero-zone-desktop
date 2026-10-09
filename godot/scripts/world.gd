@@ -937,6 +937,7 @@ func _process(delta: float) -> void:
 			player.jump_from_plane()
 	builder.update_grass(view_position())
 	builder.spin(delta, view_position())
+	_update_doors(delta)
 	_perf_governor(delta)
 	_update_airdrops(delta)
 	for s in smokes: s.t -= delta
@@ -960,6 +961,72 @@ func _process(delta: float) -> void:
 
 var _gov_t := 0.0
 var _gov_frames := 0
+# ---------- Doors ----------
+var _door_grid := {}            # Vector2i (16 m cell) -> Array of door indices
+var _door_moving: Array = []    # doors swinging right now
+
+func _door_cells() -> void:
+	for i in builder.doors.size():
+		var c: Vector3 = builder.doors[i].center
+		var k := Vector2i(floori(c.x / CELL), floori(c.z / CELL))
+		if not _door_grid.has(k): _door_grid[k] = []
+		_door_grid[k].append(i)
+
+## Nearest door (its dictionary) within r metres of p, or {}.
+func nearest_door(p: Vector3, r: float) -> Dictionary:
+	if _door_grid.is_empty() and not builder.doors.is_empty(): _door_cells()
+	var best := {}
+	var bd := r
+	var k := Vector2i(floori(p.x / CELL), floori(p.z / CELL))
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			for i in _door_grid.get(k + Vector2i(dx, dz), []):
+				var d: Dictionary = builder.doors[i]
+				var dist := Vector2(p.x - d.center.x, p.z - d.center.z).length()
+				if dist < bd and absf(p.y - d.center.y) < 2.2:
+					bd = dist
+					best = d
+	return best
+
+## Opens a shut door (away from `by`) or shuts an open one.
+func toggle_door(d: Dictionary, by: Vector3) -> void:
+	if d.is_empty(): return
+	if d.target < 0.5:
+		if d.t < 0.05: d.swing = WorldBuilder._swing_away(d, by)
+		d.target = 1.0
+		d.open = true
+		_door_sound(d, "door_open")
+	else:
+		d.target = 0.0
+		d.open = false
+		_door_sound(d, "door_close")
+	if not _door_moving.has(d): _door_moving.append(d)
+
+func open_door(d: Dictionary, by: Vector3) -> void:
+	if not d.is_empty() and d.target < 0.5: toggle_door(d, by)
+
+func _door_sound(d: Dictionary, name: String) -> void:
+	if not Game.settings.sound or not _snd.has(name): return
+	if d.center.distance_to(view_position()) > 40.0: return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = _snd[name]
+	p.unit_size = 4.0
+	p.max_distance = 40.0
+	p.volume_db = -4.0
+	p.pitch_scale = randf_range(0.9, 1.1)
+	p.bus = _bus_at(d.center)
+	add_child(p)
+	p.global_position = d.center
+	p.play()
+	p.finished.connect(p.queue_free)
+
+func _update_doors(delta: float) -> void:
+	for d in _door_moving:
+		d.t = move_toward(d.t, d.target, delta * 2.6)
+		var e := ease(d.t, -1.8)
+		d.pivot.rotation.y = d.base + d.swing * WorldBuilder.DOOR_OPEN * e
+	_door_moving = _door_moving.filter(func(d): return d.t != d.target)
+
 var _gov_test := -1
 var _gov_wait := 10.0            # first check after loading hitches and shader compiles
 
@@ -1555,7 +1622,7 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"step_sand_1", "step_sand_2", "step_sand_3", "step_sand_4", "step_sand_5", "step_sand_6",
 	"step_water_1", "step_water_2", "step_water_3", "step_water_4",
 	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2",
-	"shot_sniper", "shot_sniper_b", "shot_sniper_far"]
+	"shot_sniper", "shot_sniper_b", "shot_sniper_far", "door_open", "door_close"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due

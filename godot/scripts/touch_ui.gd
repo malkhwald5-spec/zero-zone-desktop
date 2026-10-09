@@ -88,6 +88,8 @@ func _interact_label() -> String:
 			if p.knocked: return ""
 			var mate = p.downed_mate_near()
 			if mate: return "ارفع (اضغط مطوّل)"
+			var door := p.door_target()
+			if not door.is_empty(): return "سكّر الباب" if door.target > 0.5 else "افتح الباب"
 			var it = hud.world.nearest_pickup(p.global_position, 2.4)
 			if it: return "افتح الصندوق" if it.has_meta("crate") else "التقاط"
 			return "ركوب" if hud.world.nearest_vehicle(p.global_position, 3.5) else ""

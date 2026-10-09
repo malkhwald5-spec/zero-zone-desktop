@@ -42,7 +42,7 @@ func _init(isl: Island, parent: Node3D) -> void:
 func steps() -> Array:
 	return [
 		[_textures, "جاري تجهيز التضاريس"], [_environment, "جاري تجهيز السماء"], [_terrain, "جاري بناء الأرض"],
-		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_trees, "جاري زراعة الغابات"],
+		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_doors, "جاري تركيب الأبواب"], [_trees, "جاري زراعة الغابات"],
 		[_structures, "جاري بناء المصانع والمزارع"], [_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
 		[_grass, "جاري تجهيز العشب"],
 	]
@@ -53,6 +53,7 @@ func build_all() -> void:
 	_terrain()
 	_water()
 	_buildings()
+	_doors()
 	_trees()
 	_structures()
 	_rocks()
@@ -877,6 +878,171 @@ func _structures() -> void:
 					_mesh_box(node, pp + Vector3(0, 0.25, 0.27), Vector3(0.4, 0.3, 0.04), dark)
 					_shape(body, node.transform * pp, Vector3(0.8, 1.7, 0.5))
 				_mesh_box(node, Vector3(0, 0.08, 0), Vector3(10.5, 0.16, 3.0), stone)
+
+# ---------------------------------------------------------------- doors
+## House doors on hinges: {pivot, open, t (0 shut .. 1 open), target, swing
+## (+1/-1, which way it opens), base (yaw when shut), center, normal (out of
+## the house), along (hinge to latch), b (building index)}.
+var doors: Array = []
+const DOOR_OPEN := PI * 0.5 * 0.94
+
+func _door_mesh() -> ArrayMesh:
+	# Wooden door with four raised panels, and a brass handle on both sides.
+	var w := DOOR_W - 0.03
+	var h := DOOR_H - 0.06
+	var wood := SurfaceTool.new()
+	wood.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var metal := SurfaceTool.new()
+	metal.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_box(wood, Vector3(w * 0.5, h * 0.5, 0), Vector3(w, h, 0.05), Color.WHITE)
+	for side in [-1.0, 1.0]:
+		for r in 2:
+			for c in 2:
+				var px := w * (0.29 + c * 0.42)
+				var py := h * (0.3 + r * 0.42)
+				_add_box(wood, Vector3(px, py, side * 0.03), Vector3(w * 0.32, h * 0.33, 0.015), Color(0.86, 0.86, 0.86))
+		_add_box(metal, Vector3(w - 0.12, h * 0.46, side * 0.05), Vector3(0.12, 0.025, 0.04), Color.WHITE)
+		_add_box(metal, Vector3(w - 0.08, h * 0.46, side * 0.035), Vector3(0.05, 0.08, 0.02), Color.WHITE)
+	var wm := StandardMaterial3D.new()
+	wm.vertex_color_use_as_albedo = true
+	wm.albedo_color = Color("d9b48c")
+	wm.albedo_texture = load("res://assets/textures/wood_col.jpg") if ResourceLoader.exists("res://assets/textures/wood_col.jpg") else null
+	wm.uv1_triplanar = true
+	wm.uv1_scale = Vector3(0.8, 0.8, 0.8)
+	wm.roughness = 0.75
+	var mm := StandardMaterial3D.new()
+	mm.albedo_color = Color("b08d3a")
+	mm.metallic = 0.8
+	mm.roughness = 0.35
+	var mesh := ArrayMesh.new()
+	wood.set_material(wm)
+	wood.commit(mesh)
+	metal.set_material(mm)
+	metal.commit(mesh)
+	return mesh
+
+func _doors() -> void:
+	var parent := Node3D.new()
+	parent.name = "Doors"
+	root.add_child(parent)
+	var mesh := _door_mesh()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(DOOR_W - 0.03, DOOR_H - 0.06, 0.08)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var extras := []
+	for bi in island.buildings.size():
+		var b: Dictionary = island.buildings[bi]
+		if b.get("kind", "house") in ["warehouse", "barn"]: continue
+		var hx: float = b.size.x * 0.5
+		var hz: float = b.size.y * 0.5
+		for w in b.doors:
+			# Hinge on the wall's inner face line, the door spanning the opening.
+			var hinge: Vector3
+			var along: Vector3
+			var normal: Vector3
+			match int(w):
+				0:
+					hinge = Vector3(-DOOR_W * 0.5 + 0.015, 0, -hz + WALL_T * 0.5)
+					along = Vector3.RIGHT
+					normal = Vector3.FORWARD
+				2:
+					hinge = Vector3(-DOOR_W * 0.5 + 0.015, 0, hz - WALL_T * 0.5)
+					along = Vector3.RIGHT
+					normal = Vector3.BACK
+				3:
+					hinge = Vector3(-hx + WALL_T * 0.5, 0, -DOOR_W * 0.5 + 0.015)
+					along = Vector3.BACK
+					normal = Vector3.LEFT
+				_:
+					hinge = Vector3(hx - WALL_T * 0.5, 0, -DOOR_W * 0.5 + 0.015)
+					along = Vector3.BACK
+					normal = Vector3.RIGHT
+			var origin := Vector3(b.pos.x, b.floor, b.pos.y)
+			var pivot := Node3D.new()
+			pivot.position = origin + hinge
+			var base := atan2(-along.z, along.x)
+			pivot.rotation.y = base
+			parent.add_child(pivot)
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.position = Vector3(0, 0.07, 0)
+			mi.visibility_range_end = 220.0
+			pivot.add_child(mi)
+			var body := StaticBody3D.new()
+			var cs := CollisionShape3D.new()
+			cs.shape = shape
+			cs.position = Vector3((DOOR_W - 0.03) * 0.5, (DOOR_H - 0.06) * 0.5 + 0.07, 0)
+			body.add_child(cs)
+			pivot.add_child(body)
+			var d := {"pivot": pivot, "base": base, "t": 0.0, "target": 0.0, "swing": -1.0, "open": false,
+				"center": origin + hinge + along * DOOR_W * 0.5 + Vector3(0, 1.1, 0), "normal": normal, "along": along, "b": bi}
+			# Some are left open.
+			if rng.randf() < 0.3:
+				d.open = true
+				d.target = 1.0
+				d.t = 1.0
+				d.swing = _swing_away(d, d.center + normal * 2.0)
+				pivot.rotation.y = base + d.swing * DOOR_OPEN
+			doors.append(d)
+			extras.append([origin + hinge + along * DOOR_W * 0.5, normal])
+	_door_extras(parent, extras)
+
+## A stone step outside each door and a wall lamp above it (two multimeshes).
+func _door_extras(parent: Node3D, extras: Array) -> void:
+	if extras.is_empty(): return
+	var step := SurfaceTool.new()
+	step.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_box(step, Vector3(0, -0.35, 0.42), Vector3(1.9, 0.82, 0.7), Color.WHITE)
+	var sm := StandardMaterial3D.new()
+	sm.albedo_texture = load("res://assets/textures/concrete_col.jpg") if ResourceLoader.exists("res://assets/textures/concrete_col.jpg") else null
+	sm.albedo_color = Color("b9b4aa")
+	sm.uv1_triplanar = true
+	sm.roughness = 0.9
+	step.set_material(sm)
+	var lamp := SurfaceTool.new()
+	lamp.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_box(lamp, Vector3(0, 0, 0.05), Vector3(0.12, 0.08, 0.1), Color.WHITE)
+	_add_box(lamp, Vector3(0, -0.05, 0.14), Vector3(0.2, 0.06, 0.2), Color.WHITE)
+	var lm := StandardMaterial3D.new()
+	lm.albedo_color = Color("2a2b2d")
+	lm.metallic = 0.6
+	lm.roughness = 0.4
+	lamp.set_material(lm)
+	var glass := SurfaceTool.new()
+	glass.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_box(glass, Vector3(0, -0.16, 0.14), Vector3(0.15, 0.16, 0.15), Color.WHITE)
+	var gm := StandardMaterial3D.new()
+	gm.albedo_color = Color("fff1c8")
+	gm.emission_enabled = true
+	gm.emission = Color("ffd98a")
+	gm.emission_energy_multiplier = 0.6
+	glass.set_material(gm)
+	var lamp_mesh := lamp.commit()
+	glass.commit(lamp_mesh)
+	for pair in [[step.commit(), Vector3(0, 0.0, 0)], [lamp_mesh, Vector3(0, DOOR_H + 0.42, 0)]]:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = pair[0]
+		mm.instance_count = extras.size()
+		for i in extras.size():
+			var at: Vector3 = extras[i][0]
+			var n: Vector3 = extras[i][1]
+			# Local +Z points out of the house.
+			var basis := Basis(Vector3.UP.cross(n), Vector3.UP, n)
+			mm.set_instance_transform(i, Transform3D(basis, at + pair[1]))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mmi)
+
+## Which way the door must turn to swing away from someone standing at `from`.
+static func _swing_away(d: Dictionary, from: Vector3) -> float:
+	var side := signf((from - d.center).dot(d.normal))
+	if side == 0.0: side = 1.0
+	var want: Vector3 = -d.normal * side            # the tip ends up on the far side
+	var a: Vector3 = d.along
+	return 1.0 if Vector3(a.z, 0, -a.x).dot(want) > 0.0 else -1.0
 
 var spinners: Array = []        # windmill sails (turned in spin())
 

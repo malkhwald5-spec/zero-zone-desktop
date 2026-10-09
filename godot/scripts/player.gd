@@ -202,6 +202,32 @@ var _assist_on := false
 var _assist_t := 0.0
 var _look_t := 0.0                # seconds since the camera was last turned by hand
 
+## The door F works on: one within reach, unless loot is closer.
+func door_target() -> Dictionary:
+	if state != "ground" or knocked: return {}
+	var d: Dictionary = world.nearest_door(global_position + Vector3(0, 1.0, 0), 1.9)
+	if d.is_empty(): return {}
+	var it = world.nearest_pickup(global_position, 2.4)
+	if it and it.global_position.distance_to(global_position) < Vector2(global_position.x - d.center.x, global_position.z - d.center.z).length():
+		return {}
+	return d
+
+var _door_check := 0.0
+
+## Auto-open (settings): walking into a shut door opens it.
+func _auto_door(delta: float) -> void:
+	_door_check -= delta
+	if _door_check > 0.0: return
+	_door_check = 0.12
+	if not Game.settings.get("auto_door", true): return
+	var v := Vector2(velocity.x, velocity.z)
+	if v.length() < 1.0: return
+	var d: Dictionary = world.nearest_door(global_position + Vector3(0, 1.0, 0), 1.5)
+	if d.is_empty() or d.target > 0.5: return
+	var to := Vector2(d.center.x - global_position.x, d.center.z - global_position.z)
+	if to.normalized().dot(v.normalized()) > 0.5:
+		world.toggle_door(d, global_position)
+
 func _fire_on_release() -> bool:
 	var w := weapon()
 	if w.is_empty(): return false
@@ -300,6 +326,10 @@ func interact() -> void:
 				revive_t = 0.0
 				firing = false
 				cancel_heal()
+				return
+			var door := door_target()
+			if not door.is_empty():
+				world.toggle_door(door, global_position)
 				return
 			var car: Vehicle = world.nearest_vehicle(global_position, 3.5)
 			var it = world.nearest_pickup(global_position, 2.4)
@@ -564,6 +594,7 @@ func _physics_process(delta: float) -> void:
 			velocity.z = 0
 			move_and_slide()
 	_update_assist(delta)
+	if state == "ground": _auto_door(delta)
 	_look_t += delta
 	if state == "vehicle" and Game.settings.get("veh_cam_follow", true) and _look_t > 1.5 and is_instance_valid(vehicle):
 		# Camera swings back behind the vehicle when you leave it alone.

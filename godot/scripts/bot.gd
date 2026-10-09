@@ -259,6 +259,8 @@ func _land() -> void:
 	last_pos = global_position
 	think_t = randf_range(0.0, 0.3)
 
+var _door_t := randf() * 0.2
+
 func _ground(delta: float) -> void:
 	var d_player := global_position.distance_to(world.view_position())
 	far = d_player > 280.0 * Game.view_k()
@@ -279,6 +281,16 @@ func _ground(delta: float) -> void:
 			var take := mini(need, reserve)
 			mag += take
 			reserve -= take
+	# A shut door in the way: open it (nearby bots only; far ones never meet one that matters).
+	_door_t -= delta
+	if _door_t <= 0.0:
+		_door_t = 0.2
+		# (Pressed against a shut door it stands still, so go by where it wants to go.)
+		var want := Vector2(goal.x - global_position.x, goal.z - global_position.z)
+		if d_player < 400.0 and (want.length() > 0.8 or Vector2(velocity.x, velocity.z).length() > 0.5):
+			var dr: Dictionary = world.nearest_door(global_position + Vector3(0, 1.0, 0), 1.7)
+			if not dr.is_empty() and dr.target < 0.5:
+				world.toggle_door(dr, global_position)
 	think_t -= delta
 	if think_t <= 0.0:
 		think_t = randf_range(0.8, 1.3) if far else randf_range(0.2, 0.35)

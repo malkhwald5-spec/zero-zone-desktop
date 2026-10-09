@@ -73,6 +73,7 @@ var settings := {
 	"scope_mode": "mixed",    # aim button: "tap" toggles, "hold" while held, "mixed" both (short tap / long press)
 	"left_fire": "always",    # left fire button: "always" | "scope" (only aiming) | "off"
 	"heal_prompt": true,      # a reminder to heal when hurt and carrying meds
+	"auto_door": true,        # walking into a shut door opens it
 	"hit_color": "red",       # blood when a shot lands: "red" | "green"
 	# Graphics
 	"brightness": 1.0,
