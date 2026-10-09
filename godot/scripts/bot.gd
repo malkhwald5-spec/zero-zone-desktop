@@ -64,6 +64,7 @@ var revive_mate: Node3D = null   # knocked teammate this bot is picking up
 var revive_t := 0.0
 var _buddy_off := Vector3.ZERO
 var _buddy_jump_t := -1.0
+var _last_pp := Vector3.ZERO     # your position last frame (to match your speed in the air)
 var _face := 0.0             # quick turn towards a shot or a hit
 var _face_t := 0.0
 
@@ -224,6 +225,17 @@ func _air(delta: float) -> void:
 		model.dive = 0.8
 	var hs := (30.0 if state == "fall" else 11.0) * (1.6 if buddy else 1.0)   # teammates keep up with you
 	var vs := 45.0 if state == "fall" else 6.5
+	if buddy and world.player.state in ["fall", "chute"]:
+		# Stay with you all the way down: as fast as you dive or glide, at
+		# about your height, and the canopy opens when yours does.
+		var ppos: Vector3 = world.player.global_position
+		var pv := (ppos - _last_pp) / maxf(delta, 0.001) if _last_pp != Vector3.ZERO else Vector3.ZERO
+		_last_pp = ppos
+		hs = maxf(hs, Vector2(pv.x, pv.z).length() * 1.3 + 6.0)
+		vs = clampf(-pv.y + (global_position.y - ppos.y - 4.0) * 0.8, 2.0, 95.0)
+		if world.player.state == "chute" and state == "fall":
+			state = "chute"
+			chute_t = 0.0
 	# Glide only as fast as needed to arrive about when touching down.
 	var need := dist / maxf(alt / vs, 0.5)
 	var v := to.normalized() * minf(hs, need) if dist > 1.0 else Vector3.ZERO
