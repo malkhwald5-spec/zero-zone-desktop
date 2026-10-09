@@ -24,6 +24,10 @@ var weather := "clear"          # clear | rain | sunset
 var grass: MultiMeshInstance3D
 var grass_mat: ShaderMaterial
 var grass_snap := 5.04
+## Wind for the weather: gusty in the rain, nearly still in the morning mist.
+func wind() -> float:
+	return {"rain": 1.8, "fog": 0.35, "sunset": 0.7}.get(weather, 1.0)
+
 var clutter: Array = []         # [MultiMeshInstance3D, ShaderMaterial, spacing] — weeds, branches, stones
 ## Window glass: blocks only the camera (layer 5), not people or bullets.
 const CAMERA_LAYER := 16
@@ -1123,6 +1127,7 @@ func _trees() -> void:
 	var leaf_mat := ShaderMaterial.new()
 	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
 	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
+	leaf_mat.set_shader_parameter("sway", wind())
 	var palm_bark := bark_mat.duplicate() as StandardMaterial3D
 	palm_bark.albedo_color = Color("c9b28c")
 	palm_bark.uv1_scale = Vector3(1.0, 3.0, 1.0)
@@ -1130,18 +1135,21 @@ func _trees() -> void:
 	frond_mat.shader = load("res://shaders/leaf_card.gdshader")
 	frond_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/palm_frond.png"))
 	frond_mat.set_shader_parameter("translucency", 0.45)
-	frond_mat.set_shader_parameter("sway", 1.4)
+	frond_mat.set_shader_parameter("sway", 1.4 * wind())
 	var cactus_mat := StandardMaterial3D.new()
-	cactus_mat.albedo_color = Color("4f6b38")
+	cactus_mat.albedo_color = Color("7d9a58")
 	cactus_mat.albedo_texture = load("res://assets/textures/moss_col.jpg")
-	cactus_mat.uv1_scale = Vector3(4.0, 3.0, 1.0)
-	cactus_mat.roughness = 0.75
+	cactus_mat.uv1_scale = Vector3(2.0, 6.0, 1.0)
+	cactus_mat.roughness = 0.55
+	cactus_mat.rim_enabled = true          # the waxy skin catches the light at the edges
+	cactus_mat.rim = 0.25
+	cactus_mat.rim_tint = 0.6
 	cactus_mat.vertex_color_use_as_albedo = false
 	var needle_mat := ShaderMaterial.new()
 	needle_mat.shader = load("res://shaders/leaf_card.gdshader")
 	needle_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/pine_branch.png"))
 	needle_mat.set_shader_parameter("translucency", 0.3)
-	needle_mat.set_shader_parameter("sway", 0.6)
+	needle_mat.set_shader_parameter("sway", 0.6 * wind())
 	var near_meshes := {}
 	for v in 2:
 		var bl := TreeModels.broadleaf(3 + v * 17)
@@ -1159,10 +1167,10 @@ func _trees() -> void:
 	# Cactus and dead trees are simple: the same mesh near and far.
 	var mid_meshes := {}
 	for v in 2:
-		var ca := TreeModels.cactus(11 + v * 7)
+		var ca := _with_lods(TreeModels.cactus(11 + v * 7))
 		ca.surface_set_material(0, cactus_mat)
 		mid_meshes["ca%d" % v] = ca
-	var dd := TreeModels.dead(13)
+	var dd := _with_lods(TreeModels.dead(13))
 	dd.surface_set_material(0, bark_mat)
 	mid_meshes["dd0"] = dd
 	var near_tints := [Color(0.82, 0.86, 0.8), Color(0.72, 0.84, 0.7), Color(0.92, 0.88, 0.66), Color(0.7, 0.8, 0.74), Color(0.86, 0.82, 0.62)]
@@ -1204,7 +1212,7 @@ func _trees() -> void:
 					var k3 := h / 4.0
 					ch["ca%d" % v2].append([Transform3D(rot2.scaled(Vector3(k3, k3, k3)), p + Vector3(0, 0.25, 0)), Color.WHITE])
 				"dead":
-					var k4 := h / 4.5
+					var k4 := h / 6.0
 					ch.dd0.append([Transform3D(rot2.scaled(Vector3(k4, k4, k4)), p + Vector3(0, 0.25, 0)), Color.WHITE])
 			var cs2 := CollisionShape3D.new()
 			var cyl2 := CylinderShape3D.new()
@@ -1526,6 +1534,7 @@ func _grass() -> void:
 	grass_mat.set_shader_parameter("map_size", island.size)
 	grass_mat.set_shader_parameter("grass_c", load("res://assets/textures/grass_col.jpg"))
 	grass_mat.set_shader_parameter("tuft", load("res://assets/textures/grass_tuft.png"))
+	grass_mat.set_shader_parameter("wind_k", wind())
 	var lv := Game.quality_level()
 	var spacing: float = [0.8, 0.75, 0.55, 0.5, 0.42][lv]
 	var radius: float = [30.0, 32.0, 40.0, 52.0, 70.0][lv] * Game.view_k()
@@ -1594,6 +1603,7 @@ func _clutter() -> void:
 		mat.set_shader_parameter("tint", L.get("tint", Vector3.ONE))
 		mat.set_shader_parameter("uv_scale", L.get("uv", 1.0))
 		mat.set_shader_parameter("desert_tint", L.get("desert_tint", Vector3.ONE))
+		mat.set_shader_parameter("wind_k", wind())
 		if L.has("nrm"):
 			mat.set_shader_parameter("normal_tex", load(L.nrm))
 			mat.set_shader_parameter("use_normal", true)

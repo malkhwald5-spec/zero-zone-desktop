@@ -12,6 +12,7 @@ uniform sampler2D noise_a : filter_linear_mipmap, repeat_enable;
 uniform float map_size = 3072.0;
 uniform vec3 center = vec3(0.0);
 uniform float radius = 40.0;
+uniform float wind_k = 1.0;        // weather: stronger in the rain, calm in the mist
 uniform sampler2D grass_c : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D tuft : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 varying vec3 ground_col;
@@ -46,7 +47,7 @@ void vertex() {
 	local.xz *= mix(0.3, 1.0, keep);
 	float gust = sin(TIME * 0.7 + base.x * 0.03 + base.z * 0.02) * 0.5 + 0.5;
 	float wind = sin(TIME * 1.8 + base.x * 0.21 + base.z * 0.17) * (0.06 + gust * 0.1) + sin(TIME * 3.1 + base.x * 0.5) * 0.03;
-	local.xz += vec2(wind, wind * 0.6) * tip * tip;
+	local.xz += vec2(wind, wind * 0.6) * tip * tip * wind_k;
 	VERTEX = vec3(base.x, h - 0.05, base.z) + local;
 	NORMAL = vec3(0.0, 1.0, 0.0);
 }

@@ -188,24 +188,70 @@ static func cactus(seed: int) -> ArrayMesh:
 	rng.seed = seed
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Saguaro: a ribbed column with a rounded top and arms that bend up.
+	var h := rng.randf_range(3.6, 4.4)
 	var col := []
 	var rad := []
-	for i in 7:
-		var t := i / 6.0
-		col.append(Vector3(0, -0.2 + t * 4.0, 0))
-		rad.append(0.26 if t < 0.92 else 0.18)
-	_tube(st, col, rad, 12)
+	for i in 9:
+		var t := i / 8.0
+		col.append(Vector3(0, -0.2 + t * h, 0))
+		rad.append(0.3 * (1.0 - 0.12 * t))
+	_ribbed(st, col, rad, true)
 	for k in rng.randi_range(1, 3):
 		var a := rng.randf() * TAU
-		var y := rng.randf_range(1.3, 2.4)
+		var y := rng.randf_range(1.2, h * 0.62)
 		var dir := Vector3(cos(a), 0, sin(a))
-		var arm := [Vector3(0, y, 0), Vector3(0, y, 0) + dir * 0.55, Vector3(0, y + 0.2, 0) + dir * 0.75,
-			Vector3(0, y + 0.9, 0) + dir * 0.78, Vector3(0, y + 1.5, 0) + dir * 0.75]
-		_tube(st, arm, [0.15, 0.16, 0.16, 0.15, 0.11], 10)
+		var up := rng.randf_range(0.9, 1.6)
+		var arm := []
+		for i in 8:
+			var t := i / 7.0
+			# Out from the trunk, a round elbow, then straight up.
+			var out := 0.75 * smoothstep(0.0, 0.45, t)
+			var lift := 0.25 * smoothstep(0.0, 0.35, t) + up * smoothstep(0.3, 1.0, t)
+			arm.append(Vector3(0, y + lift, 0) + dir * out)
+		var ar := []
+		for i in 8: ar.append(0.19 * (1.0 - 0.15 * i / 7.0))
+		_ribbed(st, arm, ar, true)
+	st.generate_normals()
 	st.generate_tangents()
 	return _commit([st])
 
-## Dead desert tree: bare twisted trunk and branches (bark only).
+## A tube with eight ribs (cactus), optionally closed with a dome.
+static func _ribbed(st: SurfaceTool, pts: Array, radii: Array, dome: bool) -> void:
+	var sides := 16
+	var all_pts := pts.duplicate()
+	var all_r := radii.duplicate()
+	if dome:
+		var last: Vector3 = pts[pts.size() - 1]
+		var dir: Vector3 = (last - pts[pts.size() - 2]).normalized()
+		var r: float = radii[radii.size() - 1]
+		for k in range(1, 5):
+			var a := k / 4.0 * PI / 2.0
+			all_pts.append(last + dir * sin(a) * r * 0.9)
+			all_r.append(maxf(cos(a) * r, 0.005))
+	var v := 0.0
+	var rings := []
+	for i in all_pts.size():
+		var dir: Vector3 = (all_pts[mini(i + 1, all_pts.size() - 1)] - all_pts[maxi(i - 1, 0)]).normalized()
+		var side := dir.cross(Vector3.FORWARD if absf(dir.z) < 0.9 else Vector3.RIGHT).normalized()
+		var up := side.cross(dir)
+		var ring := []
+		for k in sides + 1:
+			var a := TAU * k / sides
+			var rr: float = all_r[i] * (1.0 + 0.13 * cos(a * 8.0))
+			ring.append([all_pts[i] + (side * cos(a) + up * sin(a)) * rr, Vector2(float(k) / sides, v)])
+		rings.append(ring)
+		if i + 1 < all_pts.size(): v += all_pts[i].distance_to(all_pts[i + 1]) / 1.2
+	for i in rings.size() - 1:
+		for k in sides:
+			var q := [rings[i][k], rings[i + 1][k + 1], rings[i][k + 1], rings[i][k], rings[i + 1][k], rings[i + 1][k + 1]]
+			for c in q:
+				st.set_uv(c[1])
+				st.set_uv2(Vector2(1, 0))
+				st.add_vertex(c[0])
+
+## Dead desert tree: a gnarled trunk that splits into branches, and those
+## into twigs (bark only).
 static func dead(seed: int) -> ArrayMesh:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
@@ -213,18 +259,30 @@ static func dead(seed: int) -> ArrayMesh:
 	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var tp := []
 	var tr := []
-	for i in 5:
-		var t := i / 4.0
-		tp.append(Vector3(sin(t * 3.0 + seed) * 0.3, -0.3 + t * 4.5, cos(t * 2.0 + seed) * 0.3))
-		tr.append(lerpf(0.28, 0.1, t))
-	_tube(bark, tp, tr, 7)
-	for k in rng.randi_range(4, 6):
-		var a := TAU * k / 5.0 + rng.randf()
-		var from: Vector3 = tp[rng.randi_range(2, 4)]
-		var br := _branch(rng, from, Vector3(cos(a), rng.randf_range(0.3, 0.9), sin(a)).normalized(), rng.randf_range(1.5, 2.8), 0.08)
-		_tube(bark, br[0], br[1], 5)
+	for i in 6:
+		var t := i / 5.0
+		tp.append(Vector3(sin(t * 2.6 + seed) * 0.35, -0.3 + t * 3.4, cos(t * 1.9 + seed) * 0.3))
+		tr.append(lerpf(0.3, 0.13, t))
+	_tube(bark, tp, tr, 8)
+	_dead_limbs(bark, rng, tp[tp.size() - 1], Vector3(0, 1, 0), 0.13, 2.4, 0)
+	for k in rng.randi_range(1, 2):
+		var a := rng.randf() * TAU
+		var from: Vector3 = tp[rng.randi_range(2, 3)]
+		_dead_limbs(bark, rng, from, Vector3(cos(a), 0.6, sin(a)).normalized(), 0.1, 2.0, 1)
 	bark.generate_tangents()
 	return _commit([bark])
+
+static func _dead_limbs(st: SurfaceTool, rng: RandomNumberGenerator, from: Vector3, dir: Vector3, r: float, length: float, depth: int) -> void:
+	var n := 3 if depth == 0 else 2
+	for k in n:
+		var a := TAU * k / n + rng.randf_range(-0.6, 0.6)
+		var spread := Vector3(cos(a), 0, sin(a)) * rng.randf_range(0.5, 0.9)
+		var d := (dir + spread).normalized()
+		var br := _branch(rng, from, d, length * rng.randf_range(0.75, 1.1), r)
+		_tube(st, br[0], br[1], 6 if depth == 0 else 4)
+		if depth < 2:
+			var tip: Vector3 = br[0][br[0].size() - 1]
+			_dead_limbs(st, rng, tip, d, r * 0.45, length * 0.55, depth + 1)
 
 static func _commit(sts: Array) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
