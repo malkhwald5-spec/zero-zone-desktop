@@ -6,6 +6,9 @@ extends Node
 
 var out := "user://"
 var set2 := false    # --set=2: pistol walk and idle, swimming, climbing, hard landing
+var set5 := false    # --set=5: walk / run / sprint, with a rifle (top) and unarmed (bottom)
+var set5_who := "soldier"   # --who=lola
+var set5_side := false      # --side: side on
 var set4 := false    # --set=4: pan swing, picking up, drinking
 var set3 := false    # --set=3: kneeling to revive, getting down to prone, turning on the spot (left, right)
 var base_yaw := {}
@@ -27,6 +30,9 @@ func _ready() -> void:
 		if a == "--set=2": set2 = true
 		if a == "--set=3": set3 = true
 		if a == "--set=4": set4 = true
+		if a == "--set=5": set5 = true
+		if a.begins_with("--who="): set5_who = a.substr(6)
+		if a == "--side": set5_side = true
 	_run.call_deferred()
 
 func _run() -> void:
@@ -63,13 +69,18 @@ func _run() -> void:
 	if set2: names = ["pistol_walk", "swim_fwd", "climb", "hard_land"]
 	if set3: names = ["revive", "to_prone", "turn_left", "turn_right"]
 	if set4: names = ["melee", "pickup", "drink", "pistol_idle"]
+	if set5: names = ["walk", "run", "sprint", "idle"]
 	for row in 2:
 		for col in 4:
-			var m := HumanModel.new(Color("4a5d6b"), Color("c84f3a"), Color("33373d"), ["soldier", "lola"][row])
+			var who: String = ["soldier", "lola"][row]
+			if set5: who = set5_who
+			var m := HumanModel.new(Color("4a5d6b"), Color("c84f3a"), Color("33373d"), who)
 			add_child(m)
 			m.position = Vector3(col * 3.0 - 4.5, 0, row * 2.6 - 0.2)
 			m.rotation.y = -PI / 2         # side on to the camera
+			if set5 and not set5_side: m.rotation.y = -PI * 0.75     # three-quarter front: the gun shows
 			m.set_weapon({"pistol_walk": "p92", "melee": "pan", "pistol_idle": "p92"}.get(names[col], "m416"))
+			if set5: m.set_meta("armed", row == 0)
 			models.append(m)
 			poses.append(names[col])
 	var cam := Camera3D.new()
@@ -77,8 +88,11 @@ func _run() -> void:
 	cam.fov = 60
 	add_child(cam)
 	cam.look_at(Vector3(0, 0.3, 1.0))
+	if set5:
+		cam.position = Vector3(0, 2.3, 7.6)
+		cam.look_at(Vector3(0, 0.9, 1.0))
 	cam.current = true
-	var frames := 5 if set3 else (3 if set4 else 2)
+	var frames := 5 if set3 else (3 if set4 or set5 else 2)
 	for k in frames:
 		for i in 25: await get_tree().process_frame
 		if set2 and k == 0:
@@ -98,7 +112,7 @@ func _run() -> void:
 				if poses[i] == "turn_left": models[i].start_turn(1)
 				if poses[i] == "turn_right": models[i].start_turn(-1)
 			await wait(0.1)
-		await shot(("moves4_%d" if set4 else ("moves3_%d" if set3 else ("moves2_%d" if set2 else "moves_%d"))) % k)
+		await shot(("moves5_%d" if set5 else ("moves4_%d" if set4 else ("moves3_%d" if set3 else ("moves2_%d" if set2 else "moves_%d")))) % k)
 		await wait(0.5)
 	print("MOVES ok")
 	get_tree().quit()
@@ -106,6 +120,13 @@ func _run() -> void:
 func _process(delta: float) -> void:
 	for i in models.size():
 		var m: HumanModel = models[i]
+		if set5:
+			var armed: bool = m.get_meta("armed", true)
+			var sp: float = {"walk": 1.8, "run": 5.2, "sprint": 7.2, "idle": 0.0}[poses[i]]
+			m.sprinting = poses[i] == "sprint"
+			m.move_local = Vector2(0, sp)
+			m.set_pose("stand", sp, armed, delta, 0.0)
+			continue
 		match poses[i]:
 			"prone_idle":
 				m.set_pose("prone", 0.0, true, delta, 0.0)

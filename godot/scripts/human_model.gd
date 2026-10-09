@@ -25,6 +25,7 @@ var reload_p := -1.0          # reload progress 0..1 (-1 = not reloading)
 var recoil := 0.0             # kick from the last shot (decays here)
 var _gun_xf := Transform3D()  # smoothed weapon pose (model space)
 var _gun_drop := 0.0            # extra height offset of the gun (crouch-walk)
+var _speed := 0.0               # ground speed this frame (m/s)
 var move_local := Vector2.ZERO  # ground velocity relative to facing: x = right, y = forward (m/s)
 var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 ## Skydive / parachute controls, set by the owner each frame.
@@ -716,6 +717,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		body.rotation = Vector3.ZERO
 		return
 	# Base animation from the ground speed and its direction (8-way rifle set).
+	_speed = speed
 	var dir := _dir8()
 	# One-handed guns (pistol, pan) have their own walk, run and idle.
 	var pistol: bool = armed and _cls in ["pistol", "melee"] and ap.has_animation("mx/pidle")
@@ -861,16 +863,78 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_wave -= delta
 		_arm("Right", Vector3(0.45, 1.95 + sin(t * 10.0) * 0.06, -0.1 + sin(t * 10.0) * 0.12), Vector3(1, 0, 0))
 
-## No gun: arms hang by the sides and swing with the steps (the stock
-## animations hold a rifle, so the hands are moved down).
+## No gun: the stock animations all hold a rifle (chest turned, hunched,
+## hands up), so the upper body is straightened and the arms swing freely,
+## each arm going forward with the opposite leg; elbows bend more the
+## faster he goes.
 func _relaxed_arms(speed: float) -> void:
-	var phase := 0.0
-	if ap.current_animation != "" and ap.current_animation_length > 0.0:
-		phase = ap.current_animation_position / ap.current_animation_length * TAU
-	var swing := sin(phase) * 0.18 * clampf(speed / 2.0, 0.0, 1.0)
-	var y := 0.88 + body.position.y
-	_arm("Left", Vector3(-0.3, y, 0.02 - swing), Vector3(0, 0, 1))
-	_arm("Right", Vector3(0.3, y, 0.02 + swing), Vector3(0, 0, 1))
+	var run := clampf((speed - 2.2) / 3.0, 0.0, 1.0)
+	if _anim.begins_with("mx/crouch") or _anim.begins_with("mx/idle_crouch"): run = 0.0
+	_upright_spine(lerpf(0.04, 0.2, run) + (0.08 if sprinting else 0.0))
+	var to_model := _sk_to_model()
+	var lf: Vector3 = to_model * sk.get_bone_global_pose(_bone["LeftFoot"]).origin
+	var rf: Vector3 = to_model * sk.get_bone_global_pose(_bone["RightFoot"]).origin
+	# +1: left foot ahead (right arm forward). The model faces -Z.
+	var stride := clampf((rf.z - lf.z) / 0.55, -1.0, 1.0) * clampf(speed / 1.2, 0.0, 1.0)
+	var amp := lerpf(0.42, 0.72, run)
+	var bend := lerpf(0.3, 1.5, run) + (0.15 if sprinting else 0.0)
+	for side in [["Left", -1.0], ["Right", 1.0]]:
+		var sd: float = side[1]
+		var sh: Vector3 = to_model * sk.get_bone_global_pose(_bone[side[0] + "Arm"]).origin
+		var el: Vector3 = to_model * sk.get_bone_global_pose(_bone[side[0] + "ForeArm"]).origin
+		var hd: Vector3 = to_model * sk.get_bone_global_pose(_bone[side[0] + "Hand"]).origin
+		var a := sh.distance_to(el)
+		var b := el.distance_to(hd)
+		# Shoulder to hand with the elbow bent (law of cosines), angle from straight down.
+		var reach := sqrt(a * a + b * b + 2.0 * a * b * cos(bend))
+		var ang := stride * sd * amp + bend * 0.4
+		var out := 0.12 - run * 0.06 * maxf(0.0, stride * sd)       # forward hand comes in a little
+		var d := Vector3(sd * out, -cos(ang), -sin(ang)).normalized()
+		_arm(side[0], sh + d * reach, Vector3(sd * 0.35, 0.0, 1.0))
+
+## Skeleton space -> model space (works before the model is in the tree).
+func _sk_to_model() -> Transform3D:
+	var t := Transform3D()
+	var n: Node = sk
+	while n != self and n is Node3D:
+		t = (n as Node3D).transform * t
+		n = n.get_parent()
+	return t
+
+## Chest over the hips, facing straight ahead, leaning `lean` radians forward;
+## neck and head back to straight. Spread over the three spine bones.
+func _upright_spine(lean: float) -> void:
+	if not (_bone.has("Spine") and _bone.has("Spine2") and _bone.has("Neck")): return
+	var to_model := _sk_to_model()
+	var to_sk: Basis = to_model.basis.inverse()
+	var want_up := Vector3(0.0, cos(lean), -sin(lean))
+	var bones := ["Spine", "Spine1", "Spine2"]
+	for k in bones.size():
+		if not _bone.has(bones[k]): continue
+		var i: int = _bone[bones[k]]
+		var base: Vector3 = to_model * sk.get_bone_global_pose(_bone["Spine"]).origin
+		var neck: Vector3 = to_model * sk.get_bone_global_pose(_bone["Neck"]).origin
+		var la: Vector3 = to_model * sk.get_bone_global_pose(_bone["LeftArm"]).origin
+		var ra: Vector3 = to_model * sk.get_bone_global_pose(_bone["RightArm"]).origin
+		var up := (neck - base).normalized()
+		var tilt := Quaternion(up, want_up)
+		var right := tilt * (ra - la)
+		right -= want_up * want_up.dot(right)
+		var yaw := 0.0
+		if right.length() > 0.001:
+			var r := right.normalized()
+			yaw = atan2(-r.z, r.x)        # chest turned to the left is positive
+		var fix := Quaternion(want_up, -yaw) * tilt
+		fix = Quaternion.IDENTITY.slerp(fix, 1.0 / float(bones.size() - k))
+		var r_sk := (to_sk * Basis(fix) * to_model.basis).orthonormalized()
+		var gp: Transform3D = sk.get_bone_global_pose(i)
+		var parent_gp: Transform3D = sk.get_bone_global_pose(sk.get_bone_parent(i))
+		sk.set_bone_pose_rotation(i, (parent_gp.basis.inverse() * (r_sk * gp.basis)).get_rotation_quaternion())
+	for bn in ["Neck", "Head"]:
+		if not _bone.has(bn): continue
+		var i: int = _bone[bn]
+		var rest := sk.get_bone_rest(i).basis.get_rotation_quaternion()
+		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i).slerp(rest, 0.8))
 
 func _phase() -> float:
 	if ap.current_animation != "" and ap.current_animation_length > 0.0:
@@ -905,9 +969,15 @@ func _place_gun(pose: String, delta: float) -> void:
 		# Stock in the shoulder, sight in front of the eye.
 		pos = Vector3(0.08, 1.44, -0.24) if not pistol else Vector3(0.03, 1.44, -0.4)
 	else:
-		# Ready: muzzle a little down and inwards.
+		# Ready: muzzle a little down and inwards; lower and across the body
+		# when running (low ready).
 		pos = Vector3(0.12, 1.32, -0.22) if not pistol else Vector3(0.12, 1.15, -0.28)
 		rot = Vector3(-0.22, 0.2, 0.06) if not pistol else Vector3(-0.6, 0.2, 0)
+		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
+		if low > 0.0 and not pistol:
+			pos = pos.lerp(Vector3(0.13, 1.14, -0.24), low)
+			rot = rot.lerp(Vector3(-0.75, 0.5, 0.3), low)
+		pitch_with_aim = low < 0.5
 	if reload_p >= 0.0:
 		# Gun brought in front of the chest and rolled to see the magazine well.
 		var k := sin(clampf(reload_p, 0.0, 1.0) * PI)
