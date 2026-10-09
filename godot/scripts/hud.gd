@@ -65,7 +65,7 @@ func _ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		# Tweens die with their node, so nothing fires after leaving the match.
 		create_tween().tween_callback(show_banner.bind("اضغط Ctrl لإظهار الماوس أو إخفائه")).set_delay(3.2)
-	var wtext: String = {"rain": "الطقس: مطر — الرؤية أقل والأصوات أوطى", "sunset": "الطقس: غروب"}.get(world.weather, "")
+	var wtext: String = {"rain": "الطقس: مطر — الرؤية أقل والأصوات أوطى", "sunset": "الطقس: غروب", "fog": "الطقس: ضباب الصبح — الوديان مغطاية، انتبه"}.get(world.weather, "")
 	if wtext != "":
 		create_tween().tween_callback(show_banner.bind(wtext)).set_delay(6.6)
 

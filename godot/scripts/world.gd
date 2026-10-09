@@ -979,6 +979,7 @@ func _process(delta: float) -> void:
 	if player == null: return
 	time += delta
 	_update_ambience(delta)
+	_update_interior_air(delta)
 	if plane_active:
 		plane_t += delta / plane_dur
 		plane.global_position = plane_position()
@@ -1356,6 +1357,86 @@ func sound_boom(pos: Vector3, volume := 4.0, pitch := 1.0) -> void:
 	else:
 		p.play()
 	p.finished.connect(p.queue_free)
+
+## Inside a building: dusty air (a fog volume the size of the rooms) so the
+## sunlight through the windows shows as shafts, with a few motes drifting.
+var _dust_fog: FogVolume
+var _dust_mat: FogMaterial
+var _motes: CPUParticles3D
+var _air_t := 0.0
+var _air_building := -1
+var dust_density := 0.1
+
+var _vfog_len := -1.0
+
+func _update_interior_air(delta: float) -> void:
+	if builder == null: return
+	_air_t -= delta
+	if _air_t <= 0.0:
+		_air_t = 0.25
+		var vp := view_position()
+		var idx := building_at(Vector2(vp.x, vp.z)) if player.state in ["ground", "dead"] else -1
+		if idx != _air_building:
+			_air_building = idx
+			if idx >= 0 and Game.quality_level() >= 1: _place_dust(island.buildings[idx])
+	var inside := _air_building >= 0
+	# No rain under a roof.
+	if _rain: _rain.visible = not inside
+	if Game.quality_level() < 1: return
+	var env: Environment = builder.env
+	if _vfog_len < 0.0: _vfog_len = env.volumetric_fog_length
+	# Indoors the fog grid is packed into the near metres: sharp light shafts.
+	env.volumetric_fog_length = move_toward(env.volumetric_fog_length, 30.0 if inside else _vfog_len, delta * 120.0)
+	if _dust_mat:
+		# Not in the morning mist: the low sun would light the whole room up white.
+		var want := dust_density if inside and weather != "fog" else 0.0
+		_dust_mat.density = move_toward(_dust_mat.density, want, delta * 0.15)
+		_dust_fog.visible = _dust_mat.density > 0.001
+	if _motes: _motes.emitting = inside
+
+func _place_dust(bl: Dictionary) -> void:
+	var storeys: int = int(bl.get("storeys", 1))
+	var h := WorldBuilder.STOREY_H * storeys
+	var size := Vector3(bl.size.x - 0.3, h, bl.size.y - 0.3)
+	var centre := Vector3(bl.pos.x, float(bl.floor) + h * 0.5, bl.pos.y)
+	if _dust_fog == null:
+		_dust_fog = FogVolume.new()
+		_dust_fog.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+		_dust_mat = FogMaterial.new()
+		_dust_mat.density = 0.0
+		_dust_mat.albedo = Color(1.0, 0.95, 0.86)
+		_dust_mat.edge_fade = 0.15
+		_dust_fog.material = _dust_mat
+		add_child(_dust_fog)
+		_motes = CPUParticles3D.new()
+		_motes.amount = 90
+		_motes.lifetime = 9.0
+		_motes.preprocess = 9.0
+		_motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+		_motes.direction = Vector3.UP
+		_motes.spread = 180.0
+		_motes.initial_velocity_min = 0.01
+		_motes.initial_velocity_max = 0.06
+		_motes.gravity = Vector3(0, -0.005, 0)
+		_motes.scale_amount_min = 0.6
+		_motes.scale_amount_max = 1.4
+		var q := QuadMesh.new()
+		q.size = Vector2(0.012, 0.012)
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		m.albedo_color = Color(1.0, 0.95, 0.85, 0.35)
+		q.material = m
+		_motes.mesh = q
+		_motes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_motes)
+	_dust_fog.size = size
+	_dust_fog.global_position = centre
+	_motes.emission_box_extents = size * 0.5
+	_motes.global_position = centre
+	_motes.restart()
 
 ## Birds and wind in the background: full on the ground outside, quieter
 ## indoors and in a car, gone in the plane and while falling (the rushing

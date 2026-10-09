@@ -57,7 +57,7 @@ var settings := {
 	"sensitivity": 1.0,
 	"sound": true,
 	"difficulty": "normal",
-	"weather": "random",      # "random" | "clear" | "rain" | "sunset"
+	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"
 	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal
 	"invert_y": false,
 	"keys": {},               # action -> physical keycode, only the ones changed
@@ -129,14 +129,14 @@ func apply_keys() -> void:
 		ev.physical_keycode = key(a)
 		InputMap.action_add_event(a, ev)
 
-const WEATHER_NAMES := {"random": "عشوائي", "clear": "صافي", "rain": "مطر", "sunset": "غروب"}
+const WEATHER_NAMES := {"random": "عشوائي", "clear": "صافي", "rain": "مطر", "sunset": "غروب", "fog": "ضباب الصبح"}
 
 ## This match's weather (from the setting, or picked at random).
 func pick_weather() -> String:
 	var w: String = settings.get("weather", "random")
 	if w != "random": return w
 	var r := randf()
-	return "clear" if r < 0.55 else ("rain" if r < 0.78 else "sunset")
+	return "clear" if r < 0.45 else ("rain" if r < 0.65 else ("sunset" if r < 0.82 else "fog"))
 const LOLA := 10            # WARDROBE index of the Lola character (the default look)
 var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA]}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0,

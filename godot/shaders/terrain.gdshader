@@ -31,6 +31,7 @@ uniform sampler2D moss_c : source_color, filter_linear_mipmap_anisotropic, repea
 uniform sampler2D moss_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D concrete_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool use_normals = true;
+uniform float rain_wet = 0.0;      // rain: darker damp ground, shiny roads, puddles in the dips
 
 varying vec3 wpos;
 varying float hgt;
@@ -121,9 +122,23 @@ void fragment() {
 	col = mix(col, wet, w_wet);
 	col = mix(col, asphalt, w_road);
 	col *= 0.85 + 0.3 * n3;     // large-scale colour variation
+	float rough = mix(0.95, 0.8, w_road);
+	float puddle = 0.0;
+	if (rain_wet > 0.0) {
+		// Rain: everything soaks darker (sand less so); flat dips and
+		// worn patches of road hold water that mirrors the sky.
+		float flat_k = smoothstep(0.9, 0.985, wn.y);
+		float dip = smoothstep(0.8, 0.86, 1.0 - texture(noise_b, wpos.xz / 17.0).r) * flat_k * (1.0 - bio.r) * (1.0 - w_rock) * w_dirt;
+		float road_pool = w_road * smoothstep(0.72, 0.78, texture(noise_b, wpos.xz / 11.0 + 0.3).r);
+		puddle = max(dip, road_pool) * rain_wet * (1.0 - w_wet);
+		col *= mix(1.0, 0.6, rain_wet * (1.0 - bio.r * 0.6) * (1.0 - w_sand * 0.5));
+		col = mix(col, col * 0.55 + vec3(0.02, 0.025, 0.03), puddle);
+		rough = mix(rough, 0.4, rain_wet * 0.6);
+		rough = mix(rough, 0.04, puddle);
+	}
 	ALBEDO = col;
-	ROUGHNESS = mix(0.95, 0.8, w_road);
-	SPECULAR = 0.3;
+	ROUGHNESS = rough;
+	SPECULAR = mix(0.3, 0.6, puddle);
 	if (use_normals) {
 		float near = 1.0 - smoothstep(40.0, 140.0, dist);
 		vec2 nb = tnrm(grass_n, wpos.xz, 4.0);
@@ -153,6 +168,14 @@ void fragment() {
 		nz = vec3(nz.xy * 1.4 + wn.xy, abs(nz.z) * wn.z);
 		vec3 tri = normalize(nx.zyx * tw.x + ny.xzy * tw.y + nz.xyz * tw.z);
 		bent = normalize(mix(bent, tri, w_rock * max(near, 0.35)));
+		if (puddle > 0.0) {
+			// Still water: flat, with rings from the raindrops.
+			vec2 rip = (vec2(texture(noise_b, wpos.xz * 1.9 + vec2(TIME * 0.21, TIME * 0.17)).r,
+					texture(noise_b, wpos.zx * 1.7 + vec2(0.37, TIME * 0.23)).r) - 0.5) * 0.14
+				+ (vec2(texture(noise_b, wpos.xz * 3.1 - vec2(TIME * 0.27, TIME * 0.09)).r,
+					texture(noise_b, wpos.zx * 2.9 - vec2(TIME * 0.11, 0.61)).r) - 0.5) * 0.08;
+			bent = normalize(mix(bent, normalize(wn + vec3(rip.x, 0.0, rip.y)), puddle));
+		}
 		NORMAL = normalize((VIEW_MATRIX * vec4(bent, 0.0)).xyz);
 	}
 }

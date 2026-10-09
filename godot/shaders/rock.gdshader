@@ -12,6 +12,7 @@ uniform sampler2D col_sand : source_color, filter_linear_mipmap_anisotropic, rep
 uniform sampler2D nrm_sand : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform sampler2D moss_col : source_color, filter_linear_mipmap, repeat_enable;
 uniform float scale = 0.45;
+uniform float wet = 0.0;          // rain: darker, glistening
 
 varying vec3 wpos;
 varying vec3 wnrm;
@@ -56,6 +57,7 @@ void fragment() {
 	ALBEDO = mix(c, mc, moss);
 	NORMAL_MAP = mix(nm, vec3(0.5, 0.5, 1.0), moss * 0.6);
 	NORMAL_MAP_DEPTH = 1.4;
-	ROUGHNESS = mix(0.88, 0.95, moss);
+	ALBEDO *= mix(1.0, 0.62, wet);
+	ROUGHNESS = mix(mix(0.88, 0.95, moss), 0.35, wet * 0.8);
 	SPECULAR = 0.35;
 }

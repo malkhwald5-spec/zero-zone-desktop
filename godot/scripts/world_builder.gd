@@ -143,6 +143,12 @@ func _environment() -> void:
 		sun.rotation_degrees = Vector3(-11, -70, 0)
 		sun.light_energy = 1.6
 		sun.light_color = Color("ffbe82")
+	elif weather == "fog":
+		# Early morning: low warm sun from the east through the mist.
+		sun.rotation_degrees = Vector3(-14, 110, 0)
+		sun.light_energy = 1.5
+		sun.light_color = Color("ffd2a0")
+		sun.light_volumetric_fog_energy = 1.0
 	elif weather == "rain":
 		# Under the clouds: weak, cool, soft light.
 		sun.rotation_degrees = Vector3(-55, -35, 0)
@@ -153,6 +159,24 @@ func _environment() -> void:
 	if weather == "rain":
 		# The quality presets switch volumetric fog on; keep the rain mist thick.
 		env.volumetric_fog_density = maxf(env.volumetric_fog_density, 0.004)
+	elif weather == "fog":
+		env.volumetric_fog_density = 0.0025
+		if env.volumetric_fog_enabled: _valley_mist()
+
+## Morning mist: a fog volume over the whole map, thick near the ground and
+## fading out by about 25 m up, so valleys fill and hilltops rise out of it.
+func _valley_mist() -> void:
+	var fv := FogVolume.new()
+	fv.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+	fv.size = Vector3(island.size, 40.0, island.size)
+	fv.position = Vector3(island.size * 0.5, 12.0, island.size * 0.5)
+	var fm := FogMaterial.new()
+	fm.density = 0.05
+	fm.height_falloff = 0.14
+	fm.albedo = Color(0.93, 0.92, 0.9)
+	fm.edge_fade = 0.4
+	fv.material = fm
+	root.add_child(fv)
 
 ## Sky, fog and colour for the match's weather.
 func _weather_look(sky_mat: ShaderMaterial) -> void:
@@ -171,6 +195,25 @@ func _weather_look(sky_mat: ShaderMaterial) -> void:
 			env.fog_density = 0.0003
 			env.volumetric_fog_albedo = Color("f0c8a0")
 			env.fog_sun_scatter = 0.35
+		"fog":
+			# Morning mist: thick in the valleys (height fog), thinning up the hills;
+			# the low sun glows through it.
+			sky_mat.set_shader_parameter("energy", 1.0)
+			sky_mat.set_shader_parameter("sun_boost", 1.4)
+			sky_mat.set_shader_parameter("haze", Color(0.86, 0.84, 0.8))
+			sky_mat.set_shader_parameter("haze_amount", 0.75)
+			env.ambient_light_energy = 0.8
+			env.fog_light_color = Color(0.84, 0.83, 0.8)
+			# Far haze is plain distance fog; the mist lying in the valleys is a
+			# volume (see _valley_mist) so it thickens with distance and stays
+			# out of houses.
+			env.fog_density = 0.0021
+			env.fog_aerial_perspective = 0.15
+			env.fog_sun_scatter = 0.3
+			env.fog_sky_affect = 0.35
+			env.volumetric_fog_albedo = Color(0.92, 0.9, 0.86)
+			env.volumetric_fog_anisotropy = 0.5
+			env.adjustment_saturation = 0.95
 		"rain":
 			sky_mat.set_shader_parameter("overcast", 0.92)
 			sky_mat.set_shader_parameter("energy", 0.75)
@@ -197,6 +240,7 @@ func _terrain() -> void:
 	plane.subdivide_depth = Island.N - 2
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
+	mat.set_shader_parameter("rain_wet", 1.0 if weather == "rain" else 0.0)
 	mat.set_shader_parameter("sandrock_c", load("res://assets/nature/rock_sand_col.jpg"))
 	mat.set_shader_parameter("sandrock_n", load("res://assets/nature/rock_sand_nrm.jpg"))
 	mat.set_shader_parameter("heightmap", height_tex)
@@ -1277,6 +1321,7 @@ func _rocks() -> void:
 		mat.set_shader_parameter("col_" + k, load("res://assets/nature/rock_%s_col.jpg" % k))
 		mat.set_shader_parameter("nrm_" + k, load("res://assets/nature/rock_%s_nrm.jpg" % k))
 	mat.set_shader_parameter("moss_col", load("res://assets/textures/moss_col.jpg"))
+	mat.set_shader_parameter("wet", 1.0 if weather == "rain" else 0.0)
 	var meshes := []
 	var disps := ["grey", "dark", "sand", "grey"]
 	for v in ROCK_VARIANTS:

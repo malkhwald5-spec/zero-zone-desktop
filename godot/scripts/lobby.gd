@@ -1236,7 +1236,7 @@ func _page_settings(body: VBoxContainer) -> void:
 	inv.button_pressed = bool(Game.settings.get("invert_y", false))
 	inv.toggled.connect(func(v): Game.settings.invert_y = v)
 	body.add_child(_row("عكس النظر لفوق ولتحت", inv))
-	body.add_child(_row("الطقس بالمباراة", _seg(["random", "clear", "rain", "sunset"], ["عشوائي", "صافي", "مطر", "غروب"], "weather", "settings")))
+	body.add_child(_row("الطقس بالمباراة", _seg(["random", "clear", "rain", "sunset", "fog"], ["عشوائي", "صافي", "مطر", "غروب", "ضباب"], "weather", "settings")))
 	body.add_child(_row("أزرار الكيبورد", _small_btn("تغيير الأزرار", func(): _open("keys"))))
 	var snd := CheckButton.new()
 	snd.button_pressed = bool(Game.settings.sound)
