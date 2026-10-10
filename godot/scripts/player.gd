@@ -995,6 +995,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 		hit = hit2
 		end = hit2.position
 	world.effects.tracer(muzzle, end)
+	world.bullet_glass(muzzle, end)
 	if hit:
 		var col: Object = hit.collider
 		if col and col.has_method("take_damage"):

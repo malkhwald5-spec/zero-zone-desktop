@@ -380,7 +380,8 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, trim: SurfaceTool, body: StaticB
 			_add_box(trim, at.call(mid, y0 - 0.03), box_size.call(u1 - u0 + 0.24, 0.07, WALL_T + 0.26), trim_col.darkened(0.1))
 			_add_box(trim, at.call(mid, (y0 + y1) * 0.5), box_size.call(0.05, y1 - y0, 0.07), trim_col)
 			_add_box(trim, at.call(mid, y0 + (y1 - y0) * 0.62), box_size.call(u1 - u0, 0.05, 0.07), trim_col)
-			_add_box(glass, at.call(mid, (y0 + y1) * 0.5), box_size.call(u1 - u0, y1 - y0, 0.03), Color(0.2, 0.26, 0.3))
+			# The pane itself is its own instance (it can be shot out), see _build_panes.
+			panes.append({"c": _cur_origin + at.call(mid, (y0 + y1) * 0.5), "w": u1 - u0, "h": y1 - y0, "ax": along_x, "b": _cur_bi, "alive": true})
 			if _glass_body:
 				_shape(_glass_body, at.call(mid, (y0 + y1) * 0.5), box_size.call(u1 - u0, y1 - y0, WALL_T))
 	if cur < length: pieces.append([cur, length, 0.0, WALL_H])
@@ -462,6 +463,8 @@ func _buildings() -> void:
 		var node := Node3D.new()
 		node.position = Vector3(b.pos.x, b.floor, b.pos.y)
 		node.name = "Building%d" % bi
+		_cur_origin = node.position
+		_cur_bi = bi
 		bi += 1
 		parent.add_child(node)
 		var body := StaticBody3D.new()
@@ -579,6 +582,7 @@ func _buildings() -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			node.add_child(mi)
+	_build_panes(parent)
 
 ## Furniture pieces: lists of boxes [u, y, d, size_u, size_y, size_d, surface, colour]
 ## with u along the wall, d out from the wall into the room.
@@ -878,6 +882,50 @@ func _structures() -> void:
 					_mesh_box(node, pp + Vector3(0, 0.25, 0.27), Vector3(0.4, 0.3, 0.04), dark)
 					_shape(body, node.transform * pp, Vector3(0.8, 1.7, 0.5))
 				_mesh_box(node, Vector3(0, 0.08, 0), Vector3(10.5, 0.16, 3.0), stone)
+
+# ---------------------------------------------------------------- windows
+## Window panes: {c (world centre), w, h, ax (along x), b, alive, mm, i}.
+## Drawn as instances of one glass box per 512 m chunk so a shot can take one out.
+var panes: Array = []
+var _cur_origin := Vector3.ZERO
+var _cur_bi := 0
+var _glass_tpl: StandardMaterial3D
+
+func _build_panes(parent: Node3D) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.2, 0.26, 0.3).linear_to_srgb()
+	mat.roughness = 0.04
+	mat.metallic_specular = 1.0
+	var box := BoxMesh.new()
+	box.size = Vector3(1, 1, 0.03)
+	box.material = mat
+	var chunks := {}
+	for i in panes.size():
+		var c: Vector3 = panes[i].c
+		var k := Vector2i(floori(c.x / 512.0), floori(c.z / 512.0))
+		if not chunks.has(k): chunks[k] = []
+		chunks[k].append(i)
+	for k in chunks:
+		var list: Array = chunks[k]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = box
+		mm.instance_count = list.size()
+		for j in list.size():
+			var pn: Dictionary = panes[list[j]]
+			mm.set_instance_transform(j, pane_xf(pn))
+			pn.mm = mm
+			pn.i = j
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = 900.0
+		parent.add_child(mmi)
+
+static func pane_xf(pn: Dictionary) -> Transform3D:
+	var b := Basis.from_scale(Vector3(pn.w, pn.h, 1.0))
+	if not pn.ax: b = Basis(Vector3.UP, PI * 0.5) * b
+	return Transform3D(b, pn.c)
 
 # ---------------------------------------------------------------- doors
 ## House doors on hinges: {pivot, open, t (0 shut .. 1 open), target, swing

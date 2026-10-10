@@ -961,6 +961,78 @@ func _process(delta: float) -> void:
 
 var _gov_t := 0.0
 var _gov_frames := 0
+# ---------- Windows ----------
+var _pane_grid := {}            # Vector2i (16 m cell) -> Array of pane indices
+
+func _pane_cells() -> void:
+	for i in builder.panes.size():
+		var c: Vector3 = builder.panes[i].c
+		var k := Vector2i(floori(c.x / CELL), floori(c.z / CELL))
+		if not _pane_grid.has(k): _pane_grid[k] = []
+		_pane_grid[k].append(i)
+
+## A shot from `a` to `b`: every window pane it passes through shatters
+## (glass does not stop bullets). Only near the camera, where it can be seen.
+func bullet_glass(a: Vector3, b: Vector3) -> void:
+	if builder.panes.is_empty(): return
+	if _pane_grid.is_empty(): _pane_cells()
+	var v := view_position()
+	if a.distance_to(v) > 350.0 and b.distance_to(v) > 350.0: return
+	var seen := {}
+	var length := a.distance_to(b)
+	var n := int(length / 6.0) + 1
+	for s in n + 1:
+		var p := a.lerp(b, float(s) / n)
+		var k := Vector2i(floori(p.x / CELL), floori(p.z / CELL))
+		if seen.has(k): continue
+		seen[k] = true
+		for i in _pane_grid.get(k, []):
+			var pn: Dictionary = builder.panes[i]
+			if not pn.alive: continue
+			var c: Vector3 = pn.c
+			var t: float
+			if pn.ax:
+				if absf(b.z - a.z) < 0.0001: continue
+				t = (c.z - a.z) / (b.z - a.z)
+			else:
+				if absf(b.x - a.x) < 0.0001: continue
+				t = (c.x - a.x) / (b.x - a.x)
+			if t < 0.0 or t > 1.0: continue
+			var q := a.lerp(b, t)
+			var du := absf(q.x - c.x) if pn.ax else absf(q.z - c.z)
+			if du < pn.w * 0.5 and absf(q.y - c.y) < pn.h * 0.5:
+				break_pane(pn, b - a)
+
+func break_pane(pn: Dictionary, dir: Vector3) -> void:
+	if not pn.alive: return
+	pn.alive = false
+	pn.mm.set_instance_transform(pn.i, Transform3D(Basis.from_scale(Vector3.ONE * 0.0001), pn.c))
+	effects.glass_shatter(pn.c, dir.normalized(), Vector2(pn.w, pn.h), pn.ax)
+	if Game.settings.sound and _snd.has("glass_break") and pn.c.distance_to(view_position()) < 70.0:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = _snd["glass_break"]
+		p.unit_size = 5.0
+		p.max_distance = 70.0
+		p.volume_db = -2.0
+		p.pitch_scale = randf_range(0.9, 1.12)
+		p.bus = _bus_at(pn.c)
+		add_child(p)
+		p.global_position = pn.c
+		p.play()
+		p.finished.connect(p.queue_free)
+
+## Panes within r metres of a blast.
+func blast_glass(pos: Vector3, r: float) -> void:
+	if builder.panes.is_empty(): return
+	if _pane_grid.is_empty(): _pane_cells()
+	var k := Vector2i(floori(pos.x / CELL), floori(pos.z / CELL))
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			for i in _pane_grid.get(k + Vector2i(dx, dz), []):
+				var pn: Dictionary = builder.panes[i]
+				if pn.alive and pn.c.distance_to(pos) < r:
+					break_pane(pn, pn.c - pos)
+
 # ---------- Doors ----------
 var _door_grid := {}            # Vector2i (16 m cell) -> Array of door indices
 var _door_moving: Array = []    # doors swinging right now
@@ -1230,6 +1302,7 @@ func explode(pos: Vector3, thrower: Node, exclude: Array = []) -> void:
 	pos.y = maxf(pos.y, ground_height(pos) + 0.3)   # never start inside a slope
 	effects.explosion(pos)
 	sound_boom(pos)
+	blast_glass(pos, 7.0)
 	if birds: birds.on_noise(pos)
 	var space := get_world_3d().direct_space_state
 	for a in actors():
@@ -1622,7 +1695,7 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"step_sand_1", "step_sand_2", "step_sand_3", "step_sand_4", "step_sand_5", "step_sand_6",
 	"step_water_1", "step_water_2", "step_water_3", "step_water_4",
 	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2",
-	"shot_sniper", "shot_sniper_b", "shot_sniper_far", "door_open", "door_close"]
+	"shot_sniper", "shot_sniper_b", "shot_sniper_far", "door_open", "door_close", "glass_break"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due

@@ -792,6 +792,7 @@ func _shoot(e: Node3D) -> void:
 		q.exclude = [get_rid()]
 		var hit := get_world_3d().direct_space_state.intersect_ray(q)
 		var end: Vector3 = hit.position if hit else origin + dir * range_m
+		if i == 0: world.bullet_glass(origin, end)
 		if i == 0 and hit.get("collider") != world.player and world.player.state != "dead":
 			# Bullet passing within a few metres of the player's head: whizz.
 			var head: Vector3 = world.player.global_position + Vector3(0, 1.5, 0)

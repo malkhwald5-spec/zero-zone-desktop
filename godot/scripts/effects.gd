@@ -83,6 +83,42 @@ func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
 			_puff_budget -= 1.0
 			_dust_puff(pos, normal)
 
+var _shard_mesh: BoxMesh
+
+## A window pane bursting: glittering shards thrown along the shot and falling.
+func glass_shatter(pos: Vector3, dir: Vector3, size: Vector2, along_x: bool) -> void:
+	if not _near_view(pos): return
+	if _shard_mesh == null:
+		_shard_mesh = BoxMesh.new()
+		_shard_mesh.size = Vector3(1, 1, 0.1)
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.8, 0.9, 0.95, 0.75)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.metallic_specular = 1.0
+		m.roughness = 0.05
+		_shard_mesh.material = m
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = true
+	p.amount = 40
+	p.lifetime = 1.4
+	p.explosiveness = 0.95
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	p.emission_box_extents = Vector3(size.x * 0.5, size.y * 0.5, 0.02) if along_x else Vector3(0.02, size.y * 0.5, size.x * 0.5)
+	p.direction = dir if dir.length() > 0.01 else Vector3.UP
+	p.spread = 35.0
+	p.initial_velocity_min = 0.8
+	p.initial_velocity_max = 3.2
+	p.gravity = Vector3(0, -9.8, 0)
+	p.angular_velocity_min = -400.0
+	p.angular_velocity_max = 400.0
+	p.scale_amount_min = 0.03
+	p.scale_amount_max = 0.1
+	p.mesh = _shard_mesh
+	add_child(p)
+	p.global_position = pos
+	p.create_tween().tween_callback(p.queue_free).set_delay(2.0)
+
 func _process(delta: float) -> void:
 	_puff_budget = minf(12.0, _puff_budget + delta * 12.0)
 
