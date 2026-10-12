@@ -811,7 +811,7 @@ func _shoot(e: Node3D) -> void:
 		elif hit and not far and i == 0:
 			world.effects.impact(end, hit.normal, false)
 	if global_position.distance_to(world.view_position()) < 700.0:
-		world.sound_shot(w.cls, global_position, false)
+		world.sound_shot(w.cls, global_position, false, false, weapon_id)
 	world.notify_shot(global_position, self)
 	if mag == 0 and reserve > 0:
 		reload_t = w.reload

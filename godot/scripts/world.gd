@@ -1695,15 +1695,22 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"step_sand_1", "step_sand_2", "step_sand_3", "step_sand_4", "step_sand_5", "step_sand_6",
 	"step_water_1", "step_water_2", "step_water_3", "step_water_4",
 	"explosion", "engine_start", "engine_loop", "ambience", "shot_pistol", "shot_shotgun", "shotgun_pump", "shot_far_2",
-	"shot_sniper", "shot_sniper_b", "shot_sniper_far", "door_open", "door_close", "glass_break"]
+	"shot_sniper", "shot_sniper_b", "shot_sniper_far", "door_open", "door_close", "glass_break",
+	"shot_m4_1", "shot_m4_2", "shot_m4_3", "shot_smg_1", "shot_smg_2", "shot_smg_3", "smg_tail",
+	"shot_lmg_1", "shot_lmg_2", "shot_lmg_3", "lmg_tail", "shot_shotgun_b", "shotgun_pump_b",
+	"shot_pistol_b", "shot_pistol_c", "shot_sniper_c", "far_ak_1", "far_ak_2", "far_ak_3",
+	"far_smg_1", "far_smg_2", "far_smg_3"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
+var _auto_tail := "auto_tail"
+## Rifles that sound like the M4 recording (the rest of the ARs keep the AK).
+const M4_GUNS := ["m416", "scar"]
 const SHOT_PITCH := {"pistol": 1.25, "smg": 1.15, "shotgun": 0.8, "ar": 1.0, "sr": 0.82, "lmg": 0.95, "dmr": 0.92}
 const SPEED_OF_SOUND := 343.0
 var _snd := {}
 
-func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> void:
+func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false, gun := "") -> void:
 	if not Game.settings.sound: return
 	var d := pos.distance_to(view_position())
 	# Cap how many play at once; past ~700 m nothing is heard anyway, and a
@@ -1725,20 +1732,42 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 		# A sniper far away: a long rolling boom.
 		pick = "shot_sniper_far"
 		pitch = randf_range(0.94, 1.04)
+	elif far and cls in AUTO_CLASSES and randf() < 0.6:
+		# Automatic fire far away, recorded from down the block.
+		pick = ("far_smg_%d" if cls == "smg" else "far_ak_%d") % (randi() % 3 + 1)
+		pitch = randf_range(0.95, 1.05)
 	elif far:
 		var r0 := randf()
 		pick = "shot_far" if r0 < 0.35 else ("shot_far_2" if r0 < 0.65 else ["far_crack_1", "far_crack_2", "far_crack_3"][randi() % 3])
 	elif sniper:
 		# Bolt-action rifles have their own heavy recordings.
-		pick = "shot_sniper" if randf() < 0.6 else "shot_sniper_b"
+		var r1 := randf()
+		pick = "shot_sniper" if r1 < 0.4 else ("shot_sniper_b" if r1 < 0.7 else "shot_sniper_c")
 		pitch = randf_range(0.97, 1.03)
-	elif cls == "pistol" or cls == "shotgun":
-		# Their own recordings, at their natural pitch.
-		pick = "shot_" + cls
+	elif cls == "pistol":
+		pick = ["shot_pistol", "shot_pistol_b", "shot_pistol_c"][randi() % 3]
 		pitch = randf_range(0.97, 1.03)
+	elif cls == "shotgun":
+		# A heavy layered blast, a little lower so it booms.
+		pick = "shot_shotgun_b" if randf() < 0.7 else "shot_shotgun"
+		pitch = randf_range(0.9, 0.96) if pick == "shot_shotgun_b" else randf_range(0.97, 1.03)
+	elif cls in ["smg", "lmg"]:
+		# Their own recordings: the light rattle of an SMG, the heavy machine gun.
+		pick = "shot_%s_%d" % [cls, randi() % 3 + 1]
+		pitch = randf_range(0.97, 1.03)
+		if own:
+			_auto_tail = cls + "_tail"
+			_auto_tail_at = Time.get_ticks_msec() / 1000.0 + 0.16
+	elif gun in M4_GUNS:
+		pick = "shot_m4_%d" % (randi() % 3 + 1)
+		pitch = randf_range(0.97, 1.03)
+		if own:
+			_auto_tail = "auto_tail"
+			_auto_tail_at = Time.get_ticks_msec() / 1000.0 + 0.16
 	elif own and cls in AUTO_CLASSES:
 		# Your automatic gun: short dry cracks; the echo plays when you let go.
 		pick = "auto_%d" % (randi() % 4 + 1)
+		_auto_tail = "auto_tail"
 		_auto_tail_at = Time.get_ticks_msec() / 1000.0 + 0.16
 	else:
 		var r := randf()
@@ -1759,7 +1788,7 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 		if cls == "sr":
 			sound_local("bolt_cycle", 0.35)
 		elif cls == "shotgun":
-			sound_local("shotgun_pump", 0.45, 1.0, -6.0)
+			sound_local("shotgun_pump_b" if randf() < 0.6 else "shotgun_pump", 0.45, 1.0, -6.0)
 	else:
 		var p3 := AudioStreamPlayer3D.new()
 		p3.bus = _bus_at(pos)
@@ -1786,7 +1815,7 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false) -> vo
 func _update_auto_tail() -> void:
 	if _auto_tail_at > 0.0 and Time.get_ticks_msec() / 1000.0 > _auto_tail_at:
 		_auto_tail_at = -1.0
-		sound_local("auto_tail", 0.0, 1.0, -2.0)
+		sound_local(_auto_tail, 0.0, 1.0, -2.0)
 
 ## What the ground under a point sounds like.
 ## What the ground is made of: "wood" (house floors), "concrete" (roads,

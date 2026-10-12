@@ -933,7 +933,7 @@ func _try_fire() -> void:
 	model.recoil = 1.0
 	var quiet: bool = w.get("suppressed", false) or w.get("silent", false)
 	if not quiet: world.effects.muzzle_flash(model.muzzle_position())
-	world.sound_shot(w.cls, global_position, true, quiet)
+	world.sound_shot(w.cls, global_position, true, quiet, slots[active].id)
 	world.notify_shot(global_position, self, quiet)
 	if s.mag == 0:
 		start_reload()
