@@ -766,6 +766,32 @@ func _trim_mat() -> StandardMaterial3D:
 	return _trim_mat_cache
 
 # ---------- Containers, silos, chimneys, water towers, hay, gas stations ----------
+static var _bld_cache := {}
+
+## [mesh, height]: a model building scaled to its footprint (Island.MODEL_BUILDINGS),
+## centred, its base 25 cm below 0.
+static func _model_building(kind: String) -> Array:
+	if _bld_cache.has(kind): return _bld_cache[kind]
+	var file: String = {"bld_house": "house_us", "bld_shed": "shed", "bld_tenement": "tenement", "bld_tower": "tower"}[kind]
+	var sc: Node3D = load("res://assets/models/buildings/%s.glb" % file).instantiate()
+	var src: Mesh = null
+	for m: MeshInstance3D in sc.find_children("*", "MeshInstance3D", true, false):
+		if m.mesh: src = m.mesh
+	var a := src.get_aabb()
+	var fp: Vector2 = Island.MODEL_BUILDINGS[kind]
+	var k := fp.x / a.size.x
+	var xf := Transform3D(Basis.from_scale(Vector3.ONE * k), Vector3(-a.get_center().x * k, -a.position.y * k - 0.25, -a.get_center().z * k))
+	var mesh := ArrayMesh.new()
+	for i in src.get_surface_count():
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.append_from(src, i, xf)
+		st.set_material(src.surface_get_material(i))
+		st.commit(mesh)
+	sc.free()
+	_bld_cache[kind] = [mesh, a.size.y * k]
+	return _bld_cache[kind]
+
 func _structures() -> void:
 	var parent := Node3D.new()
 	parent.name = "Structures"
@@ -800,6 +826,17 @@ func _structures() -> void:
 		node.position = Vector3(p2.x, g, p2.y)
 		parent.add_child(node)
 		match st.kind:
+			"bld_house", "bld_shed", "bld_tenement", "bld_tower":
+				# Model building, turned in quarter turns, sitting a little into
+				# the ground; one solid box to bump into.
+				var bm: Array = _model_building(st.kind)
+				var mi := MeshInstance3D.new()
+				mi.mesh = bm[0]
+				mi.rotation.y = int(st.rot) * PI * 0.5
+				mi.visibility_range_end = 1600.0
+				node.add_child(mi)
+				var sh: Vector2 = st.half
+				_shape(body, node.position + Vector3(0, bm[1] * 0.5, 0), Vector3(sh.x * 2.0 - 0.3, bm[1], sh.y * 2.0 - 0.3))
 			"container":
 				var size := Vector3(6.06, 2.59, 2.44)
 				var y: float = 2.59 * st.level + 1.295

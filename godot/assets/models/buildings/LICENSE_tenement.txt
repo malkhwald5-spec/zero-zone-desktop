@@ -1,0 +1,11 @@
+Model Information:
+* title:	Low-poly Modular Building Tenement House
+* source:	https://sketchfab.com/3d-models/low-poly-modular-building-tenement-house-c579c4f421f94574b98e7eba7cd5f2a8
+* author:	Orzechu (https://sketchfab.com/Orzechu)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Low-poly Modular Building Tenement House" (https://sketchfab.com/3d-models/low-poly-modular-building-tenement-house-c579c4f421f94574b98e7eba7cd5f2a8) by Orzechu (https://sketchfab.com/Orzechu) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

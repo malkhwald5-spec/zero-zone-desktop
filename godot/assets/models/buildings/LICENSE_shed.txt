@@ -1,0 +1,11 @@
+Model Information:
+* title:	Low Poly Portuguese Warehouse
+* source:	https://sketchfab.com/3d-models/low-poly-portuguese-warehouse-d2dc18ccd95745f695f634e6ab937109
+* author:	lexferreira89 (https://sketchfab.com/lexferreira89)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Low Poly Portuguese Warehouse" (https://sketchfab.com/3d-models/low-poly-portuguese-warehouse-d2dc18ccd95745f695f634e6ab937109) by lexferreira89 (https://sketchfab.com/lexferreira89) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

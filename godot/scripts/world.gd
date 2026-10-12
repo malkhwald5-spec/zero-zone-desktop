@@ -674,7 +674,14 @@ func _build_cover() -> void:
 				if cx == 0.0 and cz == 0.0: continue
 				add.call(b.pos + Vector2(cx * h.x, cz * h.y), minf(h.x, h.y) * 0.5)
 	for s in island.structures:
-		add.call(s.pos, 1.6)
+		if s.has("half"):
+			# Big model buildings: cover at their corners and sides.
+			var sh: Vector2 = s.half
+			for cx in [-1.0, 0.0, 1.0]:
+				for cz in [-1.0, 0.0, 1.0]:
+					if cx != 0.0 or cz != 0.0: add.call(s.pos + Vector2(cx * sh.x, cz * sh.y), 1.5)
+		else:
+			add.call(s.pos, 1.6)
 
 ## A spot behind something solid, away from `threat`, within `reach` metres
 ## of `from` (Vector3.INF if none). Checked with a ray from the threat's eyes.

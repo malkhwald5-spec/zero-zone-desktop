@@ -1,0 +1,11 @@
+Model Information:
+* title:	Realistic Tiling Apartment Building low-poly
+* source:	https://sketchfab.com/3d-models/realistic-tiling-apartment-building-low-poly-12dc03948fd24f23af477cc8e5445353
+* author:	kyantoran (https://sketchfab.com/kyantoran)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Realistic Tiling Apartment Building low-poly" (https://sketchfab.com/3d-models/realistic-tiling-apartment-building-low-poly-12dc03948fd24f23af477cc8e5445353) by kyantoran (https://sketchfab.com/kyantoran) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

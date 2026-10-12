@@ -529,6 +529,7 @@ func _buildings() -> void:
 			var storeys := 2 if not t.military and sz.x >= 10.0 and sz.y >= 8.5 and rng.randf() < 0.45 else 1
 			_add_building(c, sz, t.military, storeys)
 			placed += 1
+	_model_buildings()
 	_gas_stations()
 	_windmills()
 	# Lone houses in the countryside.
@@ -549,6 +550,29 @@ func _buildings() -> void:
 		if near_road(c, 10.0): continue
 		_add_building(c, sz, false)
 		lone += 1
+
+## Buildings from Sketchfab models (see README; solid, not enterable): a
+## house and a storehouse in every town, an apartment block in the bigger
+## ones. Footprint in metres as drawn (world_builder scales the models to it).
+const MODEL_BUILDINGS := {"bld_house": Vector2(9.7, 7.8), "bld_shed": Vector2(13.9, 7.9),
+	"bld_tenement": Vector2(20.9, 45.3), "bld_tower": Vector2(17.7, 21.6)}
+
+func _model_buildings() -> void:
+	for t in towns:
+		if t.military or t.get("kind", "town") != "town": continue
+		var want := ["bld_house", "bld_shed"]
+		if float(t.r) >= 100.0: want.append("bld_tenement" if rng.randf() < 0.5 else "bld_tower")
+		for kind in want:
+			for attempt in 80:
+				var rot := rng.randi_range(0, 3)
+				var fp: Vector2 = MODEL_BUILDINGS[kind]
+				var half := (fp if rot % 2 == 0 else Vector2(fp.y, fp.x)) * 0.5
+				var c: Vector2 = t.pos + Vector2(rng.randf_range(float(t.r) * 0.3, float(t.r) * 1.1), 0).rotated(rng.randf() * TAU)
+				if not _land_around(c, half.length() + 2.0): continue
+				if _overlaps(c, half, 6.0) or near_road(c, half.length() + 2.0): continue
+				flatten(c, half, 10.0, maxf(1.6, height_at(c.x, c.y)))
+				_structure(kind, c, half, {"rot": rot, "half": half})
+				break
 
 ## Windmills (as on the small flowery map): one by each farm and a few more
 ## on open plains hills, among the lupine fields.
