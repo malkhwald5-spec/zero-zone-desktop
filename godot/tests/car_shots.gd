@@ -35,7 +35,7 @@ func _run() -> void:
 	for b in world.bots: b.set_physics_process(false)
 	var cam := Camera3D.new()
 	world.add_child(cam)
-	for kind in ["sedan", "jeep"]:
+	for kind in ["sedan", "jeep", "bike", "boat"]:
 		var car: Vehicle = null
 		for v in world.vehicles:
 			if v.kind == kind: car = v; break
@@ -51,9 +51,26 @@ func _run() -> void:
 		cam.look_at_from_position(tf * Vector3(-3.8, 1.9, -4.2), tf * Vector3(0, 0.8, 0))
 		await wait(0.3)
 		await shot("car_%s_back" % kind)
+	# Seated in the jeep and on the bike, seen from the side.
+	p.jump_from_plane()
+	for kind in ["jeep", "bike"]:
+		var v: Vehicle = null
+		for vv in world.vehicles:
+			if vv.kind == kind: v = vv; break
+		if v == null: continue
+		p.global_position = v.global_position + Vector3(2, 0.5, 0)
+		p._land()
+		p.enter_vehicle(v)
+		await wait(1.0)
+		var tv: Transform3D = v.global_transform
+		cam.current = true
+		cam.look_at_from_position(tv * Vector3(-4.5, 1.4, 0.6), tv * Vector3(0, 0.9, 0))
+		await wait(0.3)
+		await shot("seat_%s" % kind)
+		p.exit_vehicle()
+		await wait(0.5)
 	# Drive the first car.
 	var car2: Vehicle = world.vehicles[0]
-	p.jump_from_plane()
 	p.global_position = car2.global_position + Vector3(2, 0.5, 0)
 	p._land()
 	p.enter_vehicle(car2)

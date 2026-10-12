@@ -1,0 +1,11 @@
+Model Information:
+* title:	2 stroke dirt-bike
+* source:	https://sketchfab.com/3d-models/2-stroke-dirt-bike-703c2391f70c47bea4f86412c8b4738b
+* author:	moto man 135 (https://sketchfab.com/csharp122705)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "2 stroke dirt-bike" (https://sketchfab.com/3d-models/2-stroke-dirt-bike-703c2391f70c47bea4f86412c8b4738b) by moto man 135 (https://sketchfab.com/csharp122705) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -1,0 +1,11 @@
+Model Information:
+* title:	Uaz-469
+* source:	https://sketchfab.com/3d-models/uaz-469-70c8691c6fb64b859fbfc16babfa2c5f
+* author:	Yo.Ri (https://sketchfab.com/grox777)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Uaz-469" (https://sketchfab.com/3d-models/uaz-469-70c8691c6fb64b859fbfc16babfa2c5f) by Yo.Ri (https://sketchfab.com/grox777) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

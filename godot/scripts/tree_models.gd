@@ -290,3 +290,32 @@ static func _commit(sts: Array) -> ArrayMesh:
 		st.index()
 		st.commit(mesh)
 	return mesh
+
+## Trees from Sketchfab packs (CC-BY, see README), cut out and baked by
+## tools into assets/models/trees/<name>.glb: base at the origin, 10 m tall
+## (the sakura 7 m), one surface per material, leaves alpha-tested.
+static var _imported := {}
+static func imported(name: String) -> ArrayMesh:
+	if _imported.has(name): return _imported[name]
+	var sc: Node3D = load("res://assets/models/trees/%s.glb" % name).instantiate()
+	var by_mat := {}
+	var flat := SurfaceTool.new()
+	flat.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_flat := [false]
+	WeaponModels._merge_fitted(sc, Transform3D.IDENTITY, by_mat, flat, has_flat)
+	var mesh := ArrayMesh.new()
+	CarModels._commit_merged(mesh, by_mat, flat, has_flat[0])
+	for i in mesh.get_surface_count():
+		var m := mesh.surface_get_material(i) as BaseMaterial3D
+		if m and m.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+			# Leaves: cut-out (at the model's own cutoff), lit from behind too.
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			m.cull_mode = BaseMaterial3D.CULL_DISABLED
+			m.backlight_enabled = true
+			m.backlight = Color(0.25, 0.3, 0.15)
+		if m: m.roughness = 0.85
+		if m and name.begins_with("palm") and m.resource_name == "Bark":
+			m.albedo_color = Color("b8a184")      # the atlas bark is nearly white
+	sc.free()
+	_imported[name] = mesh
+	return mesh

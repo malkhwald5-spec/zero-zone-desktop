@@ -1379,25 +1379,13 @@ func _trees() -> void:
 	leafy_mesh.surface_set_material(0, fol)
 
 	# Trees go into 256 m chunks so the renderer can cull whole chunks off screen.
-	# Near chunks use the detailed trees (real trunk, branches and photo leaf
-	# cards); far chunks swap to the cheap solid crowns.
+	# Near chunks use the detailed tree models; far chunks swap to the cheap
+	# solid crowns.
 	pine_mesh = _with_lods(pine_mesh)
 	leafy_mesh = _with_lods(leafy_mesh)
 	var near_d: float = [160.0, 240.0, 320.0, 450.0, 650.0][Game.quality_level()] * Game.view_k()
 	var bark_mat := trunk_mat.duplicate() as StandardMaterial3D
 	bark_mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
-	var leaf_mat := ShaderMaterial.new()
-	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
-	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
-	leaf_mat.set_shader_parameter("sway", wind())
-	var palm_bark := bark_mat.duplicate() as StandardMaterial3D
-	palm_bark.albedo_color = Color("c9b28c")
-	palm_bark.uv1_scale = Vector3(1.0, 3.0, 1.0)
-	var frond_mat := ShaderMaterial.new()
-	frond_mat.shader = load("res://shaders/leaf_card.gdshader")
-	frond_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/palm_frond.png"))
-	frond_mat.set_shader_parameter("translucency", 0.45)
-	frond_mat.set_shader_parameter("sway", 1.4 * wind())
 	var cactus_mat := StandardMaterial3D.new()
 	cactus_mat.albedo_color = Color("7d9a58")
 	cactus_mat.albedo_texture = load("res://assets/textures/moss_col.jpg")
@@ -1407,25 +1395,25 @@ func _trees() -> void:
 	cactus_mat.rim = 0.25
 	cactus_mat.rim_tint = 0.6
 	cactus_mat.vertex_color_use_as_albedo = false
-	var needle_mat := ShaderMaterial.new()
-	needle_mat.shader = load("res://shaders/leaf_card.gdshader")
-	needle_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/pine_branch.png"))
-	needle_mat.set_shader_parameter("translucency", 0.3)
-	needle_mat.set_shader_parameter("sway", 0.6 * wind())
+	# Near trees: spruces from the forest pack (and some firs) in the north,
+	# palms in the south, leafy trees with a few autumn ones and sakura.
+	var leaf_mat := ShaderMaterial.new()
+	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
+	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
+	leaf_mat.set_shader_parameter("sway", wind())
 	var near_meshes := {}
 	for v in 2:
 		var bl := TreeModels.broadleaf(3 + v * 17)
 		bl.surface_set_material(0, bark_mat)
 		bl.surface_set_material(1, leaf_mat)
 		near_meshes["bl%d" % v] = bl
-		var pn := TreeModels.pine(5 + v * 23)
-		pn.surface_set_material(0, bark_mat)
-		pn.surface_set_material(1, needle_mat)
-		near_meshes["pn%d" % v] = pn
-		var pm := TreeModels.palm(7 + v * 31)
-		pm.surface_set_material(0, palm_bark)
-		pm.surface_set_material(1, frond_mat)
-		near_meshes["pm%d" % v] = pm
+	near_meshes["pn0"] = _with_lods(TreeModels.imported("broad_b"))
+	near_meshes["pn1"] = _with_lods(TreeModels.imported("broad_a"))
+	near_meshes["fr0"] = _with_lods(TreeModels.imported("fir"))
+	near_meshes["pm0"] = _with_lods(TreeModels.imported("palm_a"))
+	near_meshes["pm1"] = _with_lods(TreeModels.imported("palm_b"))
+	near_meshes["au0"] = _with_lods(TreeModels.imported("broad_c"))
+	near_meshes["sk0"] = _with_lods(TreeModels.imported("sakura"))
 	# Cactus and dead trees are simple: the same mesh near and far.
 	var mid_meshes := {}
 	for v in 2:
@@ -1448,7 +1436,7 @@ func _trees() -> void:
 	for t in island.trees:
 		var key := Vector2i(int(t.pos.x / 256.0), int(t.pos.y / 256.0))
 		if not chunks.has(key):
-			chunks[key] = {"trunk": [], "pine": [], "leaf": [], "bl0": [], "bl1": [], "pn0": [], "pn1": [], "pm0": [], "pm1": [], "ca0": [], "ca1": [], "dd0": []}
+			chunks[key] = {"trunk": [], "pine": [], "leaf": [], "bl0": [], "bl1": [], "pn0": [], "pn1": [], "pm0": [], "pm1": [], "sk0": [], "au0": [], "fr0": [], "ca0": [], "ca1": [], "dd0": []}
 		var ch: Dictionary = chunks[key]
 		if not bodies.has(key):
 			var bb := StaticBody3D.new()
@@ -1494,11 +1482,15 @@ func _trees() -> void:
 		if t.pine:
 			var w := h * (0.55 + fmod(t.shade * 13.0, 1.0) * 0.15)
 			ch.pine.append([Transform3D(rot.scaled(Vector3(w, h * 0.85, w)), p + Vector3(0, h * 0.18, 0)), pine_cols[int(t.shade * 7) % 4]])
-			ch["pn%d" % variant].append([near_x, tint])
+			ch["fr0" if fmod(t.shade * 41.0, 1.0) < 0.2 else "pn%d" % variant].append([near_x, tint])
 		else:
 			var w := h * (0.62 + fmod(t.shade * 7.0, 1.0) * 0.2)
-			ch.leaf.append([Transform3D(rot.scaled(Vector3(w, w * 0.85, w)), p + Vector3(0, h * 0.68, 0)), leaf_cols[int(t.shade * 11) % 5]])
-			ch["bl%d" % variant].append([near_x, tint])
+			# One leafy tree in 30 is a sakura in bloom, one in 10 in autumn colours.
+			var pick := fmod(t.shade * 53.0, 1.0)
+			var nk := "sk0" if pick < 0.033 else ("au0" if pick < 0.13 else "bl%d" % variant)
+			var far_col: Color = {"sk0": Color("d9a0b8"), "au0": Color("9a6a2a")}.get(nk, leaf_cols[int(t.shade * 11) % 5])
+			ch.leaf.append([Transform3D(rot.scaled(Vector3(w, w * 0.85, w)), p + Vector3(0, h * 0.68, 0)), far_col])
+			ch[nk].append([near_x, tint])
 		var cs := CollisionShape3D.new()
 		var cyl := CylinderShape3D.new()
 		cyl.radius = t.r + 0.1

@@ -58,34 +58,45 @@ func _ready() -> void:
 	angular_damp = 1.2
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(1.8, 0.7 if kind == "sedan" else 0.75, 4.2)
+	box.size = Vector3(1.8, 0.7, 4.2) if kind == "sedan" else Vector3(1.75, 0.85, 4.05)
 	cs.shape = box
-	cs.position.y = 0.72 if kind == "sedan" else 0.92
+	cs.position.y = 0.72 if kind == "sedan" else 0.86
 	add_child(cs)
 	var cab := CollisionShape3D.new()
 	var cbox := BoxShape3D.new()
-	cbox.size = Vector3(1.5, 0.45, 2.3) if kind == "sedan" else Vector3(1.6, 0.6, 1.3)
+	cbox.size = Vector3(1.5, 0.45, 2.3) if kind == "sedan" else Vector3(1.7, 0.8, 2.6)
 	cab.shape = cbox
-	cab.position = Vector3(0, 1.25, -0.35) if kind == "sedan" else Vector3(0, 1.55, -0.1)
+	cab.position = Vector3(0, 1.25, -0.35) if kind == "sedan" else Vector3(0, 1.7, -0.7)
 	add_child(cab)
 	_build_model()
-	for x in [-0.82, 0.82]:
-		for z in [-1.35, 1.35]:
-			var w := VehicleWheel3D.new()
-			w.position = Vector3(x, 0.5, z)
-			w.wheel_radius = 0.38
-			if kind == "jeep": w.position.y = 0.55
-			w.wheel_rest_length = 0.18
-			w.suspension_travel = 0.22
-			w.suspension_stiffness = 45.0
-			w.suspension_max_force = 9000.0
-			w.damping_compression = 0.9
-			w.damping_relaxation = 1.1
-			w.wheel_friction_slip = 2.6
-			w.wheel_roll_influence = 0.08
-			w.use_as_steering = z > 0.0          # front wheels (car faces +Z)
-			w.use_as_traction = true
-			add_child(w)
+	# Wheel spots: the imported jeep's own wheels, else four at the corners.
+	var spots := []
+	if kind == "jeep":
+		for iw in CarModels.imported("jeep").wheels: spots.append(iw)
+	else:
+		for x in [-0.82, 0.82]:
+			for z in [-1.35, 1.35]: spots.append([null, Vector3(x, 0.5 - 0.18, z)])
+	for spot in spots:
+		var c: Vector3 = spot[1]
+		var w := VehicleWheel3D.new()
+		w.position = c + Vector3(0, 0.18, 0)
+		w.wheel_radius = CarModels.imported("jeep").radius if spot[0] else 0.38
+		w.wheel_rest_length = 0.18
+		w.suspension_travel = 0.22
+		w.suspension_stiffness = 45.0
+		w.suspension_max_force = 9000.0
+		w.damping_compression = 0.9
+		w.damping_relaxation = 1.1
+		w.wheel_friction_slip = 2.6
+		w.wheel_roll_influence = 0.08
+		w.use_as_steering = c.z > 0.0          # front wheels (car faces +Z)
+		w.use_as_traction = true
+		add_child(w)
+		if spot[0]:
+			var im := MeshInstance3D.new()
+			im.mesh = spot[0]
+			w.add_child(im)
+		else:
 			var wm := CarModels.wheel(0.38, 0.26)
 			var tyre := MeshInstance3D.new()
 			tyre.mesh = wm.tyre
@@ -93,7 +104,7 @@ func _ready() -> void:
 			w.add_child(tyre)
 			var rim := MeshInstance3D.new()
 			rim.mesh = wm.rim
-			rim.material_override = _shared_mat("rim", Color("9aa0a6") if kind == "sedan" else Color("2a2c2a"), 0.3, 0.85)
+			rim.material_override = _shared_mat("rim", Color("9aa0a6"), 0.3, 0.85)
 			w.add_child(rim)
 			_wheels.append(w)
 
@@ -135,27 +146,19 @@ func _ready_bike() -> void:
 	_add_box_shape(Vector3(0.45, 0.5, 1.7), Vector3(0, 0.75, 0))
 	_lean_node = Node3D.new()
 	add_child(_lean_node)
-	var pm := _mat(paint, 0.25, 0.4)
-	pm.clearcoat_enabled = true
-	pm.clearcoat = 0.5
 	_tail_mat = _mat(Color("8a1010"), 0.25)
-	_tail_mat.emission_enabled = true
-	_tail_mat.emission = Color("ff2a1a")
-	_tail_mat.emission_energy_multiplier = 0.3
-	var head := _shared_mat("head", Color("fff6dc"), 0.1)
-	head.emission_enabled = true
-	head.emission = Color("fff3d0")
-	head.emission_energy_multiplier = 1.2
-	_add_parts(CarModels.bike(), {"paint": pm, "dark": _shared_mat("dark", Color("141516"), 0.6),
-		"chrome": _shared_mat("chrome", Color("d8dde2"), 0.12, 1.0), "seat": _shared_mat("seat", Color("1d1b1a"), 0.85),
-		"head": head, "tail": _tail_mat}, _lean_node)
+	var imp := CarModels.imported("bike")
+	var body := MeshInstance3D.new()
+	body.mesh = imp.body
+	_lean_node.add_child(body)
 	# Two narrow pairs of wheels keep it on its feet; one tyre of each pair is
 	# drawn, moved to the middle.
-	for z in [-0.72, 0.72]:
+	for iw in imp.wheels:
+		var c: Vector3 = iw[1]
 		for x in [-0.11, 0.11]:
 			var w := VehicleWheel3D.new()
-			w.position = Vector3(x, 0.45, z)
-			w.wheel_radius = 0.32
+			w.position = Vector3(x, c.y + 0.12, c.z)
+			w.wheel_radius = imp.radius
 			w.wheel_rest_length = 0.12
 			w.suspension_travel = 0.18
 			w.suspension_stiffness = 40.0
@@ -164,18 +167,15 @@ func _ready_bike() -> void:
 			w.damping_relaxation = 1.1
 			w.wheel_friction_slip = 2.4
 			w.wheel_roll_influence = 0.02
-			w.use_as_steering = z > 0.0
-			w.use_as_traction = z < 0.0
+			w.use_as_steering = c.z > 0.0
+			w.use_as_traction = c.z < 0.0
 			add_child(w)
 			_wheels.append(w)
 			if x > 0.0:
-				var wm := CarModels.wheel(0.32, 0.12)
-				for part in [[wm.tyre, _shared_mat("tyre", Color("1a1a1b"), 0.92)], [wm.rim, _shared_mat("bike_rim", Color("2a2c2e"), 0.4, 0.7)]]:
-					var mi := MeshInstance3D.new()
-					mi.mesh = part[0]
-					mi.material_override = part[1]
-					mi.position.x = -x
-					w.add_child(mi)
+				var mi := MeshInstance3D.new()
+				mi.mesh = iw[0]
+				mi.position.x = c.x - x
+				w.add_child(mi)
 	_effect_nodes(Vector3(0, 0.15, -0.95), [0.0], Vector3(0, 0.8, 0.5))
 
 func _ready_boat() -> void:
@@ -192,7 +192,9 @@ func _ready_boat() -> void:
 	var hull := _mat(paint, 0.35)
 	hull.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_tail_mat = _mat(Color("8a1010"), 0.25)
-	_add_parts(CarModels.boat(), {"paint": hull, "white": _shared_mat("boat_white", Color("ece9e2"), 0.5),
+	var white := _shared_mat("boat_white", Color("ece9e2"), 0.5)
+	white.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_add_parts(CarModels.boat(), {"paint": hull, "white": white,
 		"dark": _shared_mat("dark", Color("141516"), 0.6), "seat": _shared_mat("boat_seat", Color("2e5c74"), 0.8),
 		"glass": _shared_mat("glass", Color(0.08, 0.1, 0.12), 0.04, 0.6), "chrome": _shared_mat("chrome", Color("d8dde2"), 0.12, 1.0)}, self)
 	_effect_nodes(Vector3(0, 0.1, -2.6), [-0.4, 0.4], Vector3(0, 0.9, -2.4))
@@ -240,6 +242,34 @@ func _shared_mat(key: String, c: Color, rough := 0.5, metal := 0.0) -> StandardM
 	return _mats[key]
 
 func _build_model() -> void:
+	if kind == "jeep":
+		var body := MeshInstance3D.new()
+		body.name = "Body"
+		body.mesh = CarModels.imported("jeep").body
+		add_child(body)
+		_tail_mat = _mat(Color("8a1010"), 0.25)
+	else:
+		_build_proc_body()
+	# Dust from the rear wheels on the move, smoke and fire when badly damaged.
+	for x in [-WHEEL_DUST_X, WHEEL_DUST_X]:
+		var d := _particles(Color(0.62, 0.55, 0.42, 0.55), 1.1, 0.6, 18)
+		d.position = Vector3(x, 0.15, -1.45)
+		d.direction = Vector3(0, 0.6, -1)
+		_dust.append(d)
+	_smoke = _particles(Color(0.25, 0.25, 0.25, 0.7), 2.2, 0.5, 16)
+	_smoke.position = Vector3(0, 1.1, 1.5)
+	_smoke.gravity = Vector3(0, 1.6, 0)
+	_fire = _particles(Color(1.0, 0.45, 0.1, 0.9), 0.5, 0.3, 14)
+	_fire.position = Vector3(0, 1.05, 1.5)
+	_fire.gravity = Vector3(0, 2.5, 0)
+	var fm: StandardMaterial3D = _fire.mesh.material
+	fm.emission_enabled = true
+	fm.emission = Color(1.0, 0.5, 0.1)
+	fm.emission_energy_multiplier = 3.0
+
+const WHEEL_DUST_X := 0.82
+
+func _build_proc_body() -> void:
 	var data := CarModels.body(kind)
 	var body := MeshInstance3D.new()
 	body.name = "Body"
@@ -269,24 +299,6 @@ func _build_model() -> void:
 		mi.mesh = data.details[k]
 		mi.material_override = mats[k]
 		add_child(mi)
-	# Dust from the rear wheels on the move, smoke and fire when badly damaged.
-	for x in [-WHEEL_DUST_X, WHEEL_DUST_X]:
-		var d := _particles(Color(0.62, 0.55, 0.42, 0.55), 1.1, 0.6, 18)
-		d.position = Vector3(x, 0.15, -1.45)
-		d.direction = Vector3(0, 0.6, -1)
-		_dust.append(d)
-	_smoke = _particles(Color(0.25, 0.25, 0.25, 0.7), 2.2, 0.5, 16)
-	_smoke.position = Vector3(0, 1.1, 1.5)
-	_smoke.gravity = Vector3(0, 1.6, 0)
-	_fire = _particles(Color(1.0, 0.45, 0.1, 0.9), 0.5, 0.3, 14)
-	_fire.position = Vector3(0, 1.05, 1.5)
-	_fire.gravity = Vector3(0, 2.5, 0)
-	var fm: StandardMaterial3D = _fire.mesh.material
-	fm.emission_enabled = true
-	fm.emission = Color(1.0, 0.5, 0.1)
-	fm.emission_energy_multiplier = 3.0
-
-const WHEEL_DUST_X := 0.82
 
 func _particles(col: Color, life: float, size: float, amount: int) -> CPUParticles3D:
 	var p := CPUParticles3D.new()

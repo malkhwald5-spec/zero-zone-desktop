@@ -116,6 +116,7 @@ static func body(kind: String) -> Dictionary:
 	for pair in [["paint", paint], ["glass", glass], ["trim", trim]]:
 		var st: SurfaceTool = pair[1]
 		if pair[0] == "glass" and kind == "jeep": continue      # open top: no glass in the body
+		if pair[0] == "paint": st.index()       # shared vertices: smooth panels
 		st.generate_normals()
 		st.commit(mesh)
 		names.append(pair[0])
@@ -150,17 +151,26 @@ static func _details(kind: String, sp: Dictionary) -> Dictionary:
 	var z1: float = sp.len[1]
 	var w: float = sp.half_w
 	var nose: float = sp.nose
-	# Bumpers.
-	box.call(dark, Vector3(w * 2.0, 0.2, 0.16), Vector3(0, nose - 0.08, z1 - 0.02))
-	box.call(dark, Vector3(w * 2.0, 0.2, 0.16), Vector3(0, nose - 0.08, z0 + 0.02))
-	# Grille and plates.
-	box.call(dark, Vector3(0.7, 0.16, 0.04), Vector3(0, nose + 0.1, z1 + 0.005))
-	box.call(white, Vector3(0.36, 0.1, 0.02), Vector3(0, nose - 0.08, z1 + 0.07))
+	# Bumpers: a low bar wrapping round the corners, a rubber strip on top.
+	for e in [[z1, 1.0], [z0, -1.0]]:
+		var ez: float = e[0] - e[1] * 0.03
+		box.call(dark, Vector3(w * 1.78, 0.17, 0.12), Vector3(0, nose - 0.1, ez))
+		box.call(chrome, Vector3(w * 1.7, 0.025, 0.02), Vector3(0, nose - 0.03, ez + e[1] * 0.06))
+		for x in [-1.0, 1.0]:
+			box.call(dark, Vector3(0.12, 0.17, 0.32), Vector3(x * (w * 0.9 - 0.02), nose - 0.1, ez - e[1] * 0.12), Vector3(0, x * e[1] * 0.5, 0))
+	# Grille: dark recess with chrome slats and a frame; number plates.
+	box.call(dark, Vector3(0.66, 0.15, 0.03), Vector3(0, nose + 0.1, z1 + 0.002))
+	for i in 3:
+		box.call(chrome, Vector3(0.64, 0.012, 0.02), Vector3(0, nose + 0.05 + i * 0.05, z1 + 0.012))
+	box.call(chrome, Vector3(0.7, 0.02, 0.025), Vector3(0, nose + 0.185, z1 + 0.006))
+	box.call(white, Vector3(0.36, 0.1, 0.02), Vector3(0, nose - 0.1, z1 + 0.04))
 	box.call(white, Vector3(0.36, 0.1, 0.02), Vector3(0, nose + 0.12, z0 - 0.01))
-	# Lights.
+	# Lights: lenses in chrome bezels, indicators, wide tail-light bars.
 	for x in [-1.0, 1.0]:
-		box.call(head, Vector3(0.3, 0.1, 0.05), Vector3(x * (w - 0.24), nose + 0.12, z1 - 0.01))
-		box.call(tail, Vector3(0.26, 0.12, 0.05), Vector3(x * (w - 0.2), nose + 0.18, z0 + 0.01))
+		box.call(chrome, Vector3(0.34, 0.13, 0.02), Vector3(x * (w - 0.25), nose + 0.11, z1 - 0.015))
+		box.call(head, Vector3(0.3, 0.1, 0.02), Vector3(x * (w - 0.25), nose + 0.11, z1 - 0.004))
+		box.call(tail, Vector3(0.4, 0.11, 0.03), Vector3(x * (w - 0.24), nose + 0.18, z0 + 0.008))
+		box.call(chrome, Vector3(0.1, 0.05, 0.02), Vector3(x * (w - 0.07), nose + 0.11, z1 - 0.03))
 	if kind == "sedan":
 		# Door seams, handles, mirrors.
 		for x in [-1.0, 1.0]:
@@ -169,7 +179,10 @@ static func _details(kind: String, sp: Dictionary) -> Dictionary:
 			for z in [0.2, -1.0]:
 				box.call(chrome, Vector3(0.02, 0.03, 0.14), Vector3(x * (w + 0.01), 0.9, z))
 			box.call(dark, Vector3(0.12, 0.09, 0.16), Vector3(x * (w + 0.06), 1.08, 0.82), Vector3(0, 0, 0))
-		box.call(dark, Vector3(1.2, 0.02, 0.4), Vector3(0, 1.495, -0.35))       # roof trim
+			# Rubber side strip along the doors.
+			box.call(dark, Vector3(0.02, 0.045, 2.5), Vector3(x * (w + 0.008), 0.62, -0.3))
+		# Exhaust pipe under the back.
+		tube.call(chrome, 0.035, Vector3(-0.5, 0.33, z0 + 0.25), Vector3(-0.5, 0.31, z0 - 0.05))
 	else:
 		# Jeep: windscreen frame, roll bar, seats, spare wheel, side steps, bonnet lines.
 		for x in [-1.0, 1.0]:
@@ -321,44 +334,184 @@ static func bike() -> Dictionary:
 	_cache["bike"] = out
 	return out
 
-## Small open motor boat (faces +Z, 4.6 m): V-hull with a pointed bow, deck,
-## benches, windscreen, outboard motor at the stern.
+## Small open motor boat (faces +Z, 4.7 m): flared V-hull with a painted
+## top band and white bottom, gunwale rub rail, bow deck and rail, centre
+## console with windscreen and wheel, padded benches, outboard motor.
 static func boat() -> Dictionary:
 	if _cache.has("boat"): return _cache["boat"]
 	var s := _sts(["paint", "white", "dark", "seat", "glass", "chrome"])
-	# Hull from cross-sections: [z, half width, keel depth].
-	var secs := [[-2.3, 0.9, 0.0], [-1.5, 0.95, -0.05], [0.0, 0.95, -0.12], [1.2, 0.8, -0.1], [1.9, 0.45, 0.05], [2.35, 0.04, 0.32]]
-	var top := 0.62
+	# Hull sections: [z, half width, keel depth, gunwale height].
+	var secs := [[-2.3, 0.92, 0.02, 0.62], [-1.8, 0.95, -0.04, 0.62], [-1.0, 0.96, -0.1, 0.63], [0.0, 0.95, -0.13, 0.65],
+		[0.8, 0.88, -0.12, 0.68], [1.4, 0.72, -0.08, 0.72], [1.85, 0.48, 0.02, 0.76], [2.2, 0.22, 0.15, 0.8], [2.4, 0.03, 0.36, 0.82]]
+	# Ring, left to right: gunwale, end of the painted band, chine, keel.
 	var ring := func(sec: Array) -> Array:
 		var z: float = sec[0]
 		var w: float = sec[1]
 		var k: float = sec[2]
-		return [Vector3(-w, top, z), Vector3(-w * 0.9, 0.15 + k * 0.5, z), Vector3(0, k, z), Vector3(w * 0.9, 0.15 + k * 0.5, z), Vector3(w, top, z)]
-	var hull: SurfaceTool = s.paint
+		var t: float = sec[3]
+		return [Vector3(-w, t, z), Vector3(-w * 0.97, t - 0.2, z), Vector3(-w * 0.86, 0.14 + k * 0.5, z), Vector3(0, k, z),
+			Vector3(w * 0.86, 0.14 + k * 0.5, z), Vector3(w * 0.97, t - 0.2, z), Vector3(w, t, z)]
+	var band := SurfaceTool.new()
+	band.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var bottom := SurfaceTool.new()
+	bottom.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for i in secs.size() - 1:
 		var a: Array = ring.call(secs[i])
 		var b: Array = ring.call(secs[i + 1])
 		for j in a.size() - 1:
-			# Outside faces (normals out of the hull).
+			var st: SurfaceTool = band if j == 0 or j == a.size() - 2 else bottom
 			for v in [a[j], b[j + 1], b[j], a[j], a[j + 1], b[j + 1]]:
-				hull.add_vertex(v)
+				st.add_vertex(v)
+		# Inner liner above the deck (white), facing in; the bow is decked over.
+		if i >= 5: continue
+		for x in [-1.0, 1.0]:
+			var p0 := Vector3(x * secs[i][1] * 0.95, secs[i][3], secs[i][0])
+			var p1 := Vector3(x * secs[i + 1][1] * 0.95, secs[i + 1][3], secs[i + 1][0])
+			var q0 := Vector3(x * secs[i][1] * 0.9, 0.32, secs[i][0])
+			var q1 := Vector3(x * secs[i + 1][1] * 0.9, 0.32, secs[i + 1][0])
+			var quad := [p0, q1, q0, p0, p1, q1] if x > 0.0 else [p0, q0, q1, p0, q1, p1]
+			for v in quad: s.white.add_vertex(v)
 	# Transom (flat back).
 	var tr: Array = ring.call(secs[0])
 	for j in range(1, tr.size() - 1):
 		for v in [tr[0], tr[j + 1], tr[j]]:
-			hull.add_vertex(v)
-	hull.generate_normals()
-	# Deck, gunwale rails, benches, console with windscreen, outboard motor.
-	_box_into(s.white, Vector3(1.7, 0.04, 3.6), Vector3(0, 0.32, -0.45))
+			bottom.add_vertex(v)
+	for st in [band, bottom]:
+		st.index()
+		st.generate_normals()
+	s.paint.append_from(band.commit(), 0, Transform3D.IDENTITY)
+	s.white.append_from(bottom.commit(), 0, Transform3D.IDENTITY)
+	# Rub rail along the gunwale, bow deck, bow rail.
 	for x in [-1.0, 1.0]:
-		_tube_into(s.chrome, 0.02, Vector3(x * 0.88, top + 0.02, -2.2), Vector3(x * 0.6, top + 0.02, 1.9))
-	_box_into(s.seat, Vector3(1.5, 0.12, 0.45), Vector3(0, 0.55, -1.75))
-	_box_into(s.seat, Vector3(1.5, 0.12, 0.4), Vector3(0, 0.55, 0.9))
-	_box_into(s.white, Vector3(0.6, 0.55, 0.45), Vector3(0.35, 0.6, -0.25))
-	_box_into(s.glass, Vector3(0.62, 0.3, 0.02), Vector3(0.35, 1.0, -0.05), Vector3(-0.35, 0, 0))
-	_box_into(s.dark, Vector3(0.36, 0.5, 0.42), Vector3(0, 0.85, -2.45))
-	_box_into(s.dark, Vector3(0.12, 0.6, 0.18), Vector3(0, 0.3, -2.5))
+		for i in secs.size() - 1:
+			_tube_into(s.dark, 0.035, Vector3(x * secs[i][1], secs[i][3], secs[i][0]), Vector3(x * secs[i + 1][1], secs[i + 1][3], secs[i + 1][0]), 6)
+		_tube_into(s.chrome, 0.015, Vector3(x * 0.6, 0.98, 1.3), Vector3(x * 0.12, 0.98, 2.25))
+		_tube_into(s.chrome, 0.015, Vector3(x * 0.6, 0.72, 1.3), Vector3(x * 0.6, 0.98, 1.3))
+		_tube_into(s.chrome, 0.015, Vector3(x * 0.12, 0.82, 2.25), Vector3(x * 0.12, 0.98, 2.25))
+	_tube_into(s.chrome, 0.015, Vector3(-0.12, 0.98, 2.25), Vector3(0.12, 0.98, 2.25))
+	for i in range(5, secs.size() - 1):
+		var a0 := Vector3(-secs[i][1], secs[i][3], secs[i][0])
+		var a1 := Vector3(secs[i][1], secs[i][3], secs[i][0])
+		var b0 := Vector3(-secs[i + 1][1], secs[i + 1][3], secs[i + 1][0])
+		var b1 := Vector3(secs[i + 1][1], secs[i + 1][3], secs[i + 1][0])
+		for v in [a0, b1, a1, a0, b0, b1]: s.white.add_vertex(v)
+	# Deck floor.
+	_box_into(s.white, Vector3(1.66, 0.04, 3.7), Vector3(0, 0.32, -0.5))
+	# Console: body, dark dash, windscreen in a chrome frame, wheel.
+	_box_into(s.white, Vector3(0.62, 0.6, 0.5), Vector3(0.35, 0.62, -0.25))
+	_box_into(s.dark, Vector3(0.58, 0.04, 0.3), Vector3(0.35, 0.94, -0.18), Vector3(-0.35, 0, 0))
+	_box_into(s.glass, Vector3(0.62, 0.32, 0.015), Vector3(0.35, 1.08, -0.02), Vector3(-0.4, 0, 0))
+	_tube_into(s.chrome, 0.012, Vector3(0.04, 0.93, 0.03), Vector3(0.04, 1.22, -0.09))
+	_tube_into(s.chrome, 0.012, Vector3(0.66, 0.93, 0.03), Vector3(0.66, 1.22, -0.09))
+	_tube_into(s.chrome, 0.012, Vector3(0.04, 1.22, -0.09), Vector3(0.66, 1.22, -0.09))
+	var wheel := TorusMesh.new()
+	wheel.inner_radius = 0.1
+	wheel.outer_radius = 0.125
+	wheel.rings = 14
+	wheel.ring_segments = 5
+	s.dark.append_from(wheel, 0, Transform3D(Basis(Vector3.RIGHT, PI / 2 - 0.6), Vector3(0.35, 0.98, -0.42)))
+	# Benches with backrests on pedestals.
+	for b in [[-1.75, 1.5], [0.9, 1.4]]:
+		_box_into(s.seat, Vector3(b[1], 0.12, 0.45), Vector3(0, 0.56, b[0]))
+		_box_into(s.white, Vector3(b[1] - 0.1, 0.2, 0.36), Vector3(0, 0.42, b[0]))
+	_box_into(s.seat, Vector3(1.4, 0.3, 0.1), Vector3(0, 0.78, -2.0), Vector3(-0.12, 0, 0))
+	# Outboard motor: rounded cowling, shaft, lower unit, propeller.
+	var cowl := CapsuleMesh.new()
+	cowl.radius = 0.2
+	cowl.height = 0.62
+	s.white.append_from(cowl, 0, Transform3D(Basis.from_scale(Vector3(0.85, 0.8, 1.2)), Vector3(0, 0.95, -2.5)))
+	_box_into(s.dark, Vector3(0.36, 0.08, 0.5), Vector3(0, 0.8, -2.5))
+	_box_into(s.dark, Vector3(0.1, 0.65, 0.16), Vector3(0, 0.38, -2.52))
+	_box_into(s.dark, Vector3(0.14, 0.12, 0.4), Vector3(0, 0.05, -2.5))
+	for k in 3:
+		_box_into(s.chrome, Vector3(0.03, 0.18, 0.05), Vector3(0, 0.05, -2.74), Vector3(0, 0, TAU * k / 3.0))
 	_tube_into(s.chrome, 0.02, Vector3(0, 0.95, -2.25), Vector3(0, 0.9, -1.85))   # tiller
 	var out := _commit(s)
 	_cache["boat"] = out
 	return out
+
+## Imported models (Sketchfab, CC-BY — see README): the UAZ jeep and the dirt
+## bike. "len" scales the model to that length (0 = already in metres).
+const IMPORTED := {
+	"jeep": {"path": "res://assets/models/vehicles/uaz/scene.gltf", "len": 4.1},
+	"bike": {"path": "res://assets/models/vehicles/dirt_bike/dirt_bike.glb", "len": 0.0},
+}
+
+## The body merged into one mesh and each wheel (nodes named wheel*) as its
+## own mesh centred on its axle: {"body", "wheels": [[mesh, centre]], "radius"}.
+## Faces +Z, ground at y = 0, the axles centred on z = 0.
+static func imported(kind: String) -> Dictionary:
+	if _cache.has("imp_" + kind): return _cache["imp_" + kind]
+	var cfg: Dictionary = IMPORTED[kind]
+	var sc: Node3D = load(cfg.path).instantiate()
+	var acc := [null]
+	WeaponModels._mesh_aabb(sc, Transform3D.IDENTITY, acc)
+	var a: AABB = acc[0]
+	var s: float = cfg.len / a.size.z if cfg.len > 0.0 else 1.0
+	var wheels := []      # [node, parent transform]
+	_find_wheels(sc, Transform3D.IDENTITY, wheels)
+	var scale := Transform3D(Basis.from_scale(Vector3.ONE * s), Vector3.ZERO)
+	var boxes := []
+	var lo := INF
+	var zs := []
+	for w in wheels:
+		var wa := [null]
+		WeaponModels._mesh_aabb(w[0], scale * w[1], wa)
+		boxes.append(wa[0])
+		lo = minf(lo, wa[0].position.y)
+		zs.append(wa[0].get_center().z)
+	var zmid: float = (zs.min() + zs.max()) * 0.5 if zs.size() > 0 else a.get_center().z * s
+	var xf := Transform3D(Basis.IDENTITY, Vector3(-a.get_center().x * s, -lo, -zmid)) * scale
+	var body := ArrayMesh.new()
+	var by_mat := {}
+	var flat := SurfaceTool.new()
+	flat.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_flat := [false]
+	_merge_body(sc, Transform3D.IDENTITY, xf, by_mat, flat, has_flat)
+	_commit_merged(body, by_mat, flat, has_flat[0])
+	var out_w := []
+	var radius := 0.0
+	for i in wheels.size():
+		var c: Vector3 = Transform3D(Basis.IDENTITY, Vector3(-a.get_center().x * s, -lo, -zmid)) * boxes[i].get_center()
+		radius = maxf(radius, boxes[i].size.y * 0.5)
+		var wm := ArrayMesh.new()
+		var wb := {}
+		var wf := SurfaceTool.new()
+		wf.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var whf := [false]
+		WeaponModels._merge_fitted(wheels[i][0], Transform3D(Basis.IDENTITY, -c) * xf * wheels[i][1], wb, wf, whf)
+		_commit_merged(wm, wb, wf, whf[0])
+		out_w.append([wm, c])
+	sc.free()
+	var out := {"body": body, "wheels": out_w, "radius": radius}
+	_cache["imp_" + kind] = out
+	return out
+
+static func _find_wheels(n: Node, xf: Transform3D, out: Array) -> void:
+	if String(n.name).to_lower().begins_with("wheel"):
+		out.append([n, xf])
+		return
+	if n is Node3D: xf = xf * (n as Node3D).transform
+	for c in n.get_children(): _find_wheels(c, xf, out)
+
+static func _merge_body(n: Node, parent: Transform3D, xf: Transform3D, by_mat: Dictionary, flat: SurfaceTool, has_flat: Array) -> void:
+	if String(n.name).to_lower().begins_with("wheel"): return
+	if n is MeshInstance3D:
+		WeaponModels._merge_fitted(n, xf * parent, by_mat, flat, has_flat)
+		return
+	var here := parent * (n as Node3D).transform if n is Node3D else parent
+	for c in n.get_children(): _merge_body(c, here, xf, by_mat, flat, has_flat)
+
+static func _commit_merged(mesh: ArrayMesh, by_mat: Dictionary, flat: SurfaceTool, has_flat: bool) -> void:
+	for mat in by_mat:
+		var st: SurfaceTool = by_mat[mat]
+		st.set_material(mat)
+		st.commit(mesh)
+	if has_flat:
+		var fm := StandardMaterial3D.new()
+		fm.vertex_color_use_as_albedo = true
+		fm.vertex_color_is_srgb = true
+		fm.roughness = 0.45
+		fm.metallic = 0.2
+		flat.set_material(fm)
+		flat.commit(mesh)
