@@ -1720,14 +1720,14 @@ func _road_strips() -> void:
 	mat.normal_enabled = true
 	mat.normal_texture = load("res://assets/textures/road_nrm.jpg")
 	mat.roughness = 0.4 if weather == "rain" else 0.85
-	mat.albedo_color = Color(0.82, 0.82, 0.84) if weather == "rain" else Color.WHITE
+	mat.albedo_color = Color(0.9, 0.9, 0.92) if weather == "rain" else Color(1.15, 1.15, 1.13)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED      # seen from above whichever way it was wound
 	for ri in island.roads.size():
 		var rd: Dictionary = island.roads[ri]
 		var a: Vector2 = rd.a
 		var b: Vector2 = rd.b
-		var w: float = rd.w
+		var w: float = float(rd.w) * 0.9         # inside the painted road, so the verge grass stays off it
 		var length := a.distance_to(b)
 		if length < 1.0: continue
 		var dir := (b - a) / length
