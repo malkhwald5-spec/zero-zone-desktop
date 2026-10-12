@@ -129,6 +129,20 @@ func _init() -> void:
 			if mirror: bn = bn.replace("Left", "#").replace("Right", "Left").replace("#", "Right")
 			var j := ssk.find_bone(bn)
 			if j >= 0: map[i] = j
+		# Limbs posed differently at rest (some rigs stand with bent elbows):
+		# turn each limb bone of the target to point like the source's at
+		# rest first, so the moves start from the same pose.
+		var fix := {}
+		for pair in [["LeftArm", "LeftForeArm"], ["LeftForeArm", "LeftHand"], ["RightArm", "RightForeArm"], ["RightForeArm", "RightHand"],
+				["LeftUpLeg", "LeftLeg"], ["LeftLeg", "LeftFoot"], ["RightUpLeg", "RightLeg"], ["RightLeg", "RightFoot"]]:
+			var ti := tsk.find_bone("mixamorig_" + pair[0])
+			var tc := tsk.find_bone("mixamorig_" + pair[1])
+			if ti < 0 or tc < 0 or not map.has(ti) or not map.has(tc): continue
+			var sd: Vector3 = ssk.get_bone_global_rest(map[tc]).origin - ssk.get_bone_global_rest(map[ti]).origin
+			if mirror: sd.x = -sd.x
+			var want: Vector3 = (C.inverse() * (Q * sd)).normalized()
+			var have: Vector3 = (tsk.get_bone_global_rest(tc).origin - tsk.get_bone_global_rest(ti).origin).normalized()
+			if have.angle_to(want) > deg_to_rad(15.0): fix[ti] = Quaternion(have, want)
 		var rot_tracks := {}
 		for i in map:
 			var tr := out.add_track(Animation.TYPE_ROTATION_3D)
@@ -158,7 +172,7 @@ func _init() -> void:
 				if mirror: d = Quaternion(d.x, -d.y, -d.z, d.w)          # reflected across the body's mid plane
 				var dw: Quaternion = Q * d * Q.inverse()                 # in target model frame
 				var dt: Quaternion = C.inverse() * dw * C                # in target skeleton space
-				tg[i] = dt * t_rest_g[i]
+				tg[i] = dt * (fix[i] * t_rest_g[i] if fix.has(i) else t_rest_g[i])
 			for i in map:
 				var p := tsk.get_bone_parent(i)
 				var loc: Quaternion = (tg[p].inverse() * tg[i]) if p >= 0 else tg[i]
