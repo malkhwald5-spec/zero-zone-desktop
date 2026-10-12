@@ -38,13 +38,18 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	# Empty hands (Mixamo Locomotion Pack and single clips, files renamed u_*).
 	"u_walk": "u_walking", "u_run": "u_running", "u_sprint": "u_fast_run", "u_idle": "u_idle", "u_back": "u_walking_backwards",
 	"u_walk_l": "u_strafe_walk_left", "u_walk_r": "u_strafe_walk_right", "u_run_l": "u_strafe_run_left", "u_run_r": "u_strafe_run_right",
-	"u_jump": "u_jump"}
+	"u_jump": "u_jump",
+	# Weapon switching, pistol, prone death, door, second throw, vault.
+	"draw": "grab_and_put_back_rifle", "holster": "put_back_rifle_behind_shoulder",
+	"preload": "pistol_reload", "pfire": "pistol_shooting", "pgunplay": "gunplay",
+	"prone_death": "prone_death", "door": "opening", "toss2": "throw_grenade", "vault": "jumping_over_into_combat"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
-	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump"]
+	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump",
+	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

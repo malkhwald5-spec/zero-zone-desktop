@@ -350,6 +350,11 @@ func _gear_slot(bone: String, pos: Vector3, f: float) -> MeshInstance3D:
 	att.add_child(mi)
 	return mi
 
+## Switching guns: the hand goes back over the shoulder for the new one
+## (a short part of the clip).
+func draw_weapon() -> void:
+	play_action("draw", 0.6, 0.8, 3.0)
+
 ## Weapon id ("m416") or class ("ar"); "" = empty hands.
 func set_weapon(id_or_cls: String) -> void:
 	_has_weapon = id_or_cls != ""
@@ -730,9 +735,12 @@ func _play_moving(name: String, speed: float, max_scale := 2.2) -> void:
 	var clip_speed: float = (a.get_meta("speed", 2.0) if a else 2.0) * _cscale
 	_play(name, clampf(speed / maxf(clip_speed, 0.15), 0.4, max_scale))
 
+func _dying() -> bool:
+	return _anim.begins_with("mx/death") or _anim == "mx/prone_death"
+
 ## Dead: keep playing the death animation until it ends (owners stop calling set_pose).
 func _process(delta: float) -> void:
-	if _anim.begins_with("mx/death") and ap.current_animation_position < ap.current_animation_length:
+	if _dying() and ap.current_animation_position < ap.current_animation_length:
 		ap.advance(delta)
 	else:
 		set_process(false)
@@ -759,7 +767,13 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			# The pan swings in the right hand (handle along the fingers).
 			var hand: Transform3D = sk.global_transform * sk.get_bone_global_pose(_bone["RightHand"])
 			gun.global_transform = Transform3D(hand.basis.orthonormalized() * Basis(Vector3.RIGHT, PI / 2.0), hand.origin)
-		if _action in ["climb", "drop_down"] and absf(_action_rise) > 0.3:
+		if _action == "vault":
+			# Jumping over a low wall: the owner carries the body over it, so
+			# the clip's own hop is taken out of the hips.
+			var upv := _skeleton_up()
+			var hv := sk.get_bone_pose_position(_hips)
+			sk.set_bone_pose_position(_hips, hv + upv * (minf(hv.dot(upv), _action_y0) - hv.dot(upv)))
+		elif _action in ["climb", "drop_down"] and absf(_action_rise) > 0.3:
 			# Climbing: the hips never go above where they started (the body is
 			# lifted by the owner); dropping down: never below. Crouches stay.
 			var up := _skeleton_up()
@@ -774,8 +788,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		return
 	if pose == "dead":
 		# A death animation plays once by itself (see _process) and stays down.
-		if not _anim.begins_with("mx/death"):
-			_play("mx/" + (death_anim if death_anim != "" else DEATHS[randi() % DEATHS.size()]), 1.0)
+		if not _dying():
+			# Shot while lying down: dies where he lies.
+			var dn := death_anim
+			if dn == "": dn = "prone_death" if _anim.begins_with("mx/prone") and ap.has_animation("mx/prone_death") else DEATHS[randi() % DEATHS.size()]
+			_play("mx/" + dn, 1.0)
 			set_process(true)
 		gun.visible = false
 		canopy.visible = false
@@ -819,6 +836,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play_moving("mx/" + set + dir, speed)
 	elif pose == "crouch" and speed > 0.3:
 		_play_moving("mx/crouch_" + dir, speed)
+	elif pose == "crouch" and armed and not pistol and reload_p >= 0.0 and ap.has_animation("mx/preload"):
+		# Reloading on one knee: the clip's mag change, timed to the reload.
+		_play("mx/preload", 0.0)
+		ap.seek(0.4 + clampf(reload_p, 0.0, 1.0) * 6.0, true)
 	elif pose == "crouch" and pistol and not aiming:
 		_play("mx/pkneel", 1.0)
 	elif pose == "crouch":
@@ -840,6 +861,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		else: _play("mx/prone_idle", 1.0)
 	elif pose == "stand" and armed and reload_p >= 0.0:
 		_play("mx/reload", 1.4)
+	elif pose == "stand" and pistol and aiming and _cls == "pistol" and ap.has_animation("mx/pfire"):
+		# Pistol up in both hands.
+		_play("mx/pfire", 1.0 if recoil > 0.3 else 0.3)
 	elif pose == "stand" and pistol:
 		_play("mx/pidle", 1.0)
 	elif pose == "stand" and armed and aiming:

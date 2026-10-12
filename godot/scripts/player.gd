@@ -330,6 +330,7 @@ func interact() -> void:
 			var door := door_target()
 			if not door.is_empty():
 				world.toggle_door(door, global_position)
+				if stance == "stand": model.play_action("door", 0.5, 0.7, 2.4)
 				return
 			var car: Vehicle = world.nearest_vehicle(global_position, 3.5)
 			var it = world.nearest_pickup(global_position, 2.4)
@@ -399,7 +400,8 @@ func switch_slot(i: int) -> void:
 	if i < 0 or i > 2 or slots[i] == null or active == i: return
 	active = i
 	reload_t = 0.0
-	fire_cd = maxf(fire_cd, 0.35)
+	fire_cd = maxf(fire_cd, 0.6)
+	if stance != "prone" and vehicle == null: model.draw_weapon()
 	model.set_weapon(slots[i].id)
 	model.set_attachments(slots[i].get("att", {}))
 	_refresh_back()
@@ -858,6 +860,9 @@ func try_vault() -> bool:
 	elif to.y < base.y - 0.8:
 		_vault_time = 0.9
 		model.play_action("drop_down", _vault_time)
+	else:
+		# Over a low wall: the hop of the jump-over clip.
+		model.play_action("vault", _vault_time, 1.75, 3.0)
 	vault_t = 0.0
 	shape_node.disabled = true
 	velocity = Vector3.ZERO
@@ -1492,7 +1497,9 @@ func release_throw() -> void:
 	g.global_position = throw_origin()
 	g.linear_velocity = throw_velocity()
 	g.angular_velocity = Vector3(randf(), randf(), randf()) * 6.0
-	model.play_action("toss", 1.1)
+	# Crouched: the low underarm throw.
+	if stance == "crouch": model.play_action("toss2", 1.0, 0.5, 2.3)
+	else: model.play_action("toss", 1.1)
 
 # ---------- Vehicles ----------
 func enter_vehicle(v: Vehicle) -> void:
