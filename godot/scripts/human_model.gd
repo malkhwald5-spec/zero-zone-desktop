@@ -67,19 +67,20 @@ var _mats := {}
 ## Characters: the armoured soldier, or Lola (a realistic Mixamo human).
 ## Survivor, Bundeswehr soldier and Remy: Sketchfab / Mixamo characters (see
 ## README), cleaned by tools/prep_character.gd, moves by tools/retarget_mixamo.gd.
-## "fit": helmet / vest / backpack size and placement for that body
-## ([head scale, chest scale, helmet lift m, vest lift m, vest forward m, pack back m]).
+## "fit": fine-tuning of the measured gear fit (see _build_gear):
+## [helmet scale, vest/pack scale, helmet lift m, vest lift m, vest forward m, pack forward m].
 const CHARACTERS := {
 	"soldier": {"scene": "res://assets/models/soldier.glb", "anims": "res://assets/anims/mixamo_anims.res", "turn": 0.0, "scale": 1.0, "tint": true,
-		"vest": false, "fit": [1.08, 1.0, 0.085, 0.0, 0.0, 0.1]},
+		"vest": false, "fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 	"lola": {"scene": "res://assets/models/lola/lola.fbx", "anims": "res://assets/anims/mixamo_lola.res", "turn": PI, "scale": 0.92, "tint": false,
-		"fit": [1.0, 0.9, 0.1, -0.02, 0.02, 0.06]},
+		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 	"survivor": {"scene": "res://assets/models/chars/survivor.glb", "anims": "res://assets/anims/mixamo_survivor.res", "turn": PI, "scale": 0.92, "tint": false,
-		"fit": [1.0, 1.0, 0.1, -0.02, 0.02, 0.07]},
+		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 	"bundeswehr": {"scene": "res://assets/models/chars/bundeswehr.glb", "anims": "res://assets/anims/mixamo_bundeswehr.res", "turn": PI, "scale": 0.6, "tint": false,
-		"fit": [1.0, 1.0, 0.1, -0.02, 0.02, 0.07]},
+		"pack": false,      # wears his own rucksack (it also deepens his measured back)
+		"fit": [1.0, 0.95, 0.0, 0.0, 0.07, 0.0]},
 	"remy": {"scene": "res://assets/models/chars/remy.glb", "anims": "res://assets/anims/mixamo_remy.res", "turn": PI, "scale": 0.5, "tint": false,
-		"fit": [1.0, 1.0, 0.1, -0.02, 0.02, 0.07]},
+		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 }
 ## Characters the bots are drawn from.
 const BOT_CHARACTERS := ["soldier", "survivor", "bundeswehr", "remy", "lola"]
@@ -252,21 +253,100 @@ func _build_gun() -> void:
 
 ## Helmet, vest and backpack follow the head and chest bones. Gear models
 ## are in real metres; the slot scale turns that into this skeleton's units.
+## Where they go is measured on the body itself (top of the head, chest
+## front and back), so every character gets a fit; "fit" fine-tunes it.
 func _build_gear() -> void:
-	_fit = CHARACTERS[character].get("fit", [1.0, 1.0, 0.1, 0.0, 0.0, 0.12])
-	var f := 1.0 / (_skel_scale * _cscale)
-	helmet = _gear_slot("Head", Vector3(0, _fit[2], 0.01), f * _fit[0])
-	vest = _gear_slot("Spine1", Vector3(0, _fit[3] + 0.08, _fit[4]), f * _fit[1])
-	pack = _gear_slot("Spine2", Vector3(0, 0.0, -_fit[5]), f * _fit[1])
+	_fit = CHARACTERS[character].get("fit", [1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+	var u := 1.0 / (_skel_scale * _cscale)       # skeleton units per metre
+	var m := _measure(u)
+	_pack_back = m.back2 + _fit[5] * u
+	helmet = _gear_slot("Head", Vector3(m.head_c.x, m.head_top - (0.075 - _fit[2]) * u, m.head_c.z + 0.005 * u), u * _fit[0] * m.head_k)
+	vest = _gear_slot("Spine1", Vector3(0, (0.03 + _fit[3]) * u, (m.front1 + m.back1) * 0.5 + _fit[4] * u), u * _fit[1] * m.chest_k)
+	pack = _gear_slot("Spine2", Vector3(0, -0.02 * u, m.back2), u * _fit[1])
 	set_gear(0, 0, 0)
 
-func _gear_slot(bone: String, offset_m: Vector3, f: float) -> MeshInstance3D:
+var _pack_back := 0.0
+static var _measure_cache := {}
+
+## Body measurements in the bone spaces of Head, Spine1 and Spine2 (skeleton
+## units), from the skinned vertices at rest: top and middle of the head,
+## chest front/back and width, upper back. Once per character.
+func _measure(u: float) -> Dictionary:
+	if _measure_cache.has(character): return _measure_cache[character]
+	var hb: int = _bone.get("Head", 0)
+	var s1: int = _bone.get("Spine1", 0)
+	var s2: int = _bone.get("Spine2", s1)
+	var hinv := sk.get_bone_global_rest(hb).affine_inverse()
+	var s1inv := sk.get_bone_global_rest(s1).affine_inverse()
+	var s2inv := sk.get_bone_global_rest(s2).affine_inverse()
+	var head := []
+	var front1 := -INF
+	var back1 := INF
+	var x1 := Vector2(INF, -INF)
+	var back2 := INF
+	var band := 0.07 * u
+	for mi: MeshInstance3D in body.find_children("*", "MeshInstance3D", true, false):
+		if mi.skin == null or mi.mesh == null: continue
+		var skin := mi.skin
+		var bind_bone := PackedInt32Array()
+		for bi in skin.get_bind_count():
+			var bn := String(skin.get_bind_name(bi))
+			bind_bone.append(sk.find_bone(bn) if bn != "" else skin.get_bind_bone(bi))
+		for si in mi.mesh.get_surface_count():
+			var arr := mi.mesh.surface_get_arrays(si)
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var bones = arr[Mesh.ARRAY_BONES]
+			var weights = arr[Mesh.ARRAY_WEIGHTS]
+			if bones == null or weights == null or verts.is_empty(): continue
+			var per: int = bones.size() / verts.size()
+			for i in range(0, verts.size(), 2):
+				var best := 0
+				for k in per:
+					if weights[i * per + k] > weights[i * per + best]: best = k
+				var bi: int = bones[i * per + best]
+				if bi >= bind_bone.size() or bind_bone[bi] < 0: continue
+				var bone: int = bind_bone[bi]
+				var bname := sk.get_bone_name(bone)
+				var p: Vector3 = sk.get_bone_global_rest(bone) * (skin.get_bind_pose(bi) * verts[i])
+				if bname.ends_with("Head") or bname.ends_with("HeadTop_End"):
+					head.append(hinv * p)
+				elif bname.ends_with("Spine1") or bname.ends_with("Spine2") or bname.ends_with("Spine"):
+					var q1 := s1inv * p
+					if absf(q1.y) < band:
+						front1 = maxf(front1, q1.z)
+						back1 = minf(back1, q1.z)
+						x1 = Vector2(minf(x1.x, q1.x), maxf(x1.y, q1.x))
+					var q2 := s2inv * p
+					if absf(q2.y) < band: back2 = minf(back2, q2.z)
+	var top := -INF
+	for q: Vector3 in head: top = maxf(top, q.y)
+	var c := Vector3.ZERO
+	var n := 0
+	var hx := Vector2(INF, -INF)
+	for q: Vector3 in head:
+		if q.y > top - 0.06 * u:
+			c += q
+			n += 1
+		if q.y > top - 0.12 * u: hx = Vector2(minf(hx.x, q.x), maxf(hx.y, q.x))
+	if n > 0: c /= n
+	var out := {"head_top": top if n > 0 else 0.17 * u, "head_c": c, "back2": back2 if back2 < INF else -0.12 * u,
+		"front1": front1 if front1 > -INF else 0.12 * u, "back1": back1 if back1 < INF else -0.12 * u,
+		# A head about 18 cm wide (ears, hair) wears the helmets as modelled; a chest
+		# about 34 cm wide wears the vests as modelled.
+		"head_k": clampf((hx.y - hx.x) / u / 0.18, 0.85, 1.2) if hx.y > hx.x else 1.0,
+		"chest_k": clampf((x1.y - x1.x) / u / 0.34, 0.85, 1.25) if x1.y > x1.x else 1.0}
+	_measure_cache[character] = out
+	return out
+
+## A gear node on a bone: position in that bone's space (skeleton units),
+## scale from metres to skeleton units.
+func _gear_slot(bone: String, pos: Vector3, f: float) -> MeshInstance3D:
 	var att := BoneAttachment3D.new()
 	att.bone_name = sk.get_bone_name(_bone.get(bone, _bone.get("Spine2", 0)))
 	sk.add_child(att)
 	var mi := MeshInstance3D.new()
 	mi.scale = Vector3.ONE * f
-	mi.position = offset_m * f
+	mi.position = pos
 	att.add_child(mi)
 	return mi
 
@@ -411,14 +491,16 @@ func muzzle_position() -> Vector3:
 
 func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 	if not CHARACTERS[character].get("vest", true): vest_lvl = 0
+	if not CHARACTERS[character].get("pack", true): pack_lvl = 0
 	for e in [[helmet, "helmet", helmet_lvl], [vest, "vest", vest_lvl], [pack, "pack", pack_lvl]]:
 		var mi: MeshInstance3D = e[0]
 		mi.visible = e[2] > 0
 		if e[2] > 0:
 			mi.mesh = gear_mesh(e[1], e[2])
 			if e[1] == "pack":
-				# The pack's front face sits against the back.
-				mi.position.z = -(_fit[5] + mi.mesh.get_aabb().size.z * 0.5) * mi.scale.x
+				# The pack's front face sits against the back (its straps reach
+				# about 9 cm further forward, round the shoulders).
+				mi.position.z = _pack_back - (mi.mesh.get_aabb().size.z * 0.5 - 0.09) * mi.scale.x
 
 static var _gear_cache := {}
 
