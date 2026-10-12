@@ -34,13 +34,17 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"pwalk_f": "pistol_walk", "pwalk_b": "pistol_walk_backward", "pwalk_fr": "pistol_walk_arc", "pwalk_fl": "pistol_walk_arc_2",
 	"pwalk_bl": "pistol_walk_backward_arc", "pwalk_br": "pistol_walk_backward_arc_2",
 	"prun_f": "pistol_run", "prun_b": "pistol_run_backward", "prun_fr": "pistol_run_arc", "prun_fl": "pistol_run_arc_2",
-	"prun_bl": "pistol_run_backward_arc", "prun_br": "pistol_run_backward_arc_2", "pstrafe_l": "pistol_strafe", "pstrafe_r": "pistol_strafe_2"}
+	"prun_bl": "pistol_run_backward_arc", "prun_br": "pistol_run_backward_arc_2", "pstrafe_l": "pistol_strafe", "pstrafe_r": "pistol_strafe_2",
+	# Empty hands (Mixamo Locomotion Pack and single clips, files renamed u_*).
+	"u_walk": "u_walking", "u_run": "u_running", "u_sprint": "u_fast_run", "u_idle": "u_idle", "u_back": "u_walking_backwards",
+	"u_walk_l": "u_strafe_walk_left", "u_walk_r": "u_strafe_walk_right", "u_run_l": "u_strafe_run_left", "u_run_r": "u_strafe_run_right",
+	"u_jump": "u_jump"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
-	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup"]
+	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

@@ -737,6 +737,15 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	elif pose == "stand" and speed > 0.3 and pistol:
 		var pset := "prun_" if speed > 3.2 else "pwalk_"
 		_play_moving("mx/" + (("pstrafe_" + dir) if dir in ["l", "r"] else pset + dir), speed)
+	elif pose == "stand" and speed > 0.3 and not armed and ap.has_animation("mx/u_walk"):
+		# Empty hands: the unarmed locomotion set.
+		var clip := "u_walk"
+		if dir in ["b", "bl", "br"]: clip = "u_back"
+		elif dir == "l": clip = "u_run_l" if speed > 3.2 else "u_walk_l"
+		elif dir == "r": clip = "u_run_r" if speed > 3.2 else "u_walk_r"
+		elif sprinting: clip = "u_sprint"
+		elif speed > 3.2: clip = "u_run"
+		_play_moving("mx/" + clip, speed)
 	elif pose == "stand" and speed > 0.3:
 		var set := "walk_"
 		if sprinting and dir in ["f", "fl", "fr"]: set = "sprint_"
@@ -771,6 +780,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/fire" if recoil > 0.3 else "mx/idle_aim", 1.0)
 	elif pose == "stand" and armed:
 		_play("mx/idle", 1.0)
+	elif pose == "stand" and ap.has_animation("mx/u_idle"):
+		_play("mx/u_idle", 1.0)
 	else:
 		_play("Idle", 1.0)
 	ap.advance(delta)
@@ -855,7 +866,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_hold_gun()
 	else:
 		gun.visible = false
-		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink":
+		# The unarmed clips swing their own arms; the rifle ones need fixing up.
+		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink" and not _anim.begins_with("mx/u_"):
 			_relaxed_arms(speed)
 	_place_can()
 	if absf(look_yaw) > 0.01 or absf(look_pitch) > 0.01: _look_head()
