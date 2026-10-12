@@ -1,0 +1,11 @@
+Model Information:
+* title:	3D Zombie Apocalypse Survivor Male Character
+* source:	https://sketchfab.com/3d-models/3d-zombie-apocalypse-survivor-male-character-f56ffc64d18c40cf95d17559542ca44c
+* author:	codersan (https://sketchfab.com/codersan)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "3D Zombie Apocalypse Survivor Male Character" (https://sketchfab.com/3d-models/3d-zombie-apocalypse-survivor-male-character-f56ffc64d18c40cf95d17559542ca44c) by codersan (https://sketchfab.com/codersan) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -1,0 +1,11 @@
+Model Information:
+* title:	altyn_helmet
+* source:	https://sketchfab.com/3d-models/altyn-helmet-c1e7126e091f470597b8ea5447e2b15e
+* author:	b4_cobra (https://sketchfab.com/sultanbaddad3)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "altyn_helmet" (https://sketchfab.com/3d-models/altyn-helmet-c1e7126e091f470597b8ea5447e2b15e) by b4_cobra (https://sketchfab.com/sultanbaddad3) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -87,7 +87,8 @@ func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 1 | 2 | 4
 	floor_max_angle = deg_to_rad(50)
-	model = HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25))
+	model = HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25),
+		HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()])
 	add_child(model)
 	model.set_gear(0, 0, 0)
 	_frame = randi() % 4

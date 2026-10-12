@@ -1,0 +1,11 @@
+Model Information:
+* title:	Tactical Backpack – Game Ready PBR
+* source:	https://sketchfab.com/3d-models/tactical-backpack-game-ready-pbr-dea541825b8d4fd5a8c4fbb68f0ed62f
+* author:	shatlak1998 (https://sketchfab.com/shatlak1998)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Tactical Backpack – Game Ready PBR" (https://sketchfab.com/3d-models/tactical-backpack-game-ready-pbr-dea541825b8d4fd5a8c4fbb68f0ed62f) by shatlak1998 (https://sketchfab.com/shatlak1998) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

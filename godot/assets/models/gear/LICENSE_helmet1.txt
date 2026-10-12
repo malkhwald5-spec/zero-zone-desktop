@@ -1,0 +1,11 @@
+Model Information:
+* title:	off road helmet
+* source:	https://sketchfab.com/3d-models/off-road-helmet-c9d968e024b749a7a9d0e257277a2d5c
+* author:	Pieter Ferreira (https://sketchfab.com/Badboy17Aiden)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "off road helmet" (https://sketchfab.com/3d-models/off-road-helmet-c9d968e024b749a7a9d0e257277a2d5c) by Pieter Ferreira (https://sketchfab.com/Badboy17Aiden) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

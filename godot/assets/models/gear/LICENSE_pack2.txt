@@ -1,0 +1,11 @@
+Model Information:
+* title:	Vintage Military Backpack
+* source:	https://sketchfab.com/3d-models/vintage-military-backpack-157bb5277b8247899580052806b914d5
+* author:	SilentSymmetry (https://sketchfab.com/silent_symmetry)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Vintage Military Backpack" (https://sketchfab.com/3d-models/vintage-military-backpack-157bb5277b8247899580052806b914d5) by SilentSymmetry (https://sketchfab.com/silent_symmetry) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

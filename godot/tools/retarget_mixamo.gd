@@ -108,7 +108,11 @@ func _init() -> void:
 		var Q := Quaternion(fw_s, fw_t) if fw_s.dot(fw_t) > -0.99 else Quaternion(Vector3.UP, PI)
 		var hips_s := ssk.find_bone("mixamorig_Hips")
 		var s_h := ssk.get_bone_rest(hips_s).origin.y
-		var t_h := (C * (tsk.get_bone_rest(0).origin * t_scale)).y
+		# Some rigs have an extra root joint above the hips: work on the hips bone.
+		var t_hips := tsk.find_bone("mixamorig_Hips")
+		var t_hips_g := tsk.get_bone_global_rest(t_hips)
+		var t_hips_p := tsk.get_bone_global_rest(tsk.get_bone_parent(t_hips)) if tsk.get_bone_parent(t_hips) >= 0 else Transform3D()
+		var t_h := (C * (t_hips_g.origin * t_scale)).y
 		var ratio := t_h / s_h
 		var out := Animation.new()
 		out.length = src.length
@@ -126,7 +130,7 @@ func _init() -> void:
 			out.track_set_path(tr, NodePath(tpath + ":" + tsk.get_bone_name(i)))
 			rot_tracks[i] = tr
 		var pos_tr := out.add_track(Animation.TYPE_POSITION_3D)
-		out.track_set_path(pos_tr, NodePath(tpath + ":" + tsk.get_bone_name(0)))
+		out.track_set_path(pos_tr, NodePath(tpath + ":" + tsk.get_bone_name(t_hips)))
 		var frames := int(ceil(src.length * FPS))
 		var start_pos := Vector3.ZERO
 		var end_pos := Vector3.ZERO
@@ -163,10 +167,10 @@ func _init() -> void:
 				_yaw0 = sg[hips_s]
 			_yaw1 = sg[hips_s]
 			end_pos = hp
-			var rest_w := C * (tsk.get_bone_rest(0).origin * t_scale)
+			var rest_w := C * (t_hips_g.origin * t_scale)
 			var w := Q * (Vector3(0, hp.y, 0) * ratio)
 			w = Vector3(rest_w.x, w.y, rest_w.z)
-			out.position_track_insert_key(pos_tr, t, C.inverse() * w / t_scale)
+			out.position_track_insert_key(pos_tr, t, t_hips_p.affine_inverse() * (C.inverse() * w / t_scale))
 		var drift := Q * (end_pos - start_pos) * ratio
 		# Ground speed of the clip (m/s): used to match steps to the real speed.
 		out.set_meta("speed", Vector2(drift.x, drift.z).length() / maxf(src.length, 0.01))

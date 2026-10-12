@@ -53,20 +53,36 @@ var brake := 0.0              # parachute flare 0..1
 var chute_open := 1.0         # 0 = just pulled (bunched up) .. 1 = fully open
 var helmet: MeshInstance3D
 var pack: MeshInstance3D
-var _helmet_att: BoneAttachment3D
-var _pack_att: BoneAttachment3D
+var vest: MeshInstance3D
+var _fit: Array = []
 var _has_weapon := false
 var _anim := ""
 var _bone := {}
+var _hips := 0
+var _cscale := 1.0              # size the character model is drawn at
 var _wave := 0.0
 var _skel_scale := 0.01
 var _mats := {}
 
 ## Characters: the armoured soldier, or Lola (a realistic Mixamo human).
+## Survivor, Bundeswehr soldier and Remy: Sketchfab / Mixamo characters (see
+## README), cleaned by tools/prep_character.gd, moves by tools/retarget_mixamo.gd.
+## "fit": helmet / vest / backpack size and placement for that body
+## ([head scale, chest scale, helmet lift m, vest lift m, vest forward m, pack back m]).
 const CHARACTERS := {
-	"soldier": {"scene": "res://assets/models/soldier.glb", "anims": "res://assets/anims/mixamo_anims.res", "turn": 0.0, "scale": 1.0, "tint": true},
-	"lola": {"scene": "res://assets/models/lola/lola.fbx", "anims": "res://assets/anims/mixamo_lola.res", "turn": PI, "scale": 0.92, "tint": false},
+	"soldier": {"scene": "res://assets/models/soldier.glb", "anims": "res://assets/anims/mixamo_anims.res", "turn": 0.0, "scale": 1.0, "tint": true,
+		"vest": false, "fit": [1.08, 1.0, 0.085, 0.0, 0.0, 0.1]},
+	"lola": {"scene": "res://assets/models/lola/lola.fbx", "anims": "res://assets/anims/mixamo_lola.res", "turn": PI, "scale": 0.92, "tint": false,
+		"fit": [1.0, 0.9, 0.1, -0.02, 0.02, 0.06]},
+	"survivor": {"scene": "res://assets/models/chars/survivor.glb", "anims": "res://assets/anims/mixamo_survivor.res", "turn": PI, "scale": 0.92, "tint": false,
+		"fit": [1.0, 1.0, 0.1, -0.02, 0.02, 0.07]},
+	"bundeswehr": {"scene": "res://assets/models/chars/bundeswehr.glb", "anims": "res://assets/anims/mixamo_bundeswehr.res", "turn": PI, "scale": 0.6, "tint": false,
+		"fit": [1.0, 1.0, 0.1, -0.02, 0.02, 0.07]},
+	"remy": {"scene": "res://assets/models/chars/remy.glb", "anims": "res://assets/anims/mixamo_remy.res", "turn": PI, "scale": 0.5, "tint": false,
+		"fit": [1.0, 1.0, 0.1, -0.02, 0.02, 0.07]},
 }
+## Characters the bots are drawn from.
+const BOT_CHARACTERS := ["soldier", "survivor", "bundeswehr", "remy", "lola"]
 var character := "soldier"
 var _u := 1.0                   # gear offsets are in centimetres of bone space; this converts
 
@@ -79,18 +95,30 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 	var inst: Node3D = (SCENE if character == "soldier" else load(cdef.scene)).instantiate()
 	inst.rotation.y = cdef.turn
 	inst.scale = Vector3.ONE * cdef.scale
+	_cscale = cdef.scale
 	body.add_child(inst)
 	sk = inst.find_child("Skeleton3D", true, false)
 	ap = inst.find_child("AnimationPlayer", true, false)
+	if ap == null:
+		# Characters prepared without their own clips: the moves are all ours.
+		ap = AnimationPlayer.new()
+		inst.add_child(ap)
 	ap.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	for a in ["Idle", "Walk", "Run"]:
 		if ap.has_animation(a): ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	# Mixamo rifle moves (aim, fire, reload, run, strafe), retargeted to this skeleton.
 	ap.add_animation_library("mx", MIXAMO if character == "soldier" else load(cdef.anims))
-	_skel_scale = sk.get_parent().scale.x if sk.get_parent() is Node3D and sk.get_parent() != inst else 1.0
+	# Skeleton units per metre of the model: every scale between the model's
+	# root and the skeleton (some rigs carry it a few nodes up).
+	_skel_scale = 1.0
+	var sn: Node = sk
+	while sn != inst and sn is Node3D:
+		_skel_scale *= (sn as Node3D).scale.x
+		sn = sn.get_parent()
 	_u = 0.01 / _skel_scale
 	for i in sk.get_bone_count():
 		_bone[sk.get_bone_name(i).replace("mixamorig_", "")] = i
+	_hips = _bone.get("Hips", 0)    # some rigs have an extra root joint above the hips
 	# Tint the uniform with the outfit colour (keeps the texture detail).
 	for mi in (sk.get_children() if cdef.tint else []):
 		if mi is MeshInstance3D and mi.mesh:
@@ -222,26 +250,25 @@ func _build_gun() -> void:
 	add_child(gun)
 	gun.visible = false
 
-## Helmet and backpack follow the head and upper back bones.
+## Helmet, vest and backpack follow the head and chest bones. Gear models
+## are in real metres; the slot scale turns that into this skeleton's units.
 func _build_gear() -> void:
-	_helmet_att = BoneAttachment3D.new()
-	_helmet_att.bone_name = sk.get_bone_name(_bone.Head)
-	sk.add_child(_helmet_att)
-	helmet = MeshInstance3D.new()
-	helmet.mesh = gear_mesh("helmet", 2)
-	helmet.scale = Vector3.ONE / _skel_scale * 1.08
-	helmet.position = Vector3(0, 7.5, 0.8) * _u
-	helmet.material_override = _mat("helmet", Color("5a7a4a"), 0.5)
-	_helmet_att.add_child(helmet)
-	_pack_att = BoneAttachment3D.new()
-	_pack_att.bone_name = sk.get_bone_name(_bone.Spine2)
-	sk.add_child(_pack_att)
-	pack = MeshInstance3D.new()
-	pack.mesh = gear_mesh("pack", 2)
-	pack.scale = Vector3.ONE / _skel_scale
-	pack.position = Vector3(0, 4.0, -15.0) * _u
-	pack.material_override = _mat("pack", Color("5a4a2e"), 0.9)
-	_pack_att.add_child(pack)
+	_fit = CHARACTERS[character].get("fit", [1.0, 1.0, 0.1, 0.0, 0.0, 0.12])
+	var f := 1.0 / (_skel_scale * _cscale)
+	helmet = _gear_slot("Head", Vector3(0, _fit[2], 0.01), f * _fit[0])
+	vest = _gear_slot("Spine1", Vector3(0, _fit[3] + 0.08, _fit[4]), f * _fit[1])
+	pack = _gear_slot("Spine2", Vector3(0, 0.0, -_fit[5]), f * _fit[1])
+	set_gear(0, 0, 0)
+
+func _gear_slot(bone: String, offset_m: Vector3, f: float) -> MeshInstance3D:
+	var att := BoneAttachment3D.new()
+	att.bone_name = sk.get_bone_name(_bone.get(bone, _bone.get("Spine2", 0)))
+	sk.add_child(att)
+	var mi := MeshInstance3D.new()
+	mi.scale = Vector3.ONE * f
+	mi.position = offset_m * f
+	att.add_child(mi)
+	return mi
 
 ## Weapon id ("m416") or class ("ar"); "" = empty hands.
 func set_weapon(id_or_cls: String) -> void:
@@ -382,97 +409,53 @@ func muzzle_position() -> Vector3:
 	var z: float = weapon_node.get_meta("muzzle", -0.6) if weapon_node else -0.6
 	return gun.global_transform * (Vector3(0, 0.03, z) * WSCALE)
 
-func set_gear(_vest: int, helmet_lvl: int, pack_lvl: int) -> void:
-	helmet.visible = helmet_lvl > 0
-	pack.visible = pack_lvl > 0
-	if helmet_lvl > 0:
-		helmet.mesh = gear_mesh("helmet", helmet_lvl)
-		helmet.material_override = null
-	if pack_lvl > 0:
-		pack.mesh = gear_mesh("pack", pack_lvl)
-		pack.material_override = null
+func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
+	if not CHARACTERS[character].get("vest", true): vest_lvl = 0
+	for e in [[helmet, "helmet", helmet_lvl], [vest, "vest", vest_lvl], [pack, "pack", pack_lvl]]:
+		var mi: MeshInstance3D = e[0]
+		mi.visible = e[2] > 0
+		if e[2] > 0:
+			mi.mesh = gear_mesh(e[1], e[2])
+			if e[1] == "pack":
+				# The pack's front face sits against the back.
+				mi.position.z = -(_fit[5] + mi.mesh.get_aabb().size.z * 0.5) * mi.scale.x
 
 static var _gear_cache := {}
 
-## Helmets (level 1 light shell, 2 military with ear guards and NVG mount,
-## 3 heavy dark shell) and backpacks (bigger and with more pockets per level).
-## Built in metres in bone space: +Z is the front of the body.
+## Helmets (1 off-road, 2 military, 3 Altyn with visor), vests (1 soft, 2
+## carrier, 3 heavy with shoulder guards) and backpacks (1 small, 2 canvas,
+## 3 tactical): Sketchfab models (see README) baked by tools/prep_prop.gd.
+## [model front turned to +Z (radians about Y), how it is sized, size m].
+const GEAR_MODELS := {
+	"helmet1": [-PI / 2, "max", 0.32], "helmet2": [-PI / 2, "max", 0.28], "helmet3": [-PI / 2, "max", 0.31],
+	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [0.0, "keep", 1.0],
+	"pack1": [PI, "y", 0.44], "pack2": [PI, "y", 0.52], "pack3": [PI, "y", 0.56],
+}
+
+## Gear model in metres, +Z = the front of the body, centred on its middle.
 static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
-	var key := "%s%d" % [kind, lvl]
+	var key := "%s%d" % [kind, clampi(lvl, 1, 3)]
 	if _gear_cache.has(key): return _gear_cache[key]
-	var parts := []      # [mesh, position, rotation, scale, colour]
-	if kind == "helmet":
-		var col: Color = [Color.WHITE, Color("8c8670"), Color("4f5d3a"), Color("2a2d2a")][lvl]
-		var dome := SphereMesh.new()
-		dome.radius = 0.138 + lvl * 0.004
-		dome.height = 0.2 + lvl * 0.01
-		dome.is_hemisphere = true
-		dome.radial_segments = 20
-		dome.rings = 8
-		parts.append([dome, Vector3(0, -0.005, -0.005), Vector3.ZERO, Vector3(1, 1, 1.1), col])
-		var rim := CylinderMesh.new()
-		rim.top_radius = 0.142 + lvl * 0.004
-		rim.bottom_radius = 0.149 + lvl * 0.004
-		rim.height = 0.022
-		rim.radial_segments = 20
-		parts.append([rim, Vector3(0, 0.0, -0.005), Vector3.ZERO, Vector3(1, 1, 1.1), col.darkened(0.25)])
-		if lvl >= 2:
-			for x in [-1.0, 1.0]:
-				var ear := BoxMesh.new()
-				ear.size = Vector3(0.025, 0.085, 0.11)
-				parts.append([ear, Vector3(x * 0.142, -0.045, -0.02), Vector3(0, 0, x * 0.12), Vector3.ONE, col.darkened(0.1)])
-			var nvg := BoxMesh.new()
-			nvg.size = Vector3(0.05, 0.035, 0.02)
-			parts.append([nvg, Vector3(0, 0.055, 0.15), Vector3(-0.35, 0, 0), Vector3.ONE, Color(0.1, 0.1, 0.1)])
-			var strap := CylinderMesh.new()
-			strap.top_radius = 0.152
-			strap.bottom_radius = 0.152
-			strap.height = 0.018
-			strap.radial_segments = 20
-			parts.append([strap, Vector3(0, 0.05, -0.005), Vector3.ZERO, Vector3(1, 1, 1.1), col.darkened(0.45)])
-		if lvl == 3:
-			var visor := BoxMesh.new()
-			visor.size = Vector3(0.2, 0.05, 0.02)
-			parts.append([visor, Vector3(0, -0.02, 0.155), Vector3(0.2, 0, 0), Vector3.ONE, Color(0.06, 0.06, 0.07)])
-	else:
-		var col: Color = [Color.WHITE, Color("6e5c40"), Color("4e5236"), Color("3a3a30")][lvl]
-		var sc: float = [1.0, 0.85, 1.0, 1.15][lvl]
-		var b := func(sz: Vector3) -> BoxMesh:
-			var m := BoxMesh.new()
-			m.size = sz * sc
-			return m
-		parts.append([b.call(Vector3(0.3, 0.38, 0.16)), Vector3(0, 0, 0), Vector3.ZERO, Vector3.ONE, col])
-		parts.append([b.call(Vector3(0.31, 0.07, 0.17)), Vector3(0, 0.2 * sc, 0.0), Vector3(0.1, 0, 0), Vector3.ONE, col.darkened(0.15)])
-		parts.append([b.call(Vector3(0.22, 0.15, 0.05)), Vector3(0, -0.08 * sc, -0.1 * sc), Vector3.ZERO, Vector3.ONE, col.darkened(0.08)])
-		for x in [-1.0, 1.0]:
-			parts.append([b.call(Vector3(0.05, 0.18, 0.1)), Vector3(x * 0.17 * sc, -0.05 * sc, 0), Vector3.ZERO, Vector3.ONE, col.darkened(0.12)])
-			parts.append([b.call(Vector3(0.04, 0.4, 0.015)), Vector3(x * 0.08 * sc, 0.0, 0.09 * sc), Vector3.ZERO, Vector3.ONE, Color(0.1, 0.1, 0.1)])
-		if lvl >= 2:
-			var roll := CylinderMesh.new()
-			roll.top_radius = 0.055 * sc
-			roll.bottom_radius = 0.055 * sc
-			roll.height = 0.34 * sc
-			parts.append([roll, Vector3(0, 0.26 * sc, -0.01), Vector3(0, 0, PI / 2), Vector3.ONE, Color("3f4a3a") if lvl == 2 else Color("2a3a4a")])
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for pt in parts:
-		var tmp := SurfaceTool.new()
-		tmp.create_from(pt[0], 0)
-		var arr := tmp.commit_to_arrays()
-		var n: int = arr[Mesh.ARRAY_VERTEX].size()
-		var cols := PackedColorArray()
-		cols.resize(n)
-		cols.fill(pt[4])
-		arr[Mesh.ARRAY_COLOR] = cols
-		var am := ArrayMesh.new()
-		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		st.append_from(am, 0, Transform3D(Basis.from_euler(pt[2]).scaled(pt[3]), pt[1]))
-	var m := StandardMaterial3D.new()
-	m.vertex_color_use_as_albedo = true
-	m.vertex_color_is_srgb = true
-	m.roughness = 0.6 if kind == "helmet" else 0.92
-	st.set_material(m)
-	var mesh := st.commit()
+	var cfg: Array = GEAR_MODELS[key]
+	var sc: Node3D = load("res://assets/models/gear/%s.glb" % key).instantiate()
+	var src: Mesh = null
+	for mi: MeshInstance3D in sc.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh: src = mi.mesh
+	var rot := Basis(Vector3.UP, cfg[0])
+	var a: AABB = Transform3D(rot, Vector3.ZERO) * src.get_aabb()
+	var k := 1.0
+	match cfg[1]:
+		"max": k = cfg[2] / maxf(a.size.x, maxf(a.size.y, a.size.z))
+		"y": k = cfg[2] / a.size.y
+	var xf := Transform3D(rot.scaled(Vector3.ONE * k), -a.get_center() * k)
+	var mesh := ArrayMesh.new()
+	for i in src.get_surface_count():
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.append_from(src, i, xf)
+		st.set_material(src.surface_get_material(i))
+		st.commit(mesh)
+	sc.free()
 	_gear_cache[key] = mesh
 	return mesh
 
@@ -633,7 +616,7 @@ func start_turn(d: int) -> void:
 		return
 	_turn_h0 = Quaternion.IDENTITY
 	for tr in a.get_track_count():
-		if a.track_get_type(tr) == Animation.TYPE_ROTATION_3D and String(a.track_get_path(tr)).ends_with(sk.get_bone_name(0)):
+		if a.track_get_type(tr) == Animation.TYPE_ROTATION_3D and String(a.track_get_path(tr)).ends_with(sk.get_bone_name(_hips)):
 			_turn_h0 = a.rotation_track_interpolate(tr, 0.0)
 			break
 	ap.play(name, 0.15)
@@ -642,11 +625,11 @@ func start_turn(d: int) -> void:
 
 func _turn_step() -> void:
 	var up := _skeleton_up()
-	var cur := sk.get_bone_pose_rotation(0)
+	var cur := sk.get_bone_pose_rotation(_hips)
 	var q := cur * _turn_h0.inverse()
 	var a := 2.0 * atan2(Vector3(q.x, q.y, q.z).dot(up), q.w)
 	a = wrapf(a, -PI, PI)
-	sk.set_bone_pose_rotation(0, Quaternion(up, -a) * cur)
+	sk.set_bone_pose_rotation(_hips, Quaternion(up, -a) * cur)
 	turn_yaw = a
 	if ap.current_animation_position >= ap.current_animation_length - 0.02:
 		turn_yaw = PI / 2.0 * turn_dir
@@ -661,7 +644,8 @@ func _dir8() -> String:
 ## Locomotion clip with its playback speed matched to the real ground speed.
 func _play_moving(name: String, speed: float, max_scale := 2.2) -> void:
 	var a: Animation = ap.get_animation(name)
-	var clip_speed: float = a.get_meta("speed", 2.0) if a else 2.0
+	# The clip's speed was measured on the unscaled model.
+	var clip_speed: float = (a.get_meta("speed", 2.0) if a else 2.0) * _cscale
 	_play(name, clampf(speed / maxf(clip_speed, 0.15), 0.4, max_scale))
 
 ## Dead: keep playing the death animation until it ends (owners stop calling set_pose).
@@ -697,10 +681,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			# Climbing: the hips never go above where they started (the body is
 			# lifted by the owner); dropping down: never below. Crouches stay.
 			var up := _skeleton_up()
-			var hp := sk.get_bone_pose_position(0)
+			var hp := sk.get_bone_pose_position(_hips)
 			var h := hp.dot(up)
 			var keep := minf(h, _action_y0) if _action_rise > 0.0 else maxf(h, _action_y0)
-			sk.set_bone_pose_position(0, hp + up * (keep - h))
+			sk.set_bone_pose_position(_hips, hp + up * (keep - h))
 		gun.visible = _action == "melee" and _has_weapon
 		body.position = Vector3.ZERO
 		body.rotation = Vector3.ZERO

@@ -302,25 +302,11 @@ static func _gear(kind: String, lvl: int) -> Mesh:
 		return _grounded(_retint(HumanModel.gear_mesh("helmet", lvl), Transform3D(Basis.from_euler(Vector3(-0.25, 0, 0.1)), Vector3.ZERO)))
 	if kind == "pack":
 		# Lying on its back, straps down.
-		return _grounded(_retint(HumanModel.gear_mesh("pack", lvl), Transform3D(Basis(Vector3.RIGHT, -PI / 2), Vector3.ZERO)))
-	# Vest: plate carrier lying flat (front up) with mag pouches and straps.
-	var col: Color = [Color.WHITE, Color("6b6a52"), Color("4a5236"), Color("2a2c2a")][lvl]
-	var parts := []
-	parts.append([_box(Vector3(0.34, 0.05, 0.4)), Vector3(0, 0.025, 0), Vector3.ZERO, col])
-	parts.append([_box(Vector3(0.36, 0.03, 0.12)), Vector3(0, 0.02, 0.17), Vector3.ZERO, col.darkened(0.12)])      # cummerbund
-	for x in [-1.0, 1.0]:
-		parts.append([_box(Vector3(0.07, 0.035, 0.14)), Vector3(x * 0.12, 0.03, -0.24), Vector3.ZERO, col.darkened(0.08)])   # shoulder straps
-	for i in 3:
-		parts.append([_box(Vector3(0.08, 0.05, 0.12)), Vector3((i - 1) * 0.095, 0.075, 0.08), Vector3.ZERO, col.darkened(0.18)])   # mag pouches
-		parts.append([_box(Vector3(0.082, 0.012, 0.04)), Vector3((i - 1) * 0.095, 0.1, 0.03), Vector3.ZERO, col.darkened(0.3)])
-	if lvl >= 2:
-		parts.append([_box(Vector3(0.14, 0.04, 0.08)), Vector3(0.05, 0.065, -0.07), Vector3.ZERO, col.darkened(0.1)])     # admin pouch
-		parts.append([_box(Vector3(0.05, 0.004, 0.035)), Vector3(-0.1, 0.052, -0.08), Vector3.ZERO, Color(0.15, 0.15, 0.15)])
-	if lvl == 3:
-		parts.append([_box(Vector3(0.36, 0.02, 0.06)), Vector3(0, 0.06, -0.15), Vector3.ZERO, col.darkened(0.25)])
-	return _build(parts)
+		return _grounded(_retint(HumanModel.gear_mesh("pack", lvl), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3.ZERO)))
+	# Vest: lying flat, front up.
+	return _grounded(_retint(HumanModel.gear_mesh("vest", lvl), Transform3D(Basis(Vector3.RIGHT, -PI / 2), Vector3.ZERO)))
 
-## Copy of a vertex-coloured gear mesh with a transform applied (keeps its material).
+## Copy of a gear mesh with a transform applied (keeps its materials).
 static func _retint(m: Mesh, xf: Transform3D) -> ArrayMesh:
 	var out := ArrayMesh.new()
 	for i in m.get_surface_count():
