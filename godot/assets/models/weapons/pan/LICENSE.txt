@@ -1,0 +1,11 @@
+Model Information:
+* title:	Old Frying Pan
+* source:	https://sketchfab.com/3d-models/old-frying-pan-dbac7c1a1a5f4b79a1cb8bdacdd42aff
+* author:	GameDev Nick (https://sketchfab.com/GameDevNick)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Old Frying Pan" (https://sketchfab.com/3d-models/old-frying-pan-dbac7c1a1a5f4b79a1cb8bdacdd42aff) by GameDev Nick (https://sketchfab.com/GameDevNick) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

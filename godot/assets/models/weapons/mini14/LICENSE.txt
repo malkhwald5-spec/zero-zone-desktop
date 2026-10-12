@@ -1,0 +1,11 @@
+Model Information:
+* title:	Ruger Mini 14 Tactical
+* source:	https://sketchfab.com/3d-models/ruger-mini-14-tactical-b170c32270ee453cb54b4bd5c1c0578a
+* author:	calico16 (https://sketchfab.com/calico16)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Ruger Mini 14 Tactical" (https://sketchfab.com/3d-models/ruger-mini-14-tactical-b170c32270ee453cb54b4bd5c1c0578a) by calico16 (https://sketchfab.com/calico16) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -1,0 +1,11 @@
+Model Information:
+* title:	SKS
+* source:	https://sketchfab.com/3d-models/sks-8e4ae59a36c1491c92848ec3d3a5bb70
+* author:	Ayush24m (https://sketchfab.com/Ayush24m)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "SKS" (https://sketchfab.com/3d-models/sks-8e4ae59a36c1491c92848ec3d3a5bb70) by Ayush24m (https://sketchfab.com/Ayush24m) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

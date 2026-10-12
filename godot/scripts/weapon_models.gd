@@ -230,6 +230,106 @@ static func _imported(id: String) -> Array:
 				Transform3D(Basis(Vector3.UP, PI / 2), Vector3(0, 0.02, -0.03)), Vector3(0, -0.05, 0.0), -0.2, ""]
 	return []
 
+## Sketchfab models (CC-BY-4.0, authors in README and each folder's
+## LICENSE.txt), fitted automatically: `rot` turns the muzzle to -Z, the
+## model is scaled to `len` metres long, the pistol grip (`grip`, a fraction
+## of the length from the butt) becomes the origin, at the height of the bore
+## (`bore`, a fraction of the height from the bottom). `fore` is where the
+## left hand goes along the way to the muzzle (fraction).
+const FITTED := {
+	"m416":     {"rot": 0.0,       "len": 0.86, "grip": 0.36, "bore": 0.75, "fore": 0.5},
+	"scar":     {"rot": PI * 0.5,  "len": 0.86, "grip": 0.35, "bore": 0.68, "fore": 0.48},
+	"ump":      {"rot": PI * 0.5,  "len": 0.69, "grip": 0.42, "bore": 0.78, "fore": 0.45},
+	"s1897":    {"rot": -PI * 0.5, "len": 1.0,  "grip": 0.26, "bore": 0.84, "fore": 0.64},
+	"vector":   {"rot": -PI * 0.5, "len": 0.62, "grip": 0.62, "bore": 0.7,  "fore": 0.55},
+	"uzi":      {"rot": PI,        "len": 0.47, "grip": 0.4,  "bore": 0.82, "fore": 0.3},
+	"beryl":    {"rot": PI,        "len": 0.92, "grip": 0.45, "bore": 0.8,  "fore": 0.5},
+	"sks":      {"rot": PI * 0.5,  "len": 1.02, "grip": 0.28, "bore": 0.84, "fore": 0.5},
+	"mini14":   {"rot": 0.0,       "len": 0.95, "grip": 0.29, "bore": 0.76, "fore": 0.5},
+	"m249":     {"rot": -PI * 0.5, "len": 1.03, "grip": 0.3,  "bore": 0.77, "fore": 0.45},
+	"crossbow": {"rot": PI * 0.5,  "len": 0.9,  "grip": 0.26, "bore": 0.7,  "fore": 0.4},
+	"pan":      {"rot": -PI * 0.5, "len": 0.5,  "grip": 0.12, "bore": 0.5,  "fore": 0.15},
+}
+static var _fit_cache := {}
+
+static func _mesh_aabb(n: Node, xf: Transform3D, acc: Array) -> void:
+	if n is Node3D: xf = xf * (n as Node3D).transform
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh:
+		var a: AABB = xf * (n as MeshInstance3D).get_aabb()
+		acc[0] = a if acc[0] == null else acc[0].merge(a)
+	for c in n.get_children(): _mesh_aabb(c, xf, acc)
+
+## The fitted model merged into one mesh (a surface per textured material;
+## parts with plain colours share one vertex-coloured surface) and its hand
+## points: [mesh, fore, muzzle z]. Built once per weapon.
+static func _fitted(id: String) -> Array:
+	if _fit_cache.has(id): return _fit_cache[id]
+	var cfg: Dictionary = FITTED[id]
+	var sc: Node3D = load("res://assets/models/weapons/%s/scene.gltf" % id).instantiate()
+	var acc := [null]
+	var r := Transform3D(Basis(Vector3.UP, cfg.rot), Vector3.ZERO)
+	_mesh_aabb(sc, r, acc)
+	var a: AABB = acc[0]
+	var s: float = cfg.len / maxf(a.size.z, 0.0001)
+	var rear := a.end.z
+	var grip_z: float = rear - cfg.grip * a.size.z
+	var bore_y: float = a.position.y + cfg.bore * a.size.y
+	var cx := a.get_center().x
+	var xf := Transform3D(Basis.from_scale(Vector3.ONE * s), Vector3.ZERO) * Transform3D(Basis.IDENTITY, Vector3(-cx, -bore_y, -grip_z)) * r
+	var muzzle: float = -(1.0 - cfg.grip) * cfg.len
+	var by_mat := {}
+	var flat := SurfaceTool.new()
+	flat.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_flat := [false]
+	_merge_fitted(sc, xf, by_mat, flat, has_flat)
+	var mesh := ArrayMesh.new()
+	for mat in by_mat:
+		var st: SurfaceTool = by_mat[mat]
+		st.set_material(mat)
+		st.commit(mesh)
+	if has_flat[0]:
+		var fm := StandardMaterial3D.new()
+		fm.vertex_color_use_as_albedo = true
+		fm.vertex_color_is_srgb = true
+		fm.metallic = 0.45
+		fm.roughness = 0.5
+		flat.set_material(fm)
+		flat.commit(mesh)
+	_fit_cache[id] = [mesh, Vector3(0, -0.05, muzzle * cfg.fore), muzzle]
+	sc.free()
+	return _fit_cache[id]
+
+static func _merge_fitted(n: Node, xf: Transform3D, by_mat: Dictionary, flat: SurfaceTool, has_flat: Array) -> void:
+	if n is Node3D:
+		if not (n as Node3D).visible: return
+		xf = xf * (n as Node3D).transform
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh:
+		var mi := n as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			var mat: Material = mi.get_surface_override_material(i)
+			if mat == null: mat = mi.mesh.surface_get_material(i)
+			if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture == null and (mat as BaseMaterial3D).normal_texture == null:
+				# Plain colour: into the shared surface, the colour as vertex colours.
+				var tmp := SurfaceTool.new()
+				tmp.create_from(mi.mesh, i)
+				var arr := tmp.commit_to_arrays()
+				var cols := PackedColorArray()
+				cols.resize(arr[Mesh.ARRAY_VERTEX].size())
+				cols.fill((mat as BaseMaterial3D).albedo_color)
+				arr[Mesh.ARRAY_COLOR] = cols
+				var am := ArrayMesh.new()
+				am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+				flat.append_from(am, 0, xf)
+				has_flat[0] = true
+				continue
+			if not by_mat.has(mat):
+				var st := SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				by_mat[mat] = st
+			by_mat[mat].append_from(mi.mesh, i, xf)
+	for c in n.get_children():
+		_merge_fitted(c, xf, by_mat, flat, has_flat)
+
 ## Builds a weapon: returns a Node3D with meta "fore" (left hand), "muzzle"
 ## (z of the muzzle) and child "Mag" (moved during reloads).
 static func build(id_or_cls: String) -> Node3D:
@@ -237,6 +337,18 @@ static func build(id_or_cls: String) -> Node3D:
 	if not Game.WEAPONS.has(id): id = CLASS_DEFAULT.get(id_or_cls, "m416")
 	var root := Node3D.new()
 	root.name = "Weapon_" + id
+	if FITTED.has(id) and ResourceLoader.exists("res://assets/models/weapons/%s/scene.gltf" % id):
+		var fit := _fitted(id)
+		var body := MeshInstance3D.new()
+		body.mesh = fit[0]
+		root.add_child(body)
+		var mag := Node3D.new()
+		mag.name = "Mag"
+		mag.position = Vector3(0, -0.05, -0.1)
+		root.add_child(mag)
+		root.set_meta("fore", fit[1])
+		root.set_meta("muzzle", fit[2])
+		return root
 	var imp := _imported(id)
 	if not imp.is_empty():
 		var sc: Node3D = load(imp[0]).instantiate()

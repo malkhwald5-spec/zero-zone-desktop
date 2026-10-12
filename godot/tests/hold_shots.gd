@@ -101,4 +101,16 @@ func _run() -> void:
 		b.model.set_pose("stand", 0.0, true, 0.05, f * 0.05)
 		await get_tree().process_frame
 	await shot("hold_bot")
+	if OS.get_cmdline_user_args().has("--guns"):
+		# The bot seen from the side holding each gun, aiming.
+		b.yaw = p.yaw + PI * 0.5
+		b.model.rotation.y = b.yaw
+		for g in ["m416", "scar", "ump", "s1897", "vector", "uzi", "beryl", "sks", "mini14", "m249", "crossbow"]:
+			b.weapon_id = g
+			b.model.set_weapon(g)
+			for f in 12:
+				b.model.aiming = true
+				b.model.set_pose("stand", 0.0, true, 0.05, f * 0.05)
+				await get_tree().process_frame
+			await shot("gun_" + g)
 	tree.quit()

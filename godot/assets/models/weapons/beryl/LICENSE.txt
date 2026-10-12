@@ -1,0 +1,11 @@
+Model Information:
+* title:	M762 Assault Rifle
+* source:	https://sketchfab.com/3d-models/m762-assault-rifle-57c1744d3fbf4c758dbcaabc5c05089b
+* author:	417000 (https://sketchfab.com/417000)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "M762 Assault Rifle" (https://sketchfab.com/3d-models/m762-assault-rifle-57c1744d3fbf4c758dbcaabc5c05089b) by 417000 (https://sketchfab.com/417000) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

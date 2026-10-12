@@ -1,0 +1,11 @@
+Model Information:
+* title:	HK416
+* source:	https://sketchfab.com/3d-models/hk416-4bdb0ab5effd4474a5984c68b0a0c762
+* author:	halloweeks (https://sketchfab.com/halloweeks)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "HK416" (https://sketchfab.com/3d-models/hk416-4bdb0ab5effd4474a5984c68b0a0c762) by halloweeks (https://sketchfab.com/halloweeks) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
