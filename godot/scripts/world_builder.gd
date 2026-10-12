@@ -1722,6 +1722,7 @@ func _road_strips() -> void:
 	mat.roughness = 0.4 if weather == "rain" else 0.85
 	mat.albedo_color = Color(0.82, 0.82, 0.84) if weather == "rain" else Color.WHITE
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED      # seen from above whichever way it was wound
 	for ri in island.roads.size():
 		var rd: Dictionary = island.roads[ri]
 		var a: Vector2 = rd.a
@@ -1753,10 +1754,10 @@ func _road_strips() -> void:
 					var tri := [[prev[q], Vector2(u0, v0)], [row[q + 1], Vector2(u1, v1)], [row[q], Vector2(u0, v1)],
 						[prev[q], Vector2(u0, v0)], [prev[q + 1], Vector2(u1, v0)], [row[q + 1], Vector2(u1, v1)]]
 					for vt in tri:
+						st.set_normal(Vector3.UP)
 						st.set_uv(vt[1])
 						st.add_vertex(vt[0])
 			prev = [] if wet else row
-		st.generate_normals()
 		st.generate_tangents()
 		var mi := MeshInstance3D.new()
 		mi.mesh = st.commit()
