@@ -30,6 +30,8 @@ uniform sampler2D forest_n : hint_normal, filter_linear_mipmap_anisotropic, repe
 uniform sampler2D moss_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D moss_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D concrete_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D snow_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D gravel_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool use_normals = true;
 uniform float rain_wet = 0.0;      // rain: darker damp ground, shiny roads, puddles in the dips
 
@@ -72,7 +74,7 @@ void fragment() {
 	float k = smoothstep(0.3, 0.7, n1) * 0.6 + 0.2;
 
 	vec4 bio = texture(biomemap, UV);
-	vec3 grass = tcol(grass_c, wpos.xz, 4.0, k) * mix(vec3(0.82, 0.9, 0.7), vec3(1.0, 0.95, 0.75), n3);
+	vec3 grass = tcol(grass_c, wpos.xz, 4.0, k) * mix(vec3(1.0, 1.08, 0.82), vec3(1.2, 1.12, 0.8), n3);
 	// Each region's own green: lush and deep in the jungle, cool and muted in
 	// the north, bright on the beach island.
 	grass *= mix(vec3(1.0), vec3(0.55, 0.86, 0.42), bio.g);
@@ -120,7 +122,9 @@ void fragment() {
 	// The snowy north (in the style of a winter map): snow lies on the flat
 	// and gentle ground, thinner on roads and in towns; rock shows on cliffs.
 	float sl = dot(sand, vec3(0.333));
-	vec3 snow = vec3(0.86, 0.9, 0.97) * (0.82 + 0.35 * sl) * (0.94 + 0.08 * n1);
+	// Photographed snow with grass and earth showing through, bright and a little blue.
+	vec3 snow = tcol(snow_c, wpos.xz, 6.0, k) * vec3(0.98, 1.0, 1.04) * (0.94 + 0.08 * n1);
+	snow = mix(snow, vec3(0.86, 0.9, 0.97) * (0.82 + 0.35 * sl), 0.35);
 	float w_snow = smoothstep(0.35, 0.75, bio.b) * (1.0 - smoothstep(0.18, 0.4, slope)) * (1.0 - w_road * 0.55) * (1.0 - w_town * 0.35);
 	w_snow *= smoothstep(1.2, 3.0, hgt);
 	col = mix(col, snow, w_snow);
@@ -129,6 +133,9 @@ void fragment() {
 	col = mix(col, rock, w_rock);
 	col = mix(col, sand, w_sand * (1.0 - w_snow));
 	col = mix(col, wet, w_wet);
+	// A strip of grey gravel along the road sides.
+	float w_edge = smoothstep(0.1, 0.3, mask.r) * (1.0 - w_road);
+	col = mix(col, tcol(gravel_c, wpos.xz, 3.0, k) * 0.95, w_edge * 0.85 * (1.0 - w_snow * 0.6));
 	col = mix(col, asphalt, w_road);
 	col *= 0.85 + 0.3 * n3;     // large-scale colour variation
 	float rough = mix(mix(0.95, 0.62, w_snow), 0.8, w_road);

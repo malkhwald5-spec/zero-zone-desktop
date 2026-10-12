@@ -641,6 +641,29 @@ func _props() -> void:
 			for k in int(rng.randi_range(15, 40) * maxf(1.0, dens * 0.8)):
 				var p := c + Vector2(absf(rng.randfn(0.0, 1.0)) * 55.0 * (1.4 if reg == "jungle" else 1.0), 0).rotated(rng.randf() * TAU)
 				_add_tree(p, main if rng.randf() < 0.8 else _tree_kind(reg))
+	# Rows of trees along the roads in the green country (windbreaks, as on
+	# the farmland of the classic map); they line the horizon too.
+	for rd in roads:
+		var a: Vector2 = rd.a
+		var b: Vector2 = rd.b
+		var length := a.distance_to(b)
+		if length < 60.0: continue
+		var dir := (b - a) / length
+		var nrm := Vector2(-dir.y, dir.x)
+		var s0 := 0.0
+		while s0 < length:
+			var run := rng.randf_range(120.0, 380.0)
+			if rng.randf() < 0.45:
+				var sd := 1.0 if rng.randf() < 0.5 else -1.0
+				var off: float = float(rd.w) * 0.5 + rng.randf_range(10.0, 16.0)
+				var d := s0
+				while d < minf(s0 + run, length):
+					var p := a + dir * d + nrm * sd * off + Vector2(rng.randf_range(-1.5, 1.5), rng.randf_range(-1.5, 1.5))
+					var reg := region_at(p.x, p.y)
+					if reg in ["plains", "nordic"]:
+						_add_tree(p, "broad" if reg == "plains" and rng.randf() < 0.7 else "pine")
+					d += rng.randf_range(7.0, 11.0)
+			s0 += run + rng.randf_range(60.0, 200.0)
 	for k in int(900 * k_area):
 		var p := Vector2(rng.randf_range(40, size - 40), rng.randf_range(40, size - 40))
 		var reg := region_at(p.x, p.y)

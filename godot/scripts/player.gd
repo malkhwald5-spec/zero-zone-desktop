@@ -126,14 +126,14 @@ func _ready() -> void:
 	cam_pivot = Node3D.new()
 	cam_rig.add_child(cam_pivot)
 	spring = SpringArm3D.new()
-	spring.spring_length = 3.2
+	spring.spring_length = 2.55
 	spring.margin = 0.25
 	spring.collision_mask = 1 | WorldBuilder.CAMERA_LAYER
 	spring.position = Vector3(0.6, 0, 0)
 	spring.add_excluded_object(get_rid())
 	cam_pivot.add_child(spring)
 	camera = Camera3D.new()
-	camera.fov = 70.0
+	camera.fov = 78.0
 	camera.far = 4000.0 if not Game.laptop() else 2600.0
 	camera.current = true
 	spring.add_child(camera)
@@ -1100,14 +1100,16 @@ func _update_camera(delta: float) -> void:
 	if state == "dead" and (is_instance_valid(spectate) or is_instance_valid(killer)):
 		model.visible = true
 		return
-	var head := global_position + Vector3(0, {"stand": 1.6, "crouch": 1.15, "prone": 0.45}[stance] as float, 0)
+	# Third person as in PUBG: close behind the right shoulder, a little above
+	# the head, so the character is big on screen and the view runs over it.
+	var head := global_position + Vector3(0, {"stand": 1.72, "crouch": 1.22, "prone": 0.55}[stance] as float, 0)
 	# Wading: keep the camera above the water surface.
 	head.y = maxf(head.y, Island.WATER + 0.6)
 	var w := weapon()
 	var zoom: float = w.get("zoom", 1.0) if aiming and state == "ground" else 1.0
 	view_zoom = zoom
-	var length := 3.2
-	var shoulder := 0.6
+	var length := 2.55
+	var shoulder := 0.62
 	match state:
 		"plane":
 			length = 26.0
@@ -1152,7 +1154,7 @@ func _update_camera(delta: float) -> void:
 			shoulder = maxf(0.0, head.distance_to(hit.position) - 0.3)
 	spring.position.x = lerpf(spring.position.x, shoulder, minf(1.0, delta * 12.0))
 	if spring.position.x > shoulder: spring.position.x = shoulder
-	var fov := 70.0 / zoom
+	var fov := 78.0 if zoom <= 1.0 else 70.0 / zoom      # scopes keep their magnification
 	if state == "fall":
 		fov += clampf((air_speed - 120.0) / 115.0, 0.0, 1.0) * 10.0      # speed rush
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)

@@ -10,6 +10,8 @@ uniform float sun_boost = 3.0;               // brightens the burnt-out sun in t
 uniform vec3 haze : source_color = vec3(0.72, 0.78, 0.84);
 uniform float haze_amount = 0.35;
 uniform float overcast = 0.0;               // 0 clear .. 1 grey rain clouds
+uniform float saturation = 1.0;             // above 1: a deeper, clearer blue sky
+uniform float deepen = 0.0;                 // darker, bluer zenith (a crisp sunny day)
 
 const float HALF_PI = 1.5707963;
 
@@ -32,6 +34,10 @@ void sky() {
 	float sdot = max(dot(d, l), 0.0);
 	float lum = dot(col, vec3(0.3, 0.59, 0.11));
 	col += LIGHT0_COLOR * (smoothstep(0.85, 1.0, lum) * sun_boost * pow(sdot, 40.0) + pow(sdot, 1400.0) * 30.0);
+	// Clear day: richer colour and a deeper blue towards the zenith.
+	float grey = dot(col, vec3(0.3, 0.59, 0.11));
+	col = mix(vec3(grey), col, saturation);
+	col *= mix(vec3(1.0), vec3(0.8, 0.92, 1.12), deepen * smoothstep(0.08, 0.7, d.y));
 	// Rain: the photo turns into a flat grey cloud deck, darker overhead.
 	if (overcast > 0.0) {
 		vec3 cloud = mix(vec3(0.62, 0.64, 0.67), vec3(0.36, 0.38, 0.41), smoothstep(0.0, 0.8, d.y));

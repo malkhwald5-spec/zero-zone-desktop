@@ -43,7 +43,7 @@ func steps() -> Array:
 	return [
 		[_textures, "جاري تجهيز التضاريس"], [_environment, "جاري تجهيز السماء"], [_terrain, "جاري بناء الأرض"],
 		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_doors, "جاري تركيب الأبواب"], [_trees, "جاري زراعة الغابات"],
-		[_structures, "جاري بناء المصانع والمزارع"], [_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
+		[_structures, "جاري بناء المصانع والمزارع"], [_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_road_strips, "جاري رسم الطرق"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
 		[_grass, "جاري تجهيز العشب"],
 	]
 
@@ -58,6 +58,7 @@ func build_all() -> void:
 	_structures()
 	_rocks()
 	_bridges()
+	_road_strips()
 	_power_lines()
 	_grass()
 
@@ -114,7 +115,10 @@ func _environment() -> void:
 	sky_mat.set_shader_parameter("pano", load("res://assets/textures/sky_day.jpg"))
 	sky_mat.set_shader_parameter("photo_sun", Vector2(0.502, 0.403))
 	sky_mat.set_shader_parameter("energy", 1.15)
-	sky_mat.set_shader_parameter("haze", Color(0.7, 0.77, 0.84))
+	sky_mat.set_shader_parameter("haze", Color(0.7, 0.78, 0.88))
+	sky_mat.set_shader_parameter("haze_amount", 0.25)
+	sky_mat.set_shader_parameter("saturation", 1.35)
+	sky_mat.set_shader_parameter("deepen", 1.0)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_256
@@ -140,11 +144,11 @@ func _environment() -> void:
 	env.glow_hdr_threshold = 1.1
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.62, 0.72, 0.84)
-	env.fog_density = 0.00022
-	env.fog_aerial_perspective = 0.55
+	env.fog_density = 0.00013          # clear day: far hills stay crisp, just a touch of haze
+	env.fog_aerial_perspective = 0.4
 	env.fog_sky_affect = 0.0
 	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.0012
+	env.volumetric_fog_density = 0.0006
 	env.volumetric_fog_albedo = Color(0.8, 0.85, 0.92)
 	env.volumetric_fog_length = 120.0
 	# Light scattered forward through the haze: soft glow and shafts towards the sun.
@@ -161,8 +165,8 @@ func _environment() -> void:
 
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-34, -35, 0)
-	sun.light_energy = 2.2
-	sun.light_color = Color(1.0, 0.94, 0.84)
+	sun.light_energy = 2.45
+	sun.light_color = Color(1.0, 0.95, 0.86)
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_max_distance = 260.0
@@ -211,6 +215,10 @@ func _valley_mist() -> void:
 
 ## Sky, fog and colour for the match's weather.
 func _weather_look(sky_mat: ShaderMaterial) -> void:
+	if weather in ["sunset", "fog", "rain"]:
+		# The deep clear-day blue is for sunny weather only.
+		sky_mat.set_shader_parameter("saturation", 1.0)
+		sky_mat.set_shader_parameter("deepen", 0.0)
 	match weather:
 		"sunset":
 			# Real photographed sunset (ambientCG EveningSkyHDRI032A, CC0).
@@ -286,6 +294,8 @@ func _terrain() -> void:
 		mat.set_shader_parameter(t + "_c", load("res://assets/textures/%s_col.jpg" % t))
 		mat.set_shader_parameter(t + "_n", load("res://assets/textures/%s_nrm.jpg" % t))
 	mat.set_shader_parameter("concrete_c", load("res://assets/textures/concrete_col.jpg"))
+	mat.set_shader_parameter("snow_c", load("res://assets/textures/snow_col.jpg"))
+	mat.set_shader_parameter("gravel_c", load("res://assets/textures/gravel_col.jpg"))
 	mat.set_shader_parameter("use_normals", Game.quality_level() >= 1)
 	var mi := MeshInstance3D.new()
 	mi.mesh = plane
@@ -1699,6 +1709,62 @@ func _rocks() -> void:
 			mmi.visibility_range_end = 1400.0 * Game.view_k()
 			mmi.visibility_range_end_margin = 100.0
 			root.add_child(mmi)
+
+## The roads as strips of asphalt with lane lines (ambientCG Road007, CC0)
+## laid over the painted road on the ground: following the ground every 4 m,
+## a few cm above it, the texture running along the road. Not over water
+## (bridges carry the road there).
+func _road_strips() -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load("res://assets/textures/road_col.jpg")
+	mat.normal_enabled = true
+	mat.normal_texture = load("res://assets/textures/road_nrm.jpg")
+	mat.roughness = 0.4 if weather == "rain" else 0.85
+	mat.albedo_color = Color(0.82, 0.82, 0.84) if weather == "rain" else Color.WHITE
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	for ri in island.roads.size():
+		var rd: Dictionary = island.roads[ri]
+		var a: Vector2 = rd.a
+		var b: Vector2 = rd.b
+		var w: float = rd.w
+		var length := a.distance_to(b)
+		if length < 1.0: continue
+		var dir := (b - a) / length
+		var side := Vector2(-dir.y, dir.x) * (w * 0.5)
+		var lift := 0.05 + 0.004 * (ri % 5)        # crossing roads don't flicker into each other
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var n := maxi(1, int(length / 4.0))
+		var prev := []
+		for k in n + 1:
+			var t := float(k) / n
+			var c := a.lerp(b, t)
+			var row := []
+			for e in [-1.0, 0.0, 1.0]:
+				var p: Vector2 = c + side * float(e)
+				row.append(Vector3(p.x, island.height_at(p.x, p.y) + lift, p.y))
+			var wet := island.height_at(c.x, c.y) < Island.WATER + 0.3
+			if k > 0 and not wet and not prev.is_empty():
+				var v0 := (t - 1.0 / n) * length / w
+				var v1 := t * length / w
+				for q in 2:
+					var u0 := q * 0.5
+					var u1 := u0 + 0.5
+					var tri := [[prev[q], Vector2(u0, v0)], [row[q + 1], Vector2(u1, v1)], [row[q], Vector2(u0, v1)],
+						[prev[q], Vector2(u0, v0)], [prev[q + 1], Vector2(u1, v0)], [row[q + 1], Vector2(u1, v1)]]
+					for vt in tri:
+						st.set_uv(vt[1])
+						st.add_vertex(vt[0])
+			prev = [] if wet else row
+		st.generate_normals()
+		st.generate_tangents()
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visibility_range_end = 1400.0
+		mi.name = "RoadStrip"
+		root.add_child(mi)
 
 func _bridges() -> void:
 	var mat := StandardMaterial3D.new()
