@@ -82,6 +82,31 @@ func _textures() -> void:
 	noise_b = _noise_tex(0.03, 9)
 
 # ---------- Sky, sun, post-processing ----------
+static var _lut: ImageTexture3D
+
+## Colour grade as a small 3D lookup table made here: a gentle S-curve,
+## slightly cool shadows and warm highlights (the sunny, crisp battle-royale look).
+static func grade_lut() -> ImageTexture3D:
+	if _lut: return _lut
+	var n := 17
+	var imgs: Array[Image] = []
+	for bi in n:
+		var img := Image.create(n, n, false, Image.FORMAT_RGB8)
+		for gi in n:
+			for ri in n:
+				var c := Vector3(ri, gi, bi) / float(n - 1)
+				var l := c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722
+				# S-curve: a quarter of the way to smoothstep.
+				for k in 3: c[k] = lerpf(c[k], smoothstep(0.0, 1.0, c[k]), 0.25)
+				var sh := (1.0 - l) * (1.0 - l)
+				var hi := l * l
+				c += sh * Vector3(-0.015, 0.0, 0.025) + hi * Vector3(0.03, 0.012, -0.02)
+				img.set_pixel(ri, gi, Color(clampf(c.x, 0, 1), clampf(c.y, 0, 1), clampf(c.z, 0, 1)))
+		imgs.append(img)
+	_lut = ImageTexture3D.new()
+	_lut.create(Image.FORMAT_RGB8, n, n, n, false, imgs)
+	return _lut
+
 func _environment() -> void:
 	# Real photographed sky (ambientCG DaySkyHDRI063B, CC0) lined up with the sun.
 	var sky_mat := ShaderMaterial.new()
@@ -126,8 +151,9 @@ func _environment() -> void:
 	env.volumetric_fog_anisotropy = 0.55
 	env.fog_sun_scatter = 0.25
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.12
-	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 1.08
+	env.adjustment_contrast = 1.04
+	env.adjustment_color_correction = grade_lut()
 	_weather_look(sky_mat)
 	var we := WorldEnvironment.new()
 	we.environment = env
