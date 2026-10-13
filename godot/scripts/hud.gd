@@ -1028,10 +1028,10 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	# Lava flows and pools on the volcano.
 	var lava_col := Color(1.0, 0.45, 0.1)
 	for line in world.island.lava:
-		for k in line.size() - 1:
-			var a := _w2m(line[k])
-			var b := _w2m(line[k + 1])
-			if r.has_point(a) and r.has_point(b): c.draw_line(a, b, lava_col, 3.0, true)
+		for li in line.size() - 1:
+			var la := _w2m(line[li])
+			var lb := _w2m(line[li + 1])
+			if r.has_point(la) and r.has_point(lb): c.draw_line(la, lb, lava_col, 3.0, true)
 	for pl in [[world.island.crater, 56.0]] + world.island.lava_pools:
 		var pc := _w2m(pl[0])
 		if r.grow(-6).has_point(pc): c.draw_circle(pc, maxf(3.0, (_w2m(pl[0] + Vector2(pl[1], 0)) - pc).x), lava_col)
