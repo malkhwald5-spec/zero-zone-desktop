@@ -1409,11 +1409,14 @@ func drop_canopy(m: HumanModel, vel: Vector3) -> void:
 	c.global_transform = src.global_transform
 	c.visible = true
 	var start := c.global_position
-	var end := start + Vector3(vel.x, 0, vel.z).normalized() * 6.0 + Vector3(0, -2.0, 0)
+	# It sails on a few metres, sinks onto the ground ahead and crumples flat.
+	var end := start + Vector3(vel.x, 0, vel.z).normalized() * 8.0
+	end.y = ground_height(end) + 0.2
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(c, "global_position", end, 2.2).set_ease(Tween.EASE_IN)
-	tw.tween_property(c, "scale", Vector3(1.2, 0.05, 0.6), 2.2).set_ease(Tween.EASE_IN)
-	tw.tween_property(c, "rotation:x", c.rotation.x + 0.9, 2.2)
+	tw.tween_property(c, "global_position", end, 1.8).set_ease(Tween.EASE_IN)
+	tw.tween_property(c, "scale", Vector3(0.7, 0.04, 0.45), 1.8).set_ease(Tween.EASE_IN)
+	tw.tween_property(c, "rotation:x", c.rotation.x + 1.3, 1.8)
+	tw.chain().tween_interval(4.0)      # lies there a moment, as in PUBG
 	tw.chain().tween_callback(c.queue_free)
 
 var _wind_stream: AudioStreamWAV

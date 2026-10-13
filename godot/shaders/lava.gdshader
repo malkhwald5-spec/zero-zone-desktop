@@ -16,8 +16,8 @@ void fragment() {
 	float n = texture(noise_a, wpos.xz / 23.0 + t).r * 0.6 + texture(noise_b, wpos.xz / 7.0 - t * 2.0).r * 0.4;
 	float crust = smoothstep(0.48, 0.66, n);
 	float pulse = 0.85 + 0.15 * sin(TIME * 1.3 + wpos.x * 0.05 + wpos.z * 0.04);
-	vec3 hot = vec3(1.0, 0.42, 0.06);
+	vec3 hot = vec3(1.0, 0.3, 0.03);
 	ALBEDO = mix(hot * 0.7, vec3(0.07, 0.05, 0.045), crust);
-	EMISSION = mix(hot * 5.0 * pulse, vec3(0.25, 0.06, 0.0), crust);
+	EMISSION = mix(hot * 2.4 * pulse, vec3(0.2, 0.04, 0.0), crust);
 	ROUGHNESS = mix(0.35, 0.95, crust);
 }

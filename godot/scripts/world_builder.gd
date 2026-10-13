@@ -296,6 +296,7 @@ func _terrain() -> void:
 		mat.set_shader_parameter(t + "_n", load("res://assets/textures/%s_nrm.jpg" % t))
 	mat.set_shader_parameter("concrete_c", load("res://assets/textures/concrete_col.jpg"))
 	mat.set_shader_parameter("snow_c", load("res://assets/textures/snow_col.jpg"))
+	mat.set_shader_parameter("snow_n", load("res://assets/textures/snow_nrm.jpg"))
 	mat.set_shader_parameter("gravel_c", load("res://assets/textures/gravel_col.jpg"))
 	mat.set_shader_parameter("use_normals", Game.quality_level() >= 1)
 	var mi := MeshInstance3D.new()

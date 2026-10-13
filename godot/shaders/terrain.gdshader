@@ -31,6 +31,7 @@ uniform sampler2D moss_c : source_color, filter_linear_mipmap_anisotropic, repea
 uniform sampler2D moss_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D concrete_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D snow_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D snow_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D gravel_c : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool use_normals = true;
 uniform float rain_wet = 0.0;      // rain: darker damp ground, shiny roads, puddles in the dips
@@ -118,7 +119,8 @@ void fragment() {
 	col = mix(col, field, w_field);
 	col = mix(col, desert_g, bio.r * 0.95);
 	// Volcano land: black ash and basalt, rusty where sulphur stains it.
-	vec3 ash = mix(dirt * vec3(0.5, 0.45, 0.42), rock * vec3(0.55, 0.5, 0.47), smoothstep(0.35, 0.7, n1));
+	// (grey, not the brown of the dirt texture it is made from)
+	vec3 ash = mix(vec3(dot(dirt, vec3(0.333))) * vec3(0.5, 0.47, 0.45), vec3(dot(rock, vec3(0.333))) * vec3(0.55, 0.52, 0.5), smoothstep(0.35, 0.7, n1));
 	ash *= 0.9 + 0.2 * n1;
 	ash = mix(ash, ash * vec3(1.25, 1.05, 0.8), smoothstep(0.7, 0.82, n3) * 0.3);
 	col = mix(col, ash, bio.a * 0.95);
@@ -175,7 +177,8 @@ void fragment() {
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), bio.r * 0.9);
 		nb = mix(nb, tnrm(dirt_n, wpos.xz, 3.5) * 0.6, w_town);
 		nb = mix(nb, tnrm(rock_n, wpos.xz, 6.0) * 1.3, w_rock);
-		nb = mix(nb, tnrm(sand_n, wpos.xz, 6.0) * 0.5, w_snow);
+		// Wind-blown drifts and footprints in the snow.
+		nb = mix(nb, tnrm(snow_n, wpos.xz, 6.0) * 1.2, w_snow);
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), w_sand);
 		nb = mix(nb, mix(tnrm(dirt_n, wpos.xz, 3.5), tnrm(asphalt_n, wpos.xz, 5.0), w_paved), w_road);
 		// Tangent space (u = +x, v = +z) to world, then to view space.
