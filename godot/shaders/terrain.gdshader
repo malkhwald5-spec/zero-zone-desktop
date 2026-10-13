@@ -77,7 +77,7 @@ void fragment() {
 	vec3 grass = tcol(grass_c, wpos.xz, 4.0, k) * mix(vec3(1.0, 1.08, 0.82), vec3(1.2, 1.12, 0.8), n3);
 	// Each region's own green: lush and deep in the jungle, cool and muted in
 	// the north, bright on the beach island.
-	grass *= mix(vec3(1.0), vec3(0.55, 0.86, 0.42), bio.g);
+	grass *= mix(vec3(1.0), vec3(0.45, 0.74, 0.36), bio.g);
 	grass *= mix(vec3(1.0), vec3(0.84, 0.9, 0.82), bio.b);
 	vec3 dirt = tcol(dirt_c, wpos.xz, 3.5, k);
 	vec3 sand = tcol(sand_c, wpos.xz, 4.0, k);
@@ -100,7 +100,8 @@ void fragment() {
 	float w_field = mask.g;
 	float w_town = mask.b * 0.9;
 	// Desert mesas show bare rock on gentler slopes too.
-	float w_rock = max(smoothstep(0.32 - 0.16 * bio.r, 0.5 - 0.2 * bio.r, slope), smoothstep(48.0, 58.0, hgt));
+	// High ground is bare rock, except under the snow of the peaks and on the volcano's ash.
+	float w_rock = max(smoothstep(0.32 - 0.16 * bio.r, 0.5 - 0.2 * bio.r, slope), smoothstep(48.0, 58.0, hgt) * (1.0 - smoothstep(0.35, 0.75, bio.b)) * (1.0 - bio.a));
 	float w_sand = (1.0 - smoothstep(1.6, 2.6, hgt + (n2 - 0.5) * 0.8)) * (1.0 - bio.a * 0.8);
 	// Desert: sand and red-brown hardpan instead of grass, rust-coloured rock.
 	vec3 desert_g = mix(sand * vec3(1.06, 0.93, 0.76), dirt * vec3(1.18, 0.9, 0.66), smoothstep(0.35, 0.7, n3 * 0.7 + n1 * 0.3));
@@ -117,8 +118,9 @@ void fragment() {
 	col = mix(col, field, w_field);
 	col = mix(col, desert_g, bio.r * 0.95);
 	// Volcano land: black ash and basalt, rusty where sulphur stains it.
-	vec3 ash = mix(dirt * vec3(0.34, 0.31, 0.29), rock * vec3(0.36, 0.32, 0.3), smoothstep(0.35, 0.7, n1));
-	ash = mix(ash, ash * vec3(1.35, 1.05, 0.7), smoothstep(0.68, 0.8, n3) * 0.6);
+	vec3 ash = mix(dirt * vec3(0.5, 0.45, 0.42), rock * vec3(0.55, 0.5, 0.47), smoothstep(0.35, 0.7, n1));
+	ash *= 0.8 + 0.4 * n2;
+	ash = mix(ash, ash * vec3(1.25, 1.05, 0.8), smoothstep(0.7, 0.82, n3) * 0.3);
 	col = mix(col, ash, bio.a * 0.95);
 	rock = mix(rock, rock * vec3(0.42, 0.38, 0.36), bio.a);
 	// Towns: yards of trampled grass and dirt, with paved patches.
@@ -130,7 +132,9 @@ void fragment() {
 	// Photographed snow with grass and earth showing through, bright and a little blue.
 	vec3 snow = tcol(snow_c, wpos.xz, 6.0, k) * vec3(0.98, 1.0, 1.04) * (0.94 + 0.08 * n1);
 	snow = mix(snow, vec3(0.86, 0.9, 0.97) * (0.82 + 0.35 * sl), 0.35);
-	float w_snow = smoothstep(0.35, 0.75, bio.b) * (1.0 - smoothstep(0.18, 0.4, slope)) * (1.0 - w_road * 0.55) * (1.0 - w_town * 0.35);
+	// Up high the snow clings to steeper slopes too.
+	float snow_lo = mix(0.2, 0.42, smoothstep(40.0, 180.0, hgt));
+	float w_snow = smoothstep(0.35, 0.75, bio.b) * (1.0 - smoothstep(snow_lo, snow_lo + 0.22, slope)) * (1.0 - w_road * 0.55) * (1.0 - w_town * 0.35);
 	w_snow *= smoothstep(1.2, 3.0, hgt);
 	col = mix(col, snow, w_snow);
 	// Slopes too steep to hold snow are bare rock, not grass.

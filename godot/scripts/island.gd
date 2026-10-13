@@ -928,6 +928,18 @@ func _tree_kind(reg: String) -> String:
 
 func _props() -> void:
 	var k_area := _area()
+	# The dark forest is wall-to-wall trees (a jittered grid, with clearings).
+	var fs := 19.0
+	var gy := 0.0
+	while gy < size:
+		var gx := 0.0
+		while gx < size:
+			var p := Vector2(gx, gy) + Vector2(rng.randf_range(-7, 7), rng.randf_range(-7, 7))
+			gx += fs
+			if region_at(p.x, p.y) != "jungle": continue
+			if detail.get_noise_2d(p.x * 0.5, p.y * 0.5) > 0.32: continue    # clearings
+			if rng.randf() < 0.62: _add_tree(p, _tree_kind("jungle"))
+		gy += fs
 	# Forests and scattered trees, each region with its own kinds.
 	for f in int(70 * k_area):
 		var c := Vector2(rng.randf_range(80, size - 80), rng.randf_range(80, size - 80))

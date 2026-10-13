@@ -1025,6 +1025,16 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 			var rp := _w2m(_region_centres[reg]) + Vector2(0, 34)
 			if r.has_point(rp):
 				_text(c, rp, Island.REGION_TITLES.get(reg, ""), 26, Color(1, 1, 1, 0.32), HORIZONTAL_ALIGNMENT_CENTER, bold, 300)
+	# Lava flows and pools on the volcano.
+	var lava_col := Color(1.0, 0.45, 0.1)
+	for line in world.island.lava:
+		for k in line.size() - 1:
+			var a := _w2m(line[k])
+			var b := _w2m(line[k + 1])
+			if r.has_point(a) and r.has_point(b): c.draw_line(a, b, lava_col, 3.0, true)
+	for pl in [[world.island.crater, 56.0]] + world.island.lava_pools:
+		var pc := _w2m(pl[0])
+		if r.grow(-6).has_point(pc): c.draw_circle(pc, maxf(3.0, (_w2m(pl[0] + Vector2(pl[1], 0)) - pc).x), lava_col)
 	# Places: a dot and the name (gold for the military base).
 	var taken: Array[Rect2] = []
 	for t in world.island.towns:

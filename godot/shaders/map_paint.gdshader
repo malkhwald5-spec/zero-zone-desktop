@@ -21,8 +21,8 @@ void fragment() {
 	land = mix(vec3(grey), land, 0.92);
 	// Regions read clearly from above: deep green jungle, cooler north.
 	vec4 bio = texture(biomes, uv);
-	land *= mix(vec3(1.0), vec3(0.62, 0.86, 0.55), bio.g * 0.85);
-	land *= mix(vec3(1.0), vec3(0.88, 0.92, 0.9), bio.b * 0.6);
+	land *= mix(vec3(1.0), vec3(0.42, 0.66, 0.4), bio.g);
+	land = mix(land, max(land, vec3(0.82, 0.85, 0.9) * (0.75 + 0.4 * grey)), bio.b * 0.45);
 	land *= mix(vec3(1.0), vec3(0.7, 0.62, 0.58), bio.a * 0.5);
 	// Hill shade, light from the north-west.
 	float dx = h(uv + vec2(texel, 0.0)) - h(uv - vec2(texel, 0.0));
