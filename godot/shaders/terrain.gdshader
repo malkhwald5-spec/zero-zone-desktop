@@ -119,7 +119,7 @@ void fragment() {
 	col = mix(col, desert_g, bio.r * 0.95);
 	// Volcano land: black ash and basalt, rusty where sulphur stains it.
 	vec3 ash = mix(dirt * vec3(0.5, 0.45, 0.42), rock * vec3(0.55, 0.5, 0.47), smoothstep(0.35, 0.7, n1));
-	ash *= 0.8 + 0.4 * n2;
+	ash *= 0.9 + 0.2 * n1;
 	ash = mix(ash, ash * vec3(1.25, 1.05, 0.8), smoothstep(0.7, 0.82, n3) * 0.3);
 	col = mix(col, ash, bio.a * 0.95);
 	rock = mix(rock, rock * vec3(0.42, 0.38, 0.36), bio.a);
