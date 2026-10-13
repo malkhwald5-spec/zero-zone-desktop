@@ -785,9 +785,17 @@ func _city(t: Dictionary) -> void:
 			flatten(p, half, 10.0, maxf(1.6, height_at(p.x, p.y)))
 			_structure(kind, p, half, {"rot": rot, "half": half})
 			break
-	# Street grid: lots of 36 m, a house on most, the middle left as a park.
+	# Street grid: lots of 36 m with paved streets between them, a house on
+	# most lots, the middle left as a park.
 	var cell := 36.0
 	var n := int(r / cell)
+	for gi in range(-n, n):
+		var off := (gi + 0.5) * cell
+		var half_len := sqrt(maxf(0.0, r * r - off * off))
+		if half_len < 40.0: continue
+		roads.append({"a": c + Vector2(off, -half_len), "b": c + Vector2(off, half_len), "w": 8.0, "street": true})
+		roads.append({"a": c + Vector2(-half_len, off), "b": c + Vector2(half_len, off), "w": 8.0, "street": true})
+	_road_grid()
 	for gj in range(-n, n + 1):
 		for gi in range(-n, n + 1):
 			var p := c + Vector2(gi, gj) * cell + Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3))

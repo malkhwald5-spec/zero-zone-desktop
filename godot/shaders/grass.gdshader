@@ -27,7 +27,7 @@ void vertex() {
 	float h = textureLod(heightmap, (uv * hm_cells + 0.5) / (hm_cells + 1.0), 0.0).r;
 	vec4 m = textureLod(maskmap, uv, 0.0);
 	float d = distance(base.xz, center.xz);
-	float keep = (1.0 - smoothstep(radius * 0.6, radius, d)) * step(2.4, h) * (1.0 - step(0.25, m.r)) * (1.0 - step(0.5, m.b) * step(0.56, textureLod(noise_a, base.xz / 37.0, 0.0).r)) * (1.0 - step(0.5, m.g) * 0.4) * (1.0 - smoothstep(0.3, 0.9, m.a) * 0.7);
+	float keep = (1.0 - smoothstep(radius * 0.6, radius, d)) * step(2.4, h) * (1.0 - step(0.25, m.r)) * (1.0 - smoothstep(0.35, 0.6, m.b) * (0.75 + 0.25 * step(0.56, textureLod(noise_a, base.xz / 37.0, 0.0).r))) * (1.0 - step(0.5, m.g) * 0.4) * (1.0 - smoothstep(0.3, 0.9, m.a) * 0.7);
 	vec4 bio = textureLod(biomemap, uv, 0.0);
 	// No grass on cliffs and steep rock (where the ground turns to rock).
 	float hx = textureLod(heightmap, ((uv + vec2(1.5 / map_size, 0.0)) * hm_cells + 0.5) / (hm_cells + 1.0), 0.0).r;
