@@ -47,7 +47,7 @@ func _run() -> void:
 		counts[reg] = counts.get(reg, 0) + 1
 	print("REGION towns ", counts)
 	var extras_only := OS.get_cmdline_user_args().has("--extras")
-	for reg in ([] if extras_only else ["plains", "nordic", "jungle", "desert", "tropic"]):
+	for reg in ([] if extras_only else ["plains", "nordic", "jungle", "desert", "volcano"]):
 		var town = null
 		for t in world.island.towns:
 			if t.get("region", "") == reg and t.get("kind", "town") == "town":

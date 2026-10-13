@@ -43,7 +43,7 @@ func steps() -> Array:
 	return [
 		[_textures, "جاري تجهيز التضاريس"], [_environment, "جاري تجهيز السماء"], [_terrain, "جاري بناء الأرض"],
 		[_water, "جاري تعبئة البحر"], [_buildings, "جاري بناء المدن"], [_doors, "جاري تركيب الأبواب"], [_trees, "جاري زراعة الغابات"],
-		[_structures, "جاري بناء المصانع والمزارع"], [_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_road_strips, "جاري رسم الطرق"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
+		[_structures, "جاري بناء المصانع والمزارع"], [_rocks, "جاري توزيع الصخور"], [_bridges, "جاري بناء الجسور"], [_road_strips, "جاري رسم الطرق"], [_lava, "جاري إشعال البركان"], [_power_lines, "جاري تمديد خطوط الكهرباء"],
 		[_grass, "جاري تجهيز العشب"],
 	]
 
@@ -59,6 +59,7 @@ func build_all() -> void:
 	_rocks()
 	_bridges()
 	_road_strips()
+	_lava()
 	_power_lines()
 	_grass()
 
@@ -368,6 +369,15 @@ func _add_box(st: SurfaceTool, c: Vector3, sz: Vector3, col: Color) -> void:
 		for idx in [0, 2, 1, 0, 3, 2]:   # clockwise = front face in Godot
 			st.add_vertex(c + corners[f[idx]])
 
+## Box collider with its own rotation (xf in world space).
+func _shape_xf(body: StaticBody3D, xf: Transform3D, sz: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var b := BoxShape3D.new()
+	b.size = sz
+	cs.shape = b
+	cs.transform = xf
+	body.add_child(cs)
+
 func _shape(body: StaticBody3D, c: Vector3, sz: Vector3) -> void:
 	var cs := CollisionShape3D.new()
 	var b := BoxShape3D.new()
@@ -460,11 +470,11 @@ func _buildings() -> void:
 	tin_mat.uv1_scale = Vector3(0.5, 0.5, 0.5)
 	tin_mat.metallic = 0.3
 	tin_mat.roughness = 0.6
-	# Wall paint per region: desert mud-brick, beach-house pastels, jungle
+	# Wall paint per region: desert mud-brick, volcano-land dark stone, forest
 	# timber, northern painted boards (barn red, blue, ochre, white, green).
 	var style_tints := {
 		"desert": [Color("d2b48c"), Color("c9a77c"), Color("deb887"), Color("bf9b6f"), Color("e0c9a6")],
-		"tropic": [Color("f2efe8"), Color("bfe3e0"), Color("f5d9a8"), Color("e8c6c0"), Color("d8e8c8")],
+		"volcano": [Color("6e6862"), Color("5c5856"), Color("7c726a"), Color("8a8078"), Color("665e58")],
 		"jungle": [Color("a07850"), Color("8a6a48"), Color("b08a60"), Color("7a6a50"), Color("9a8060")],
 		"nordic": [Color("9a3a2e"), Color("3a5878"), Color("c8a048"), Color("e8e4dc"), Color("5a6a48")],
 	}
@@ -583,7 +593,7 @@ func _buildings() -> void:
 		elif b.military:
 			for side in [-1, 1]:
 				_add_box(st, Vector3(0, top_y + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
-		elif style == "desert" or (style == "tropic" and b.roof % 2 == 0):
+		elif style == "desert" or (style == "volcano" and b.roof % 2 == 0):
 			# Flat roof behind a parapet, with roof-top water tanks and wooden beam ends.
 			for side in [-1, 1]:
 				_add_box(sts.wall, Vector3(0, top_y + 0.5, side * hz), Vector3(sx + 0.2, 0.6, 0.22), col.darkened(0.08))
@@ -939,6 +949,106 @@ func _structures() -> void:
 				hub.set_meta("speed", randf_range(0.5, 0.75))
 				spinners.append(hub)
 				_cyl_shape(body, node.position + Vector3(0, 6.0, 0), 3.0, 12.0)
+			"pier":
+				# Wooden pier from the quay out over the sea, on posts.
+				var dir: Vector2 = st.dir
+				var length: float = st.len
+				node.position.y = Island.WATER
+				node.rotation.y = -atan2(dir.y, dir.x)
+				var wood := _windmill_wood()
+				_mesh_box(node, Vector3(0, 1.6, 0), Vector3(length, 0.3, 6.0), wood)
+				_shape_xf(body, node.transform * Transform3D(Basis.IDENTITY, Vector3(0, 1.6, 0)), Vector3(length, 0.3, 6.0))
+				var x := -length * 0.5 + 2.0
+				while x < length * 0.5:
+					for e in [-2.7, 2.7]:
+						_mesh_box(node, Vector3(x, -0.6, e), Vector3(0.3, 4.2, 0.3), wood)
+					x += 6.0
+				for e in [-2.9, 2.9]:
+					_mesh_box(node, Vector3(0, 2.25, e), Vector3(length, 0.12, 0.12), wood)    # rails
+			"crane":
+				# Harbour crane: a yellow tower on four legs with a long jib.
+				node.rotation.y = -float(st.get("rot_f", 0.0))
+				var yellow := StandardMaterial3D.new()
+				yellow.albedo_color = Color("d9a521")
+				yellow.roughness = 0.5
+				yellow.metallic = 0.3
+				for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					_mesh_box(node, Vector3(e.x * 2.4, 4.0, e.y * 2.4), Vector3(0.5, 8.0, 0.5), yellow)
+				_mesh_box(node, Vector3(0, 8.4, 0), Vector3(5.6, 0.8, 5.6), yellow)
+				_mesh_box(node, Vector3(0, 15.0, 0), Vector3(1.6, 13.0, 1.6), yellow)
+				_mesh_box(node, Vector3(0, 13.2, 1.6), Vector3(2.4, 2.2, 1.6), white)          # cab
+				_mesh_box(node, Vector3(9.0, 21.0, 0), Vector3(26.0, 1.0, 1.2), yellow)        # jib
+				_mesh_box(node, Vector3(-6.0, 20.6, 0), Vector3(4.0, 2.0, 2.0), dark)          # counterweight
+				_mesh_box(node, Vector3(20.0, 15.0, 0), Vector3(0.08, 11.0, 0.08), dark)       # hook line
+				_shape(body, node.position + Vector3(0, 10.0, 0), Vector3(5.6, 20.0, 5.6))
+			"observatory":
+				# Round white building under a dome with its slit open to the sky.
+				_mesh_cyl(node, Vector3(0, 3.5, 0), 7.0, 7.4, 7.0, white)
+				var dm := MeshInstance3D.new()
+				var sph := SphereMesh.new()
+				sph.radius = 7.3
+				sph.height = 7.3
+				sph.is_hemisphere = true
+				dm.mesh = sph
+				dm.material_override = white
+				dm.position.y = 7.0
+				node.add_child(dm)
+				_mesh_box(node, Vector3(0, 11.0, -3.8), Vector3(1.6, 6.6, 3.6), dark)
+				_mesh_box(node, Vector3(0, 1.2, 7.3), Vector3(1.4, 2.4, 0.3), dark)           # door
+				_cyl_shape(body, node.position + Vector3(0, 7.0, 0), 7.4, 14.0)
+			"mine_head":
+				# Shaft head frame: a tall steel tower with the winding wheel on top.
+				for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					_mesh_box(node, Vector3(e.x * 2.6, 10.0, e.y * 2.6), Vector3(0.4, 20.0, 0.4), dark)
+					_shape(body, node.position + Vector3(e.x * 2.6, 10.0, e.y * 2.6), Vector3(0.4, 20.0, 0.4))
+				for hgt in [5.0, 10.0, 15.0]:
+					_mesh_box(node, Vector3(0, hgt, -2.6), Vector3(5.6, 0.25, 0.25), dark)
+					_mesh_box(node, Vector3(0, hgt, 2.6), Vector3(5.6, 0.25, 0.25), dark)
+				_mesh_box(node, Vector3(0, 20.2, 0), Vector3(6.2, 0.5, 6.2), metal)
+				var wheel := MeshInstance3D.new()
+				var wc := CylinderMesh.new()
+				wc.top_radius = 2.4
+				wc.bottom_radius = 2.4
+				wc.height = 0.5
+				wheel.mesh = wc
+				wheel.material_override = red
+				wheel.position = Vector3(0, 22.6, 0)
+				wheel.rotation.x = PI * 0.5
+				node.add_child(wheel)
+				_mesh_cyl(node, Vector3(0, 0.3, 0), 4.5, 4.5, 0.6, stone)
+			"control_tower":
+				# Airport control tower: a concrete shaft and the glass cab.
+				_mesh_cyl(node, Vector3(0, 9.0, 0), 2.0, 2.6, 18.0, stone)
+				var glass := StandardMaterial3D.new()
+				glass.albedo_color = Color("1c2a33")
+				glass.metallic = 0.8
+				glass.roughness = 0.1
+				_mesh_cyl(node, Vector3(0, 19.8, 0), 4.2, 3.6, 3.6, glass)
+				_mesh_cyl(node, Vector3(0, 21.9, 0), 4.6, 4.6, 0.6, white)
+				_mesh_box(node, Vector3(0, 23.6, 0), Vector3(0.12, 3.0, 0.12), dark)           # aerial
+				_cyl_shape(body, node.position + Vector3(0, 11.0, 0), 4.2, 22.0)
+			"ruin_wall":
+				# A broken stone wall: one long piece and a higher stub at its end.
+				node.rotation.y = float(st.get("rot_f", 0.0))
+				var length: float = st.get("len", 6.0)
+				var hgt: float = st.get("hgt", 2.5)
+				_mesh_box(node, Vector3(0, hgt * 0.5 - 0.3, 0), Vector3(length, hgt, 0.8), stone)
+				_mesh_box(node, Vector3(length * 0.4, hgt * 0.75, 0), Vector3(length * 0.2, hgt * 1.5, 0.8), stone)
+				_shape_xf(body, node.transform * Transform3D(Basis.IDENTITY, Vector3(0, hgt * 0.5, 0)), Vector3(length, hgt * 1.4, 0.8))
+			"lighthouse":
+				# White tower with red bands and the lamp at the top.
+				_mesh_cyl(node, Vector3(0, 12.0, 0), 2.2, 3.2, 24.0, white)
+				for hgt in [7.0, 16.0]:
+					_mesh_cyl(node, Vector3(0, hgt, 0), 3.0 - hgt * 0.04, 3.05 - hgt * 0.04, 2.6, red)
+				var lamp := StandardMaterial3D.new()
+				lamp.albedo_color = Color("fff3c0")
+				lamp.emission_enabled = true
+				lamp.emission = Color("ffe08a")
+				lamp.emission_energy_multiplier = 3.0
+				_mesh_cyl(node, Vector3(0, 25.6, 0), 1.6, 1.6, 2.6, lamp)
+				_mesh_cyl(node, Vector3(0, 27.4, 0), 0.3, 2.2, 1.2, red)
+				_mesh_cyl(node, Vector3(0, 24.1, 0), 2.8, 2.8, 0.3, dark)                   # gallery
+				_cyl_shape(body, node.position + Vector3(0, 13.0, 0), 3.2, 28.0)
 			"canopy":
 				var dir: Vector2 = st.get("dir", Vector2(1, 0))
 				node.rotation.y = -atan2(dir.y, dir.x)
@@ -1678,7 +1788,7 @@ func _rocks() -> void:
 			for v in ROCK_VARIANTS: lists.append([])
 			chunks[key] = lists
 		var reg := island.region_at(r.pos.x, r.pos.y)
-		var kind := 1.0 if reg == "desert" else (0.5 if (reg == "tropic" or (reg == "nordic" and i % 3 == 0)) else 0.0)
+		var kind := 1.0 if reg == "desert" else (0.5 if (reg == "volcano" or (reg == "nordic" and i % 3 == 0)) else 0.0)
 		var moss := {"plains": 0.8, "jungle": 1.0, "nordic": 0.45}.get(reg, 0.0) as float
 		var variant := i % ROCK_VARIANTS
 		var body: StaticBody3D = bodies[key]
@@ -1725,6 +1835,7 @@ func _road_strips() -> void:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED      # seen from above whichever way it was wound
 	for ri in island.roads.size():
 		var rd: Dictionary = island.roads[ri]
+		if rd.get("dirt", false): continue      # dirt tracks are only painted on the ground
 		var a: Vector2 = rd.a
 		var b: Vector2 = rd.b
 		var w: float = float(rd.w) * 0.9         # inside the painted road, so the verge grass stays off it
@@ -1766,6 +1877,58 @@ func _road_strips() -> void:
 		mi.visibility_range_end = 1400.0
 		mi.name = "RoadStrip"
 		root.add_child(mi)
+
+## The volcano's lava: glowing strips down the flows (on the terrain, in their
+## troughs), round pools at their ends and the lake of fire in the crater.
+func _lava() -> void:
+	if island.lava.is_empty(): return
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/lava.gdshader")
+	mat.set_shader_parameter("noise_a", noise_a)
+	mat.set_shader_parameter("noise_b", noise_b)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for line in island.lava:
+		for k in line.size() - 1:
+			var a: Vector2 = line[k]
+			var b: Vector2 = line[k + 1]
+			var length := a.distance_to(b)
+			var side := Vector2(-(b - a).y, (b - a).x).normalized() * 7.0
+			var n := maxi(1, int(length / 4.0))
+			for i in n:
+				var p0 := a.lerp(b, float(i) / n)
+				var p1 := a.lerp(b, float(i + 1) / n)
+				var q := [p0 - side, p0 + side, p1 + side, p1 - side]
+				var v := []
+				for c in q: v.append(Vector3(c.x, island.height_at(c.x, c.y) + 0.35, c.y))
+				for idx in [0, 1, 2, 0, 2, 3]:
+					st.set_normal(Vector3.UP)
+					st.add_vertex(v[idx])
+	var discs := [[island.crater, 56.0]]
+	discs.append_array(island.lava_pools)
+	for d in discs:
+		var c: Vector2 = d[0]
+		var r: float = d[1]
+		var y := island.height_at(c.x, c.y) + 0.4
+		for a in 24:
+			var a0 := a * TAU / 24.0
+			var a1 := (a + 1) * TAU / 24.0
+			for v in [Vector3(c.x, y, c.y), Vector3(c.x + cos(a0) * r, y, c.y + sin(a0) * r), Vector3(c.x + cos(a1) * r, y, c.y + sin(a1) * r)]:
+				st.set_normal(Vector3.UP)
+				st.add_vertex(v)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.name = "Lava"
+	root.add_child(mi)
+	# The crater glows on the clouds of its own smoke at dusk.
+	var glow := OmniLight3D.new()
+	glow.light_color = Color(1.0, 0.45, 0.12)
+	glow.light_energy = 6.0
+	glow.omni_range = 160.0
+	glow.position = Vector3(island.crater.x, island.height_at(island.crater.x, island.crater.y) + 25.0, island.crater.y)
+	root.add_child(glow)
 
 func _bridges() -> void:
 	var mat := StandardMaterial3D.new()
@@ -1954,15 +2117,15 @@ func _clutter() -> void:
 	var stones := _rock_mesh(91, (load("res://assets/nature/rock_grey_disp.png") as Texture2D).get_image())
 	var layers := [
 		{"mesh": weeds, "tex": "res://assets/nature/weeds_a.png", "spacing": 2.0, "radius": 42.0, "density": 0.6,
-			"biome": Vector4(0.15, 0.6, 0.12, 0.5), "cluster": 0.7, "size": Vector2(1.1, 1.8), "tint": Vector3(0.95, 0.95, 0.85)},
+			"biome": Vector4(0.15, 0.6, 0.12, 0.05), "cluster": 0.7, "size": Vector2(1.1, 1.8), "tint": Vector3(0.95, 0.95, 0.85)},
 		{"mesh": weeds, "tex": "res://assets/nature/weeds_b.png", "spacing": 2.8, "radius": 38.0, "density": 0.35,
-			"biome": Vector4(0.05, 1.0, 0.08, 0.8), "cluster": 0.6, "size": Vector2(0.8, 1.3), "tint": Vector3(0.9, 1.0, 0.85)},
+			"biome": Vector4(0.05, 1.0, 0.08, 0.1), "cluster": 0.6, "size": Vector2(0.8, 1.3), "tint": Vector3(0.9, 1.0, 0.85)},
 		{"mesh": weeds, "tex": "res://assets/nature/lupine_atlas.png", "spacing": 1.7, "radius": 46.0, "density": 0.55,
-			"biome": Vector4(0.0, 0.0, 0.0, 0.15), "cluster": 0.95, "size": Vector2(0.75, 1.2)},
+			"biome": Vector4(0.0, 0.0, 0.0, 0.0), "cluster": 0.95, "size": Vector2(0.75, 1.2)},
 		{"mesh": _log_mesh(), "tex": "res://assets/nature/log_col.jpg", "nrm": "res://assets/nature/log_nrm.jpg", "spacing": 14.0, "radius": 110.0,
-			"density": 0.22, "biome": Vector4(0.05, 1.0, 0.8, 0.3), "cluster": 0.6, "size": Vector2(1.4, 2.6), "sink": 0.06, "tilt": true, "cards": false},
+			"density": 0.22, "biome": Vector4(0.05, 1.0, 0.8, 0.05), "cluster": 0.6, "size": Vector2(1.4, 2.6), "sink": 0.06, "tilt": true, "cards": false},
 		{"mesh": stones, "tex": "res://assets/nature/rock_grey_col.jpg", "nrm": "res://assets/nature/rock_grey_nrm.jpg", "spacing": 7.0, "radius": 90.0,
-			"density": 0.3, "biome": Vector4(1.0, 0.4, 1.2, 0.6), "cluster": 0.5, "size": Vector2(0.14, 0.42), "sink": 0.08, "cards": false, "uv": 2.0,
+			"density": 0.3, "biome": Vector4(1.0, 0.4, 1.2, 1.6), "cluster": 0.5, "size": Vector2(0.14, 0.42), "sink": 0.08, "cards": false, "uv": 2.0,
 			"desert_tint": Vector3(1.25, 1.0, 0.78)},
 	]
 	for L in layers:

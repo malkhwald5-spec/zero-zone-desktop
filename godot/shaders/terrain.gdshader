@@ -6,7 +6,7 @@ shader_type spatial;
 uniform sampler2D heightmap : filter_linear, repeat_disable;
 uniform float hm_cells = 1024.0;   // heightmap samples per side - 1
 uniform sampler2D maskmap : filter_linear, repeat_disable;
-uniform sampler2D biomemap : filter_linear, repeat_disable;   // R desert, G jungle, B north, A beach island
+uniform sampler2D biomemap : filter_linear, repeat_disable;   // R desert, G forest, B north, A volcano
 uniform sampler2D noise_a : filter_linear_mipmap, repeat_enable;
 uniform sampler2D noise_b : filter_linear_mipmap, repeat_enable;
 uniform float map_size = 3072.0;
@@ -79,7 +79,6 @@ void fragment() {
 	// the north, bright on the beach island.
 	grass *= mix(vec3(1.0), vec3(0.55, 0.86, 0.42), bio.g);
 	grass *= mix(vec3(1.0), vec3(0.84, 0.9, 0.82), bio.b);
-	grass *= mix(vec3(1.0), vec3(0.98, 1.08, 0.72), bio.a);
 	vec3 dirt = tcol(dirt_c, wpos.xz, 3.5, k);
 	vec3 sand = tcol(sand_c, wpos.xz, 4.0, k);
 	vec3 asphalt = tcol(asphalt_c, wpos.xz, 5.0, k) * 0.85;
@@ -102,7 +101,7 @@ void fragment() {
 	float w_town = mask.b * 0.9;
 	// Desert mesas show bare rock on gentler slopes too.
 	float w_rock = max(smoothstep(0.32 - 0.16 * bio.r, 0.5 - 0.2 * bio.r, slope), smoothstep(48.0, 58.0, hgt));
-	float w_sand = 1.0 - smoothstep(1.6 + bio.a * 3.0, 2.6 + bio.a * 5.0, hgt + (n2 - 0.5) * 0.8);
+	float w_sand = (1.0 - smoothstep(1.6, 2.6, hgt + (n2 - 0.5) * 0.8)) * (1.0 - bio.a * 0.8);
 	// Desert: sand and red-brown hardpan instead of grass, rust-coloured rock.
 	vec3 desert_g = mix(sand * vec3(1.06, 0.93, 0.76), dirt * vec3(1.18, 0.9, 0.66), smoothstep(0.35, 0.7, n3 * 0.7 + n1 * 0.3));
 	vec3 sp = wpos * vec3(1.0, 1.7, 1.0) / 9.0;     // strata run level
@@ -110,12 +109,18 @@ void fragment() {
 	rock = mix(rock, srock * vec3(1.18, 0.9, 0.7), bio.r);
 	float w_wet = 1.0 - smoothstep(0.0, 0.7, hgt);
 	float w_road = smoothstep(0.3, 0.6, mask.r);
+	float w_paved = smoothstep(0.85, 0.95, mask.r);   // dirt tracks are drawn at 0.75
 
 	vec3 col = mix(grass, moss, w_moss);
 	col = mix(col, dirt, w_dirt);
 	col = mix(col, litter, w_forest);
 	col = mix(col, field, w_field);
 	col = mix(col, desert_g, bio.r * 0.95);
+	// Volcano land: black ash and basalt, rusty where sulphur stains it.
+	vec3 ash = mix(dirt * vec3(0.34, 0.31, 0.29), rock * vec3(0.36, 0.32, 0.3), smoothstep(0.35, 0.7, n1));
+	ash = mix(ash, ash * vec3(1.35, 1.05, 0.7), smoothstep(0.68, 0.8, n3) * 0.6);
+	col = mix(col, ash, bio.a * 0.95);
+	rock = mix(rock, rock * vec3(0.42, 0.38, 0.36), bio.a);
 	// Towns: yards of trampled grass and dirt, with paved patches.
 	float paved_k = smoothstep(0.5, 0.62, n1);
 	col = mix(col, mix(mix(grass, dirt, 0.5), paved, paved_k), w_town);
@@ -136,7 +141,8 @@ void fragment() {
 	// A strip of grey gravel along the road sides.
 	float w_edge = smoothstep(0.1, 0.3, mask.r) * (1.0 - w_road);
 	col = mix(col, tcol(gravel_c, wpos.xz, 3.0, k) * 0.95, w_edge * 0.85 * (1.0 - w_snow * 0.6));
-	col = mix(col, asphalt, w_road);
+	vec3 track = mix(dirt * vec3(0.92, 0.85, 0.75), tcol(gravel_c, wpos.xz, 3.0, k) * 0.9, 0.35);
+	col = mix(col, mix(track, asphalt, w_paved), w_road);
 	col *= 0.85 + 0.3 * n3;     // large-scale colour variation
 	float rough = mix(mix(0.95, 0.62, w_snow), 0.8, w_road);
 	float puddle = 0.0;
@@ -167,7 +173,7 @@ void fragment() {
 		nb = mix(nb, tnrm(rock_n, wpos.xz, 6.0) * 1.3, w_rock);
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 6.0) * 0.5, w_snow);
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), w_sand);
-		nb = mix(nb, tnrm(asphalt_n, wpos.xz, 5.0), w_road);
+		nb = mix(nb, mix(tnrm(dirt_n, wpos.xz, 3.5), tnrm(asphalt_n, wpos.xz, 5.0), w_paved), w_road);
 		// Tangent space (u = +x, v = +z) to world, then to view space.
 		vec3 bent = normalize(wn + vec3(nb.x, 0.0, -nb.y) * 0.9 * near);
 		// Cliffs: rock normals projected from all three sides (no smear on walls).

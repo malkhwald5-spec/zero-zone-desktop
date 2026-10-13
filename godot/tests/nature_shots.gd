@@ -40,7 +40,7 @@ func _run() -> void:
 	world.plane_active = false
 	var isl = world.island
 	print("NATURE rocks=", isl.rocks.size(), " clutter layers=", world.builder.clutter.size())
-	for reg in ["plains", "nordic", "jungle", "desert", "tropic"]:
+	for reg in ["plains", "nordic", "jungle", "desert", "volcano"]:
 		var rock = null
 		for r in isl.rocks:
 			if isl.region_at(r.pos.x, r.pos.y) == reg and r.r > 1.6 and isl.height_at(r.pos.x, r.pos.y) > 3.0:

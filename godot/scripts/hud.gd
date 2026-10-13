@@ -1009,6 +1009,8 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 			_text(c, Vector2(r.position.x - 14, my + 5), str(i + 1), 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 30)
 	# Region names, large and faint, when the whole map is in view.
 	if map_zoom < 1.8:
+		if _region_centres.is_empty() and not world.island.labels.is_empty():
+			_region_centres = world.island.labels.duplicate()
 		if _region_centres.is_empty():
 			var sums := {}
 			for t in world.island.towns:

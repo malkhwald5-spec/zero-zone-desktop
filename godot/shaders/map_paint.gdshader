@@ -6,7 +6,7 @@ shader_type canvas_item;
 uniform sampler2D photo : source_color, filter_linear;
 uniform sampler2D heights : filter_linear;
 uniform sampler2D mask : filter_linear;   // R >= 0.5: road
-uniform sampler2D biomes : filter_linear;  // R desert, G jungle, B north, A beach island
+uniform sampler2D biomes : filter_linear;  // R desert, G forest, B north, A volcano
 uniform float texel = 0.00195;   // one height sample in uv
 
 float h(vec2 uv) { return texture(heights, uv).r; }
@@ -23,6 +23,7 @@ void fragment() {
 	vec4 bio = texture(biomes, uv);
 	land *= mix(vec3(1.0), vec3(0.62, 0.86, 0.55), bio.g * 0.85);
 	land *= mix(vec3(1.0), vec3(0.88, 0.92, 0.9), bio.b * 0.6);
+	land *= mix(vec3(1.0), vec3(0.7, 0.62, 0.58), bio.a * 0.5);
 	// Hill shade, light from the north-west.
 	float dx = h(uv + vec2(texel, 0.0)) - h(uv - vec2(texel, 0.0));
 	float dz = h(uv + vec2(0.0, texel)) - h(uv - vec2(0.0, texel));
@@ -34,7 +35,7 @@ void fragment() {
 	float mt = 1.0 / 2048.0;
 	road = max(road, max(max(texture(mask, uv + vec2(mt, 0.0)).r, texture(mask, uv - vec2(mt, 0.0)).r),
 		max(texture(mask, uv + vec2(0.0, mt)).r, texture(mask, uv - vec2(0.0, mt)).r)));
-		land = mix(land, vec3(0.66, 0.64, 0.6), smoothstep(0.55, 0.75, road));
+		land = mix(land, mix(vec3(0.72, 0.6, 0.42), vec3(0.62, 0.62, 0.62), smoothstep(0.85, 0.95, road)), smoothstep(0.55, 0.72, road));
 	// Water by depth.
 	float depth = -y;
 	vec3 shallow = vec3(0.36, 0.66, 0.70);

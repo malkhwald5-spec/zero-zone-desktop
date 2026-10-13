@@ -37,6 +37,7 @@ var time := 0.0
 var _shot_stream: AudioStreamWAV
 var loading: LoadingScreen
 var ready_done := false
+var _lava_tick := 0.0
 var spawn: SpawnIsland = null     # the waiting island before the plane (null once everyone boarded)
 
 func _ready() -> void:
@@ -926,6 +927,15 @@ func _process(delta: float) -> void:
 		for a in actors():
 			if a.on_ground() and zone.is_outside(a.global_position):
 				a.take_damage(zone.dps, null)
+	# Lava burns whoever walks on it.
+	_lava_tick += delta
+	if _lava_tick >= 0.5 and not island.lava.is_empty():
+		_lava_tick = 0.0
+		for a in actors():
+			var ap: Vector3 = a.global_position
+			if Vector2(ap.x, ap.z).distance_to(island.crater) > 1700.0: continue
+			if a.on_ground() and island.on_lava(Vector2(ap.x, ap.z)):
+				a.take_damage(9.0, null)
 	# Auto-pickup (settings): ammo for guns the player carries, meds and
 	# grenades up to the chosen amounts, attachments that fit a free slot.
 	if player.state == "ground" and Game.settings.get("auto_pick", true):

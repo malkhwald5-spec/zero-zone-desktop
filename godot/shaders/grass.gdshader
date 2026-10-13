@@ -7,7 +7,7 @@ render_mode cull_disabled, world_vertex_coords;
 uniform sampler2D heightmap : filter_linear, repeat_disable;
 uniform float hm_cells = 1024.0;   // heightmap samples per side - 1
 uniform sampler2D maskmap : filter_linear, repeat_disable;
-uniform sampler2D biomemap : filter_linear, repeat_disable;   // R desert, G jungle, B north, A beach island
+uniform sampler2D biomemap : filter_linear, repeat_disable;   // R desert, G forest, B north, A volcano
 uniform sampler2D noise_a : filter_linear_mipmap, repeat_enable;
 uniform float map_size = 3072.0;
 uniform vec3 center = vec3(0.0);
@@ -36,6 +36,8 @@ void vertex() {
 	keep *= 1.0 - smoothstep(0.75 - 0.3 * bio.r, 1.0 - 0.35 * bio.r, steep);
 	// None under the snow in the north.
 	keep *= 1.0 - smoothstep(0.35, 0.75, bio.b);
+	// Hardly any on the volcano's black ash either.
+	keep *= 1.0 - bio.a * 0.92;
 	// Hardly any grass in the desert (a few dry tufts), tall in the jungle.
 	keep *= 1.0 - bio.r * step(0.18, textureLod(noise_a, base.xz / 13.0, 0.0).r) * 0.97;
 	tip = 1.0 - UV.y;

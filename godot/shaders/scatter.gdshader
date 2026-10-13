@@ -9,14 +9,14 @@ render_mode world_vertex_coords, cull_disabled;
 uniform sampler2D heightmap : filter_linear, repeat_disable;
 uniform float hm_cells = 1024.0;
 uniform sampler2D maskmap : filter_linear, repeat_disable;
-uniform sampler2D biomemap : filter_linear, repeat_disable;   // R desert, G jungle, B north, A beach island
+uniform sampler2D biomemap : filter_linear, repeat_disable;   // R desert, G forest, B north, A volcano
 uniform sampler2D noise_a : filter_linear_mipmap, repeat_enable;
 uniform float map_size = 3072.0;
 uniform vec3 center = vec3(0.0);
 uniform float radius = 60.0;
 uniform float spacing = 2.0;
 uniform float density = 0.4;          // share of grid points that get something
-uniform vec4 biome_k = vec4(0.1, 1.0, 1.0, 0.6);   // how much grows in desert, jungle, north, beach (plains = 1)
+uniform vec4 biome_k = vec4(0.1, 1.0, 1.0, 0.6);   // how much grows in desert, forest, north, volcano (plains = 1)
 uniform float cluster = 0.5;          // 0 = even, 1 = in patches
 uniform vec2 size_range = vec2(0.7, 1.3);
 uniform float sink = 0.0;             // pushed into the ground (metres)
