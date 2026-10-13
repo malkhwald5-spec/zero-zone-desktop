@@ -1922,6 +1922,53 @@ func _lava() -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.name = "Lava"
 	root.add_child(mi)
+	# A slow column of grey-brown smoke rising out of the crater and drifting off.
+	var puff := GradientTexture2D.new()
+	puff.fill = GradientTexture2D.FILL_RADIAL
+	puff.fill_from = Vector2(0.5, 0.5)
+	puff.fill_to = Vector2(0.5, 0.0)
+	puff.width = 64
+	puff.height = 64
+	var pg := Gradient.new()
+	pg.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+	puff.gradient = pg
+	var smat := StandardMaterial3D.new()
+	smat.albedo_texture = puff
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	smat.vertex_color_use_as_albedo = true
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var quad := QuadMesh.new()
+	quad.material = smat
+	var smoke := CPUParticles3D.new()
+	smoke.mesh = quad
+	smoke.amount = 48
+	smoke.lifetime = 36.0
+	smoke.preprocess = 36.0
+	smoke.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	smoke.emission_sphere_radius = 25.0
+	smoke.direction = Vector3.UP
+	smoke.spread = 12.0
+	smoke.initial_velocity_min = 5.0
+	smoke.initial_velocity_max = 8.0
+	smoke.gravity = Vector3(1.2, -0.05, 0.5)          # the wind bends the column
+	smoke.damping_min = 0.08
+	smoke.damping_max = 0.12
+	smoke.scale_amount_min = 30.0
+	smoke.scale_amount_max = 55.0
+	var sc := Curve.new()
+	sc.add_point(Vector2(0, 0.4))
+	sc.add_point(Vector2(1, 1.8))
+	smoke.scale_amount_curve = sc
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.1, 0.6, 1.0])
+	ramp.colors = PackedColorArray([Color(0.3, 0.27, 0.25, 0.0), Color(0.32, 0.29, 0.27, 0.55), Color(0.55, 0.53, 0.52, 0.35), Color(0.7, 0.7, 0.7, 0.0)])
+	smoke.color_ramp = ramp
+	smoke.position = Vector3(island.crater.x, island.height_at(island.crater.x, island.crater.y) + 10.0, island.crater.y)
+	smoke.visibility_aabb = AABB(Vector3(-600, -50, -600), Vector3(1200, 900, 1200))
+	smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	smoke.name = "VolcanoSmoke"
+	root.add_child(smoke)
 	# The crater glows on the clouds of its own smoke at dusk.
 	var glow := OmniLight3D.new()
 	glow.light_color = Color(1.0, 0.45, 0.12)

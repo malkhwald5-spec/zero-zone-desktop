@@ -62,6 +62,11 @@ func _run() -> void:
 		["المرصد", 60.0, 160.0], ["المنارة", 40.0, 140.0], ["حصن الصنوبر", 110.0, 300.0]]
 	if OS.get_cmdline_user_args().has("--few"):
 		views = [views[1], views[2], views[8]]
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--views="):
+			var pick := []
+			for k in a.substr(8).split(","): pick.append(views[int(k)])
+			views = pick
 	var i := 0
 	for v in views:
 		var t := _place(v[0])

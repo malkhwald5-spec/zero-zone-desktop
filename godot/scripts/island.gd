@@ -123,7 +123,6 @@ var warp := FastNoiseLite.new()
 var ridge := FastNoiseLite.new()
 ## Region weights on a coarse grid: desert, jungle (the forest), nordic, volcano (plains = the rest).
 var biome := PackedFloat32Array()
-var _coast: Image              # signed distance to the shore, 2 m per step, 128 = shore
 var _water_d := PackedFloat32Array()   # per height sample: metres to the nearest river line
 var _lava_d := PackedFloat32Array()    # per height sample: metres to the nearest lava line
 
@@ -167,27 +166,40 @@ func _poly(src: Array) -> PackedVector2Array:
 # ---------- Terrain ----------
 ## Metres from the coast: positive inland, negative out at sea.
 func coast_at(x: float, z: float) -> float:
-	if _coast == null:
-		_coast = (load("res://assets/map/seasons_land.png") as Image).duplicate()
-		_coast.convert(Image.FORMAT_L8)
-	var w := _coast.get_width()
+	if _coast_w == 0: _load_coast()
+	var w := _coast_w
 	var fx := clampf(x / size * w - 0.5, 0.0, w - 1.001)
 	var fz := clampf(z / size * w - 0.5, 0.0, w - 1.001)
 	var i := int(fx)
 	var j := int(fz)
 	var tx := fx - i
 	var tz := fz - j
-	var a := _coast.get_pixel(i, j).r
-	var b := _coast.get_pixel(i + 1, j).r
-	var c := _coast.get_pixel(i, j + 1).r
-	var d := _coast.get_pixel(i + 1, j + 1).r
-	var v := lerpf(lerpf(a, b, tx), lerpf(c, d, tx), tz)
-	var m := (v * 255.0 - 128.0) * 2.0
+	var o := j * w + i
+	var m := lerpf(lerpf(_coast_m[o], _coast_m[o + 1], tx), lerpf(_coast_m[o + w], _coast_m[o + w + 1], tx), tz)
 	# The small islands, round as painted.
-	for il in ISLETS:
-		var r: float = _m(Vector2(il[1], 0)).x
-		m = maxf(m, r - Vector2(x, z).distance_to(_m(il[0])) + detail.get_noise_2d(x, z) * 12.0)
+	for il in _islets:
+		var c: Vector2 = il[0]
+		var r: float = il[1]
+		var dx := x - c.x
+		var dz := z - c.y
+		if dx * dx + dz * dz < (r + 40.0) * (r + 40.0):
+			m = maxf(m, r - sqrt(dx * dx + dz * dz) + detail.get_noise_2d(x, z) * 12.0)
 	return m
+
+var _coast_m := PackedFloat32Array()   # metres from the shore per pixel of the coast map
+var _coast_w := 0
+var _islets: Array = []                # [centre, radius] in metres
+
+func _load_coast() -> void:
+	var img := (load("res://assets/map/seasons_land.png") as Image).duplicate()
+	img.convert(Image.FORMAT_L8)
+	_coast_w = img.get_width()
+	var data: PackedByteArray = img.get_data()
+	_coast_m.resize(data.size())
+	for k in data.size():
+		_coast_m[k] = (float(data[k]) - 128.0) * 2.0
+	for il in ISLETS:
+		_islets.append([_m(il[0]), _m(Vector2(il[1], 0)).x])
 
 # ---------- Regions ----------
 func _biomes() -> void:
@@ -203,20 +215,34 @@ func _biomes() -> void:
 				if Geometry2D.is_point_in_polygon(q, polys[c]):
 					raw[(j * BIOME_N + i) * 4 + c] = 1.0
 					break
-	# Soft borders: average over a few cells (about 100 m).
+	# Soft borders: average over a few cells (about 100 m), across then down.
 	biome.resize(BIOME_N * BIOME_N * 4)
 	var rad := 3
+	var tmp := PackedFloat32Array()
+	tmp.resize(raw.size())
+	for pass_i in 2:
+		var src := raw if pass_i == 0 else tmp
+		var dst := tmp if pass_i == 0 else biome
+		for j in BIOME_N:
+			for i in BIOME_N:
+				for c in 4:
+					var sum := 0.0
+					for d in range(-rad, rad + 1):
+						var ii := clampi(i + d, 0, BIOME_N - 1) if pass_i == 0 else i
+						var jj := j if pass_i == 0 else clampi(j + d, 0, BIOME_N - 1)
+						sum += src[(jj * BIOME_N + ii) * 4 + c]
+					dst[(j * BIOME_N + i) * 4 + c] = sum / (2 * rad + 1)
+
+	# The lighthouse rock is bare dark stone as painted, not snowfield.
+	var lh := _m(ISLETS[0][0])
+	var lr: float = _m(Vector2(ISLETS[0][1], 0)).x * 1.8
 	for j in BIOME_N:
 		for i in BIOME_N:
-			var sum := [0.0, 0.0, 0.0, 0.0]
-			var n := 0
-			for dj in range(-rad, rad + 1):
-				for di in range(-rad, rad + 1):
-					var ii := clampi(i + di, 0, BIOME_N - 1)
-					var jj := clampi(j + dj, 0, BIOME_N - 1)
-					for c in 4: sum[c] += raw[(jj * BIOME_N + ii) * 4 + c]
-					n += 1
-			for c in 4: biome[(j * BIOME_N + i) * 4 + c] = sum[c] / n
+			var q := Vector2((i + 0.5) / BIOME_N * size, (j + 0.5) / BIOME_N * size)
+			var k := 1.0 - smoothstep(lr * 0.7, lr, q.distance_to(lh))
+			if k <= 0.0: continue
+			var o := (j * BIOME_N + i) * 4
+			for c in 4: biome[o + c] = lerpf(biome[o + c], 1.0 if c == 3 else 0.0, k)
 
 ## Region weights at a point: [desert, jungle (forest), nordic, volcano].
 func biome_at(x: float, z: float) -> Array:
@@ -313,6 +339,8 @@ func _heights() -> void:
 	_water_d = _line_field(rivers, 220.0)
 	_lava_d = _line_field(lava, 40.0)
 	var islet := _m(LAKE_ISLET)
+	var lake_c := _m(LAKE_C)
+	var lake_r := _m(LAKE_R)
 	heights.resize(N * N)
 	for j in N:
 		for i in N:
@@ -329,31 +357,38 @@ func _heights() -> void:
 				var n0 := (noise.get_noise_2d(x + 2000.0, z + 900.0) + 1.0) * 0.5
 				var plains := 2.0 + pow(n0, 2.0) * 26.0
 				# Forest: rolling wooded hills.
-				var forest := 4.0 + pow((noise.get_noise_2d(x * 1.6, z * 1.6) + 1.0) * 0.5, 1.6) * 62.0
+				# (Each region's shape is only worked out where that region is.)
+				var forest := 0.0
+				if bw[1] > 0.001: forest = 4.0 + pow((noise.get_noise_2d(x * 1.6, z * 1.6) + 1.0) * 0.5, 1.6) * 62.0
 				# Snowy peaks: ridges, higher towards the north coast.
-				var north_k := 1.0 - smoothstep(size * 0.08, size * 0.36, z)
-				var nordic := 30.0 + pow(n0, 1.4) * 70.0 + maxf(0.0, ridge.get_noise_2d(x, z)) * (90.0 + 150.0 * north_k)
+				var nordic := 0.0
+				if bw[2] > 0.001:
+					var north_k := 1.0 - smoothstep(size * 0.08, size * 0.36, z)
+					nordic = 30.0 + pow(n0, 1.4) * 70.0 + maxf(0.0, ridge.get_noise_2d(x, z)) * (90.0 + 150.0 * north_k)
 				# Desert: canyons and flat-topped mesas in steps.
 				var mesa := floorf(n0 * 4.5) / 4.5
 				mesa = lerpf(mesa, n0, 0.25)
 				var desert := 5.0 + pow(mesa, 1.5) * 95.0
 				# Volcano land: rough black ground rising to the cone.
-				var dc := Vector2(x, z).distance_to(crater)
-				var cone := 235.0 * pow(clampf(1.0 - dc / 1500.0, 0.0, 1.0), 1.6)
-				if dc < 110.0:
-					cone -= 38.0 * (1.0 - smoothstep(55.0, 110.0, dc))     # the crater bowl
-				var volcano := 6.0 + pow(n0, 1.5) * 34.0 + cone + detail.get_noise_2d(x * 2.0, z * 2.0) * 6.0
+				var volcano := 0.0
+				if bw[3] > 0.001:
+					var dc := Vector2(x, z).distance_to(crater)
+					var cone := 235.0 * pow(clampf(1.0 - dc / 1500.0, 0.0, 1.0), 1.6)
+					if dc < 110.0:
+						cone -= 38.0 * (1.0 - smoothstep(55.0, 110.0, dc))     # the crater bowl
+					volcano = 6.0 + pow(n0, 1.5) * 34.0 + cone + detail.get_noise_2d(x * 2.0, z * 2.0) * 6.0
 				var sw: float = bw[0] + bw[1] + bw[2] + bw[3]
 				var hills: float = plains * maxf(0.0, 1.0 - sw) + (desert * bw[0] + forest * bw[1] + nordic * bw[2] + volcano * bw[3]) / maxf(1.0, sw)
 				# Beaches: low near the shore (the cone and cliffs rise behind).
 				h = 1.2 + hills * smoothstep(0.0, 260.0, s)
 				# The small islands are low rocks, whatever region they lie in.
-				for il in ISLETS:
-					var ir: float = _m(Vector2(il[1], 0)).x * 1.4
-					var di0 := Vector2(x, z).distance_to(_m(il[0]))
+				for il in _islets:
+					var ir: float = il[1] * 1.4
+					var di0 := Vector2(x, z).distance_to(il[0])
 					if di0 < ir: h = minf(h, 1.4 + 7.0 * smoothstep(0.0, ir * 0.6, ir - di0))
 				# The lake: shallow round the edge, deep in the middle, with its islet.
-				var lt := lake_t(Vector2(x, z))
+				var lt := 9.0
+				if absf(x - lake_c.x) < lake_r.x * 2.0 and absf(z - lake_c.y) < lake_r.y * 2.5: lt = lake_t(Vector2(x, z))
 				if lt < 1.0:
 					h = lerpf(-6.0, -0.9, lt * lt)
 				else:
@@ -362,7 +397,8 @@ func _heights() -> void:
 				if di < 70.0: h = maxf(h, lerpf(3.2, -1.0, smoothstep(30.0, 70.0, di)))
 				# Rivers: wadeable, in a valley (a gorge through the mountains).
 				var dr := _water_d[o]
-				var rw := 20.0 + (detail.get_noise_2d(x, z * 0.5) + 1.0) * 6.0
+				var rw := 20.0
+				if dr < 1e8: rw += (detail.get_noise_2d(x, z * 0.5) + 1.0) * 6.0
 				if dr < rw:
 					h = -1.2
 				elif dr < 1e8:
@@ -379,11 +415,14 @@ func _heights() -> void:
 ## Rivers and the lake again, after towns, fields and the runway were levelled
 ## (the levelling must not dam them).
 func _carve_water() -> void:
+	var lc := _m(LAKE_C)
+	var lr := _m(LAKE_R)
 	for j in N:
 		for i in N:
 			var o := j * N + i
 			var p := Vector2(i * step, j * step)
 			if _water_d[o] < 20.0: heights[o] = minf(heights[o], -1.2)
+			if absf(p.x - lc.x) > lr.x * 1.3 or absf(p.y - lc.y) > lr.y * 1.3: continue
 			var lt := lake_t(p)
 			if lt < 1.0 and p.distance_to(_m(LAKE_ISLET)) > 40.0:
 				heights[o] = minf(heights[o], lerpf(-6.0, -0.9, lt * lt))
