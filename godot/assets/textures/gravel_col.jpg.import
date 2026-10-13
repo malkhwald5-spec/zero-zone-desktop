@@ -2,6 +2,17 @@
 
 importer="texture"
 type="CompressedTexture2D"
+uid="uid://b4svv534uli8r"
+path.s3tc="res://.godot/imported/gravel_col.jpg-830eb005c1a706e321188076c676a065.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+
+[deps]
+
+source_file="res://assets/textures/gravel_col.jpg"
+dest_files=["res://.godot/imported/gravel_col.jpg-830eb005c1a706e321188076c676a065.s3tc.ctex"]
 
 [params]
 

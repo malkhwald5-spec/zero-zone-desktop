@@ -2,6 +2,17 @@
 
 importer="texture"
 type="CompressedTexture2D"
+uid="uid://dh5wqm7b8i5js"
+path.s3tc="res://.godot/imported/road_nrm.jpg-8e9989f084cffe5eb3357170679392a5.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+
+[deps]
+
+source_file="res://assets/textures/road_nrm.jpg"
+dest_files=["res://.godot/imported/road_nrm.jpg-8e9989f084cffe5eb3357170679392a5.s3tc.ctex"]
 
 [params]
 

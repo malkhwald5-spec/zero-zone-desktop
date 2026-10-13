@@ -2,6 +2,17 @@
 
 importer="texture"
 type="CompressedTexture2D"
+uid="uid://c2yar5c3qohi3"
+path.s3tc="res://.godot/imported/snow_col.jpg-da206fc3c6976ae0b5cb7bcf657d904c.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+
+[deps]
+
+source_file="res://assets/textures/snow_col.jpg"
+dest_files=["res://.godot/imported/snow_col.jpg-da206fc3c6976ae0b5cb7bcf657d904c.s3tc.ctex"]
 
 [params]
 
