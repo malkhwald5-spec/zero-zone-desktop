@@ -178,7 +178,9 @@ func _physics_process(delta: float) -> void:
 	match state:
 		"plane":
 			global_position = world.plane_position() + Vector3(0, -3, 0)
-			if buddy:
+			if world.spawn != null:
+				pass    # still waiting on the spawn island: the plane hasn't left
+			elif buddy:
 				# Your teammates jump right after you.
 				if world.player.state != "plane":
 					if _buddy_jump_t < 0.0: _buddy_jump_t = 0.4 + slot * 0.35

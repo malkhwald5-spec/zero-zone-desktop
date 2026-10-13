@@ -558,6 +558,12 @@ func _draw_hud() -> void:
 		var center := sz * 0.5
 		var a := -rel - PI / 2.0
 		c.draw_arc(center, 120.0, a - 0.3, a + 0.3, 12, Color(1, 0.2, 0.2, minf(1.0, d.t)), 6.0)
+	if world.spawn != null:
+		# Waiting on the spawn island: how long until the plane leaves.
+		var left := ceili(maxf(world.spawn.left, 0.0))
+		var col := Color("ffd34d") if left <= 10 else Color.WHITE
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "الطيارة بتقلع بعد %d ثانية" % left, 28, col, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21 + 30), "جزيرة الانتظار — جرّب الأسلحة، ما حدا بيتأذى هون", 16, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if p.state == "ground" and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.1, 0.3, 1.0, 0.13))
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت خارج المنطقة الآمنة!", 22, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, bold)

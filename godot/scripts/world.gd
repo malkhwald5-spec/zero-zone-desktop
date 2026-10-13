@@ -36,6 +36,7 @@ var time := 0.0
 var _shot_stream: AudioStreamWAV
 var loading: LoadingScreen
 var ready_done := false
+var spawn: SpawnIsland = null     # the waiting island before the plane (null once everyone boarded)
 
 func _ready() -> void:
 	loading = LoadingScreen.new()
@@ -84,6 +85,9 @@ func _build() -> void:
 	player.yaw = atan2(-(plane_to - plane_from).x, -(plane_to - plane_from).z)
 	player.pitch = -0.5
 	_spawn_bots()
+	if Game.spawn_island:
+		Game.spawn_island = false
+		_start_waiting()
 	zone = Zone.new()
 	zone.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # animated in _process
 	add_child(zone)
@@ -147,87 +151,48 @@ func _make_plane() -> void:
 	add_child(plane)
 	plane.look_at_from_position(plane_from, plane_to, Vector3.UP)
 
-## Four-engine military transport (C-130 style) with spinning propellers and
-## an open rear ramp. Faces -Z.
+## Four-engine military transport (Lockheed AC-130 model by helijah, CC-BY)
+## with its four propellers spun every frame. Faces -Z.
 func _plane_model() -> Node3D:
-	var plane := Node3D.new()
-	var skin := StandardMaterial3D.new()
-	skin.albedo_color = Color("7d858a")
-	skin.metallic = 0.35
-	skin.roughness = 0.55
-	var dark := StandardMaterial3D.new()
-	dark.albedo_color = Color("2b2f33")
-	dark.roughness = 0.5
-	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color("10161c")
-	glass.metallic = 0.8
-	glass.roughness = 0.1
-	var nose := SphereMesh.new()
-	nose.radius = 2.3
-	nose.height = 4.6
-	var parts := [
-		# Fuselage, nose, cockpit glass, tail cone rising to the fin.
-		[_cyl(2.3, 2.3, 22.0), Vector3(0, 0, 0), Vector3(PI / 2, 0, 0), skin, Vector3.ONE],
-		[nose, Vector3(0, -0.15, -11.0), Vector3.ZERO, skin, Vector3(1.0, 0.95, 1.6)],
-		[_box(Vector3(2.6, 0.7, 1.4)), Vector3(0, 1.25, -12.6), Vector3(-0.5, 0, 0), glass, Vector3.ONE],
-		[_cyl(0.7, 2.3, 9.0), Vector3(0, 0.9, 15.3), Vector3(PI / 2 - 0.12, 0, 0), skin, Vector3.ONE],
-		# High wing with engines hanging below it.
-		[_box(Vector3(40.0, 0.55, 4.6)), Vector3(0, 2.3, -2.5), Vector3.ZERO, skin, Vector3.ONE],
-		[_box(Vector3(4.0, 0.8, 4.0)), Vector3(0, 2.0, -2.5), Vector3.ZERO, skin, Vector3.ONE],
-		# Tail: fin and stabiliser.
-		[_box(Vector3(0.45, 7.5, 5.0)), Vector3(0, 5.2, 18.0), Vector3(0.25, 0, 0), skin, Vector3.ONE],
-		[_box(Vector3(15.0, 0.4, 3.4)), Vector3(0, 2.0, 18.8), Vector3.ZERO, skin, Vector3.ONE],
-		# Open rear ramp hanging down, landing-gear pods.
-		[_box(Vector3(3.2, 0.25, 5.0)), Vector3(0, -2.4, 13.6), Vector3(0.35, 0, 0), dark, Vector3.ONE],
-		[_box(Vector3(1.4, 1.4, 6.0)), Vector3(-2.4, -1.6, 0.5), Vector3.ZERO, skin, Vector3.ONE],
-		[_box(Vector3(1.4, 1.4, 6.0)), Vector3(2.4, -1.6, 0.5), Vector3.ZERO, skin, Vector3.ONE],
-	]
-	for x in [-13.0, -6.5, 6.5, 13.0]:
-		parts.append([_cyl(0.75, 0.9, 5.0), Vector3(x, 1.7, -3.6), Vector3(PI / 2, 0, 0), skin, Vector3.ONE])
-		parts.append([_cyl(0.35, 0.0, 0.8), Vector3(x, 1.7, -6.5), Vector3(-PI / 2, 0, 0), dark, Vector3.ONE])
-	for p in parts:
-		var mi := MeshInstance3D.new()
-		mi.mesh = p[0]
-		mi.position = p[1]
-		mi.rotation = p[2]
-		mi.scale = p[4]
-		mi.material_override = p[3]
-		plane.add_child(mi)
-	# Window row and roundels.
-	for i in 7:
-		var w := MeshInstance3D.new()
-		w.mesh = _box(Vector3(4.66, 0.35, 0.45))
-		w.position = Vector3(0, 0.9, -8.0 + i * 2.2)
-		w.material_override = glass
-		plane.add_child(w)
-	# Propellers: four blades each, spun every frame.
+	var plane: Node3D = (load("res://assets/models/air/plane.glb") as PackedScene).instantiate()
 	var props := []
-	for x in [-13.0, -6.5, 6.5, 13.0]:
-		var hub := Node3D.new()
-		hub.position = Vector3(x, 1.7, -6.6)
-		plane.add_child(hub)
-		for k in 4:
-			var blade := MeshInstance3D.new()
-			blade.mesh = _box(Vector3(0.28, 2.0, 0.08))
-			blade.material_override = dark
-			blade.position = Vector3(0, 1.0, 0).rotated(Vector3.BACK, k * PI / 2)
-			blade.rotation.z = k * PI / 2
-			hub.add_child(blade)
-		props.append(hub)
+	for k in 4:
+		var p := plane.find_child("prop%d" % k, true, false)
+		if p: props.append(p)
 	plane.set_meta("props", props)
 	return plane
 
-func _cyl(r1: float, r2: float, h: float) -> CylinderMesh:
-	var m := CylinderMesh.new()
-	m.top_radius = r1
-	m.bottom_radius = r2
-	m.height = h
-	return m
+## Everyone waits on a small island out at sea, off the map, until the plane
+## leaves (see SpawnIsland). The plane stands still and hidden meanwhile.
+func _start_waiting() -> void:
+	spawn = SpawnIsland.new()
+	var c := Vector3(-650.0, 0.0, island.size * 0.5 + randf_range(-800.0, 800.0))
+	spawn.setup(self, c)
+	plane_active = false
+	plane.visible = false
+	player.state = "ground"
+	player.global_position = c + Vector3(randf_range(-6.0, 6.0), SpawnIsland.TOP + 0.3, randf_range(4.0, 10.0))
+	player.yaw = randf() * TAU
+	player.pitch = -0.1
+	player.reset_physics_interpolation()
 
-func _box(sz: Vector3) -> BoxMesh:
-	var b := BoxMesh.new()
-	b.size = sz
-	return b
+## The wait is over: the island and everything on it goes, and the whole lobby,
+## empty-handed and unhurt, is on the plane.
+func board_plane() -> void:
+	if spawn == null: return
+	spawn.clear_loot()
+	spawn.queue_free()
+	spawn = null
+	player.strip_for_flight()
+	player.state = "plane"
+	player.global_position = plane_position() + Vector3(0, -3, 0)
+	player.yaw = atan2(-(plane_to - plane_from).x, -(plane_to - plane_from).z)
+	player.pitch = -0.5
+	player.reset_physics_interpolation()
+	plane_t = 0.0
+	plane_active = true
+	plane.visible = true
+	if hud: hud.show_banner("الكل ركب الطيارة! اقفز لما تكون فوق الجزيرة")
 
 # ---------- Loot ----------
 const LOOT_TABLE := [["p92", 6], ["ump", 5], ["s1897", 4], ["m416", 4], ["akm", 4], ["mp44", 2.5], ["kar98", 1.2],
@@ -714,6 +679,7 @@ func find_cover(from: Vector3, threat: Vector3, reach := 30.0) -> Vector3:
 
 ## A gunshot: bots that hear it turn towards it and come to have a look.
 func notify_shot(pos: Vector3, shooter: Node, suppressed := false) -> void:
+	if spawn != null: return      # fun shots on the spawn island: nobody takes notice
 	var r := 40.0 if suppressed else 130.0
 	if birds and not suppressed: birds.on_noise(pos)
 	for b in bots:
@@ -930,6 +896,8 @@ func _process(delta: float) -> void:
 	time += delta
 	_update_ambience(delta)
 	_update_interior_air(delta)
+	if spawn != null and spawn.left <= 0.0 and ready_done:
+		board_plane()
 	if plane_active:
 		plane_t += delta / plane_dur
 		plane.global_position = plane_position()
@@ -1255,6 +1223,7 @@ func _update_airdrops(delta: float) -> void:
 		f.t += delta / f.dur
 		var pos: Vector3 = f.from.lerp(f.to, f.t)
 		f.node.global_position = pos
+		for pr in f.node.get_meta("props", []): pr.rotate_object_local(Vector3.BACK, delta * 40.0)
 		if not f.dropped and Vector2(pos.x, pos.z).distance_to(Vector2(f.drop.x, f.drop.z)) < 40.0:
 			f.dropped = true
 			var ad := Airdrop.new()

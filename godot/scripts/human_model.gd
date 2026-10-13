@@ -134,15 +134,23 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 	canopy.position.y = RISER_Y
 	canopy.visible = false
 	add_child(canopy)
-	var cmi := MeshInstance3D.new()
-	cmi.mesh = chute_mesh(chute_color)
-	cmi.position.y = -RISER_Y
-	canopy.add_child(cmi)
-	var lmi := MeshInstance3D.new()
-	lmi.mesh = _lines_mesh()
-	lmi.position.y = -RISER_Y
-	lmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	canopy.add_child(lmi)
+	if ResourceLoader.exists(CHUTE_MODEL):
+		# Low-poly ram-air canopy with its lines (calebcram, CC-BY): the
+		# lines meet at a bar just above the hands.
+		var cm: Node3D = (load(CHUTE_MODEL) as PackedScene).instantiate()
+		cm.position.y = 2.1 - RISER_Y
+		cm.scale = Vector3.ONE * 0.76
+		canopy.add_child(cm)
+	else:
+		var cmi := MeshInstance3D.new()
+		cmi.mesh = chute_mesh(chute_color)
+		cmi.position.y = -RISER_Y
+		canopy.add_child(cmi)
+		var lmi := MeshInstance3D.new()
+		lmi.mesh = _lines_mesh()
+		lmi.position.y = -RISER_Y
+		lmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		canopy.add_child(lmi)
 	_play("Idle", 1.0)
 	ap.advance(randf() * 1.5)
 	set_process(false)
@@ -157,6 +165,7 @@ func _mat(key: String, c: Color, rough := 0.6, metal := 0.0) -> StandardMaterial
 	return _mats[key]
 
 # ---------------------------------------------------------------- parachute
+const CHUTE_MODEL := "res://assets/models/air/parachute.glb"
 const RISER_Y := 1.5          # where the risers meet the harness (model space)
 const CANOPY_Y := 6.7         # top of the canopy arc
 const ARC_R := 7.5            # canopy arc radius (span about 7 m)
@@ -872,6 +881,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/idle", 1.0)
 	elif pose == "stand" and ap.has_animation("mx/u_idle"):
 		_play("mx/u_idle", 1.0)
+	elif pose == "fall" and ap.has_animation("mx/skydive"):
+		# Belly to earth, arched, arms and legs out (Mixamo skydive clip).
+		_play("mx/skydive", 1.0)
 	else:
 		_play("Idle", 1.0)
 	ap.advance(delta)
@@ -897,6 +909,13 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 				# Crawling: the walk cycle turned face down.
 				body.rotation.x = -PI / 2
 				body.position = Vector3(0, 0.22, 0.9)
+		"fall" when _anim == "mx/skydive":
+			# The clip is already flat on the belly: diving tips the head
+			# down (about the hips), steering rolls the body.
+			var d := clampf(dive, 0.0, 1.0)
+			body.rotation = Vector3(-d * 1.15, 0.0, -lean * 0.5)
+			var hip := Vector3(0, 1.0, 0)
+			body.position = hip - body.basis * hip
 		"fall":
 			# Belly to earth (arms and legs spread) blending into a head-down
 			# dive (arms along the body, legs together). Turned about the hips.

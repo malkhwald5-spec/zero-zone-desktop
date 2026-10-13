@@ -210,6 +210,7 @@ var key_art: Texture2D
 var last_reward := {}
 ## In a match with keyboard+mouse: true while the player freed the cursor with Ctrl.
 var cursor_free := false
+var spawn_island := false         # the next match starts on the waiting island (set by the menu)
 
 func _ready() -> void:
 	load_data()

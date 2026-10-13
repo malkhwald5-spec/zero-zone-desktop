@@ -373,6 +373,31 @@ func jump_from_plane() -> void:
 	dive = 0.0
 	message.emit("W مع النظر لتحت = غوص أسرع (234 كم/س) — W مع النظر لقدام = طيران لبعيد")
 
+## Boarding the plane after the spawn island: everything picked up there stays
+## behind, and you start the match fresh.
+func strip_for_flight() -> void:
+	slots = [null, null, null]
+	active = -1
+	for k in ammo: ammo[k] = 0
+	for k in heals: heals[k] = 0
+	for k in throwables: throwables[k] = 0
+	spares.clear()
+	for k in gear: gear[k] = 0 if gear[k] is int else 0.0
+	health = 100.0
+	boost = 0.0
+	reload_t = 0.0
+	heal_id = ""
+	heal_t = 0.0
+	aiming = false
+	firing = false
+	throw_ready = false
+	vault_t = -1.0
+	velocity = Vector3.ZERO
+	if stance != "stand": _force_stance("stand")
+	model.set_weapon("")
+	model.set_back_weapon("")
+	_refresh_gear()
+
 func open_chute() -> void:
 	if state == "fall" and global_position.y < PLANE_ALT - 40.0:
 		state = "chute"
@@ -1033,7 +1058,7 @@ func on_ground() -> bool:
 
 ## attacker is null for blue-zone damage.
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
-	if state == "dead" or world.match_over: return false
+	if state == "dead" or world.match_over or world.spawn != null: return false   # nobody gets hurt on the spawn island
 	if attacker != null and attacker != self and world.same_team(self, attacker): return false   # no friendly fire
 	if not knocked and _pan_blocks(attacker):
 		# Clang: the round hits the pan on your back.

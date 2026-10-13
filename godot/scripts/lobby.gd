@@ -606,6 +606,7 @@ func _refresh() -> void:
 	labels.bar_mail.text = "البريد •" if unread else "البريد"
 
 func _start() -> void:
+	Game.spawn_island = true
 	get_tree().change_scene_to_file("res://scenes/world.tscn")
 
 # ---------- Toasts / rewards ----------

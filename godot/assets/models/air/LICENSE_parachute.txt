@@ -1,0 +1,11 @@
+Model Information:
+* title:	Parachute - Low Poly
+* source:	https://sketchfab.com/3d-models/parachute-low-poly-c6208b577e6b4d83a8bd5d5402ee485e
+* author:	calebcram (https://sketchfab.com/calebcram)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Parachute - Low Poly" (https://sketchfab.com/3d-models/parachute-low-poly-c6208b577e6b4d83a8bd5d5402ee485e) by calebcram (https://sketchfab.com/calebcram) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

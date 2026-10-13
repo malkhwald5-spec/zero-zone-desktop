@@ -8,7 +8,7 @@ extends SceneTree
 ## Animation name -> FBX file name in assets/incoming/ (missing files are skipped;
 ## animations already in the library are kept).
 const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload": "reloading",
-	"rifle_run": "rifle_run", "walk": "walking", "fall": "Falling",
+	"rifle_run": "rifle_run", "walk": "walking", "fall": "Falling", "skydive": "skydive",
 	# Rifle 8-way locomotion: f, fl, fr, l, r, b, bl, br.
 	"walk_f": "walk_forward", "walk_fl": "walk_forward_left", "walk_fr": "walk_forward_right", "walk_l": "walk_left",
 	"walk_r": "walk_right", "walk_b": "walk_backward", "walk_bl": "walk_backward_left", "walk_br": "walk_backward_right",
@@ -53,7 +53,7 @@ const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"
-## Character to retarget onto (-- --target=res://... --out=res://...).
+## Character to retarget onto (-- --target=res://... --out=res://... [--only=key1,key2]).
 var TARGET := "res://assets/models/soldier.glb"
 const FPS := 30.0
 var _yaw0 := Quaternion.IDENTITY
@@ -73,9 +73,11 @@ func _rest_rot(sk: Skeleton3D) -> Array:
 	return r
 
 func _init() -> void:
+	var only: PackedStringArray = []
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--target="): TARGET = a.substr(9)
 		if a.begins_with("--out="): OUT = a.substr(6)
+		if a.begins_with("--only="): only = a.substr(7).split(",")
 	var sol: Node3D = load(TARGET).instantiate()
 	var tsk: Skeleton3D = sol.find_child("Skeleton3D", true, false)
 	var tpath := String(sol.get_path_to(tsk))
@@ -97,7 +99,7 @@ func _init() -> void:
 	for key in SRC.keys() + MIRROR.keys():
 		var mirror := MIRROR.has(key)
 		var path := "res://assets/incoming/%s.fbx" % (MIRROR[key] if mirror else SRC[key])
-		if not ResourceLoader.exists(path): continue
+		if not ResourceLoader.exists(path) or (only.size() > 0 and not key in only): continue
 		if lib.has_animation(key): lib.remove_animation(key)
 		var sc: Node3D = load(path).instantiate()
 		var ssk: Skeleton3D = sc.find_child("Skeleton3D", true, false)
