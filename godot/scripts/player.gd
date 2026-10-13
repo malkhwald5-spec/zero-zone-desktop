@@ -48,9 +48,11 @@ var firing := false
 var jump_queued := false
 var air_speed := 0.0              # km/h shown on the HUD
 var dive := 0.0                   # smoothed 0..1 head-down amount while skydiving
+var fall_lean := 0.0              # smoothed -1..1 roll while flying sideways in freefall
 var chute_t := 0.0                # seconds since the parachute was pulled
 var chute_heading := 0.0          # direction the canopy flies
 var chute_bank := 0.0             # roll from turning (radians)
+var chute_turn := 0.0             # smoothed -1..1 steering under the canopy
 var chute_swing := 0.0            # pitch swing under the canopy (radians)
 var land_t := 0.0                 # short landing crouch
 var hard_land_t := 0.0            # hard landing after a long fall: rolling back up, can't move
@@ -371,7 +373,9 @@ func jump_from_plane() -> void:
 	reset_physics_interpolation()
 	velocity = world.plane_velocity() * 0.5
 	dive = 0.0
-	message.emit("W مع النظر لتحت = غوص أسرع (234 كم/س) — W مع النظر لقدام = طيران لبعيد")
+	fall_lean = 0.0
+	chute_turn = 0.0
+	message.emit("W مع النظر لتحت = غوص أسرع — W لقدام = طيران لبعيد — A/D يمين ويسار")
 
 ## Boarding the plane after the spawn island: everything picked up there stays
 ## behind, and you start the match fresh.
@@ -647,19 +651,25 @@ func _air(delta: float) -> void:
 	if is_on_floor() or global_position.y <= world.ground_height(global_position) + 0.05:
 		_land()
 
-## Freefall: W + looking down dives head-first, W + looking ahead glides far,
-## S spreads out to slow down, A/D slide sideways. Speeds change gradually.
+## Freefall (as in PUBG): W + looking down dives head-first, W + looking
+## ahead glides far, S spreads out to slow down, A/D fly sideways with the
+## body rolled into the turn. Every change eases in, nothing snaps.
 func _freefall(delta: float) -> void:
 	var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
 	var right := Vector3(cos(yaw), 0, -sin(yaw))
 	var push := maxf(move_input.y, 0.0)
 	var back := maxf(-move_input.y, 0.0)
+	var side := clampf(move_input.x, -1.0, 1.0)
 	var steep := clampf(inverse_lerp(-0.15, -1.0, pitch), 0.0, 1.0)
-	dive = move_toward(dive, push * lerpf(0.35, 1.0, steep), delta * 0.8)
-	var v_target := lerpf(FALL_V, DIVE_V, dive) - back * 5.0
-	var h_target := fwd * (push * lerpf(GLIDE_H, 7.0, steep) - back * 6.0) + right * move_input.x * 9.0
-	var h := Vector3(velocity.x, 0, velocity.z).move_toward(h_target, 9.0 * delta)
-	velocity = Vector3(h.x, move_toward(velocity.y, -v_target, (9.8 if velocity.y > -v_target else 6.0) * delta), h.z)
+	dive = lerpf(dive, push * lerpf(0.35, 1.0, steep), 1.0 - exp(-1.4 * delta))
+	var v_target := lerpf(FALL_V, DIVE_V, dive) - back * 5.0 - absf(side) * 2.0
+	var h_target := fwd * (push * lerpf(GLIDE_H, 7.0, steep) - back * 6.0) + right * side * 18.0
+	var h := Vector3(velocity.x, 0, velocity.z).lerp(h_target, 1.0 - exp(-1.6 * delta))
+	# Eases towards the target speed, but never falls faster than gravity allows.
+	var vy := lerpf(velocity.y, -v_target, 1.0 - exp(-0.9 * delta))
+	vy = maxf(vy, velocity.y - 9.8 * delta)
+	velocity = Vector3(h.x, vy, h.z)
+	fall_lean = lerpf(fall_lean, side, 1.0 - exp(-4.0 * delta))
 	if global_position.y - world.ground_height(global_position) < CHUTE_AUTO:
 		open_chute()
 
@@ -670,18 +680,21 @@ func _canopy_flight(delta: float) -> void:
 	var opening := clampf(chute_t / CHUTE_OPEN_TIME, 0.0, 1.0)
 	var brake := maxf(-move_input.y, 0.0) if absf(move_input.x) < 0.3 else 0.0
 	var push := maxf(move_input.y, 0.0)
-	var turn := 0.0
+	var want_turn := 0.0
 	if move_input.length() > 0.1 and brake == 0.0:
 		var d := _wish_dir()
 		var want := atan2(-d.x, -d.z)
-		turn = clampf(wrapf(want - chute_heading, -PI, PI) * 2.0, -1.0, 1.0)
-	chute_heading = wrapf(chute_heading + turn * 1.1 * delta * opening, -PI, PI)
+		want_turn = clampf(wrapf(want - chute_heading, -PI, PI) * 2.0, -1.0, 1.0)
+	# The toggles are pulled and let go smoothly, so the turn rolls in and out.
+	chute_turn = lerpf(chute_turn, want_turn, 1.0 - exp(-3.0 * delta))
+	var turn := chute_turn
+	chute_heading = wrapf(chute_heading + turn * 1.7 * delta * opening, -PI, PI)
 	var h_speed := lerpf(9.0, 14.0, push) - brake * 5.0 - absf(turn) * 1.5
 	var v_speed := lerpf(5.5, 7.5, push) - brake * 1.8 + absf(turn) * 1.2
 	var dir := Vector3(-sin(chute_heading), 0, -cos(chute_heading))
 	var h_target := dir * h_speed * opening
 	# The opening shock: big deceleration while the canopy inflates.
-	var rate := lerpf(45.0, 6.0, opening)
+	var rate := lerpf(45.0, 9.0, opening)
 	var h := Vector3(velocity.x, 0, velocity.z).move_toward(h_target, rate * delta)
 	velocity = Vector3(h.x, move_toward(velocity.y, -v_speed, rate * delta), h.z)
 	chute_bank = lerpf(chute_bank, -turn * 0.42, minf(1.0, delta * 2.5))
@@ -1315,7 +1328,7 @@ func _update_model(delta: float) -> void:
 	model.aim_pitch = pitch + 0.1
 	var w := weapon()
 	model.reload_p = 1.0 - reload_t / float(w.reload) if reload_t > 0.0 and not w.is_empty() else -1.0
-	model.lean = move_input.x if state == "fall" else 0.0
+	model.lean = fall_lean if state == "fall" else 0.0
 	model.peek = peek if state == "ground" else 0.0
 	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
