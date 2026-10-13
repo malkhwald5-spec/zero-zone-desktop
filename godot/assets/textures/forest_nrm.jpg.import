@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cj8am6e7ol66r"
 path.s3tc="res://.godot/imported/forest_nrm.jpg-8bacc8a5b05012e05913b1b07ce4b861.s3tc.ctex"
+path.etc2="res://.godot/imported/forest_nrm.jpg-8bacc8a5b05012e05913b1b07ce4b861.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/forest_nrm.jpg"
-dest_files=["res://.godot/imported/forest_nrm.jpg-8bacc8a5b05012e05913b1b07ce4b861.s3tc.ctex"]
+dest_files=["res://.godot/imported/forest_nrm.jpg-8bacc8a5b05012e05913b1b07ce4b861.s3tc.ctex", "res://.godot/imported/forest_nrm.jpg-8bacc8a5b05012e05913b1b07ce4b861.etc2.ctex"]
 
 [params]
 

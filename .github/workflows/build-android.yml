@@ -1,0 +1,87 @@
+# Builds the Android version (APK) on GitHub's servers and publishes it on the
+# Releases page next to the Windows build.
+# Download link: https://github.com/<owner>/<repo>/releases/latest/download/ZeroZone-Android.apk
+name: Build Android
+
+on:
+  push:
+    branches: [main, claude/game-development-y3uzmu]
+    paths: ["godot/**", "android/**", ".github/workflows/build-android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-android
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+  RELEASE_TAG: game-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-android-${{ env.GODOT_VERSION }}
+
+      - name: Download Godot and export templates
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          curl -sSfL -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip && rm godot.zip
+          curl -sSfL -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q -j templates.tpz "templates/android_release.apk" "templates/android_debug.apk" "templates/version.txt" -d templates
+          rm templates.tpz
+
+      - name: Install templates and point Godot at the Android SDK
+        run: |
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$dest"
+          cp ~/godot/templates/* "$dest/"
+          java_home="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          mkdir -p ~/.config/godot
+          for f in editor_settings-4.tres editor_settings-4.7.tres; do
+            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/android_sdk_path = "%s"\nexport/android/java_sdk_path = "%s"\n' \
+              "$ANDROID_HOME" "$java_home" > ~/.config/godot/$f
+          done
+          cat ~/.config/godot/editor_settings-4.7.tres
+          ls "$ANDROID_HOME/build-tools"
+
+      - name: Import assets
+        run: |
+          G=~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64
+          $G --headless --path godot --import || true
+          $G --headless --path godot --import
+
+      - name: Export Android build
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ github.workspace }}/android/zerozone.keystore
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: zerozone
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: zerozone
+        run: |
+          # Each build gets a higher version number so phones install it as an update.
+          sed -i "s/^version\/code=.*/version\/code=${GITHUB_RUN_NUMBER}/" godot/export_presets.cfg
+          mkdir -p out
+          ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 --headless --path godot --export-release "Android" "$PWD/out/ZeroZone-Android.apk"
+          test -s out/ZeroZone-Android.apk
+          ls -la out
+
+      - name: Publish to the Releases page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "Zero Zone" --notes "Zero Zone builds." --target "$GITHUB_SHA" --latest
+          fi
+          gh release upload "$RELEASE_TAG" out/ZeroZone-Android.apk --clobber

@@ -3,15 +3,17 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://yuqne1pkqku6"
-path="res://.godot/imported/wood_nrm.jpg-75f150ccac5f7c8b95a435de63c1601f.ctex"
+path.s3tc="res://.godot/imported/wood_nrm.jpg-75f150ccac5f7c8b95a435de63c1601f.s3tc.ctex"
+path.etc2="res://.godot/imported/wood_nrm.jpg-75f150ccac5f7c8b95a435de63c1601f.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/wood_nrm.jpg"
-dest_files=["res://.godot/imported/wood_nrm.jpg-75f150ccac5f7c8b95a435de63c1601f.ctex"]
+dest_files=["res://.godot/imported/wood_nrm.jpg-75f150ccac5f7c8b95a435de63c1601f.s3tc.ctex", "res://.godot/imported/wood_nrm.jpg-75f150ccac5f7c8b95a435de63c1601f.etc2.ctex"]
 
 [params]
 

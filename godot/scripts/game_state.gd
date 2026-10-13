@@ -218,6 +218,12 @@ func _ready() -> void:
 
 ## First launch: integrated graphics (Intel) start on متوازن, real cards on HD.
 func _auto_quality() -> void:
+	if OS.has_feature("mobile"):
+		# Phones: on-screen buttons, the light preset and laptop mode's shorter view.
+		settings.controls = "touch"
+		settings.quality = "low"
+		settings.laptop = true
+		return
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
 	if not (gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe")):
 		settings.quality = "high"

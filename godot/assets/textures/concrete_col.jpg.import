@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dvg5dxu5g53o1"
 path.s3tc="res://.godot/imported/concrete_col.jpg-5816a509c05a579144f1e0ef45026fb7.s3tc.ctex"
+path.etc2="res://.godot/imported/concrete_col.jpg-5816a509c05a579144f1e0ef45026fb7.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/concrete_col.jpg"
-dest_files=["res://.godot/imported/concrete_col.jpg-5816a509c05a579144f1e0ef45026fb7.s3tc.ctex"]
+dest_files=["res://.godot/imported/concrete_col.jpg-5816a509c05a579144f1e0ef45026fb7.s3tc.ctex", "res://.godot/imported/concrete_col.jpg-5816a509c05a579144f1e0ef45026fb7.etc2.ctex"]
 
 [params]
 

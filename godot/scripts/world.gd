@@ -3,6 +3,7 @@ extends Node3D
 ## and keeps the HUD fed.
 
 const BOT_COUNT := 99          # + the player = 100
+const BOT_COUNT_MOBILE := 49   # phones: 50 players (a phone CPU can't run 99 bots)
 
 var island: Island
 var builder: WorldBuilder
@@ -428,7 +429,7 @@ func _spawn_bots() -> void:
 	team_size = Game.team_size()
 	var lead_dest := Vector3.ZERO
 	var lead_jump := 0.5
-	for i in BOT_COUNT:
+	for i in (BOT_COUNT_MOBILE if OS.has_feature("mobile") else BOT_COUNT):
 		var b := Bot.new()
 		b.world = self
 		b.display_name = BOT_NAMES[i % BOT_NAMES.size()]

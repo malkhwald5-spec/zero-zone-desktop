@@ -3,15 +3,17 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://6te0du736y47"
-path="res://.godot/imported/stone_nrm.jpg-a60c74d07c15b76f6676f94a7f3de96f.ctex"
+path.s3tc="res://.godot/imported/stone_nrm.jpg-a60c74d07c15b76f6676f94a7f3de96f.s3tc.ctex"
+path.etc2="res://.godot/imported/stone_nrm.jpg-a60c74d07c15b76f6676f94a7f3de96f.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/stone_nrm.jpg"
-dest_files=["res://.godot/imported/stone_nrm.jpg-a60c74d07c15b76f6676f94a7f3de96f.ctex"]
+dest_files=["res://.godot/imported/stone_nrm.jpg-a60c74d07c15b76f6676f94a7f3de96f.s3tc.ctex", "res://.godot/imported/stone_nrm.jpg-a60c74d07c15b76f6676f94a7f3de96f.etc2.ctex"]
 
 [params]
 

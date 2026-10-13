@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bwhotupiewrmn"
 path.s3tc="res://.godot/imported/pine_branch.png-5342dfb556b6d222ff929f42552f9d41.s3tc.ctex"
+path.etc2="res://.godot/imported/pine_branch.png-5342dfb556b6d222ff929f42552f9d41.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/pine_branch.png"
-dest_files=["res://.godot/imported/pine_branch.png-5342dfb556b6d222ff929f42552f9d41.s3tc.ctex"]
+dest_files=["res://.godot/imported/pine_branch.png-5342dfb556b6d222ff929f42552f9d41.s3tc.ctex", "res://.godot/imported/pine_branch.png-5342dfb556b6d222ff929f42552f9d41.etc2.ctex"]
 
 [params]
 
