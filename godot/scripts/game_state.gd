@@ -240,7 +240,7 @@ func is_integrated_gpu() -> bool:
 func is_laptop_gpu() -> bool:
 	if is_integrated_gpu(): return true
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
-	for k in ["laptop", "mobile", "max-q", "rtx 2050", "rtx 3050 ti", " mx1", " mx2", " mx3", " mx4", " mx5"]:
+	for k in ["laptop", "mobile", "max-q", " mx1", " mx2", " mx3", " mx4", " mx5"]:
 		if gpu.contains(k): return true
 	return false
 
@@ -286,6 +286,11 @@ func load_data() -> void:
 	# v4: laptop mode arrived; laptop graphics chips start with it on.
 	if int(data.get("save_version", 1)) < 4 and is_laptop_gpu():
 		settings.laptop = true
+	# v5: dedicated RTX cards (the RTX 2050 too) no longer count as weak laptop
+	# chips: laptop mode off and at least HD, so the full effects are on.
+	if int(data.get("save_version", 1)) < 5 and RenderingServer.get_video_adapter_name().to_lower().contains("rtx") and not is_laptop_gpu():
+		settings.laptop = false
+		if quality_level() < 2: settings.quality = "high"
 	if typeof(settings.get("keys")) != TYPE_DICTIONARY: settings.keys = {}
 	for k in settings.keys.keys():
 		settings.keys[k] = int(settings.keys[k])
@@ -295,7 +300,7 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"save_version": 4, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 5, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]

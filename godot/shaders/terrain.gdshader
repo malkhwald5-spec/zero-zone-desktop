@@ -182,6 +182,16 @@ void fragment() {
 		nb = mix(nb, tnrm(sand_n, wpos.xz, 4.0), w_sand);
 		nb = mix(nb, mix(tnrm(dirt_n, wpos.xz, 3.5), tnrm(asphalt_n, wpos.xz, 5.0), w_paved), w_road);
 		// Tangent space (u = +x, v = +z) to world, then to view space.
+		// Rocky relief smaller than the 8 m heightmap can hold: bumps and
+		// ridges from noise on cliffs, peaks, ash and mesas (not on roads or in towns).
+		float relief = clamp(w_rock + smoothstep(0.35, 0.75, bio.b) * 0.7 + bio.a * 0.6 + bio.r * 0.4, 0.0, 1.0) * (1.0 - w_road) * (1.0 - w_town);
+		vec2 mp = wpos.xz / 23.0;
+		float m0 = texture(noise_a, mp).r;
+		vec2 mg = vec2(texture(noise_a, mp + vec2(0.02, 0.0)).r - m0, texture(noise_a, mp + vec2(0.0, 0.02)).r - m0) * 50.0;
+		vec2 mp2 = wpos.xz / 6.5;
+		float m1 = texture(noise_b, mp2).r;
+		mg += vec2(texture(noise_b, mp2 + vec2(0.02, 0.0)).r - m1, texture(noise_b, mp2 + vec2(0.0, 0.02)).r - m1) * 20.0;
+		wn = normalize(wn + vec3(-mg.x, 0.0, -mg.y) * 0.18 * relief * (1.0 - smoothstep(300.0, 900.0, dist)));
 		vec3 bent = normalize(wn + vec3(nb.x, 0.0, -nb.y) * 0.9 * near);
 		// Cliffs: rock normals projected from all three sides (no smear on walls).
 		vec3 rp = wpos / 6.0;
