@@ -1461,92 +1461,7 @@ func _multimesh(mesh: Mesh, count: int, colors: bool) -> MultiMesh:
 	mm.instance_count = count
 	return mm
 
-## Pine crown in unit space (height 0..1, radius about 0.5): drooping star-shaped
-## layers, smaller towards the top. UV.x carries ambient occlusion.
-func _pine_mesh() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 11
-	var layers := 6
-	var spokes := 14
-	for k in layers:
-		var f := float(k) / layers
-		var y_bot := f * 0.82
-		var y_top := y_bot + 0.34 - f * 0.1
-		var rad := 0.52 * (1.0 - f * 0.82)
-		var ring := []
-		for i in spokes * 2:
-			var a := TAU * i / (spokes * 2) + k * 0.4
-			var r := rad * (1.0 if i % 2 == 0 else 0.62) * rng.randf_range(0.85, 1.1)
-			var droop := -0.05 * (1.0 if i % 2 == 0 else 0.0)
-			ring.append(Vector3(cos(a) * r, y_bot + droop + rng.randf_range(-0.015, 0.015), sin(a) * r))
-		var apex := Vector3(rng.randf_range(-0.02, 0.02), y_top, rng.randf_range(-0.02, 0.02))
-		var under := Vector3(0, y_bot + 0.06, 0)
-		var ao_top := 0.55 + 0.45 * f
-		for i in ring.size():
-			var p0: Vector3 = ring[i]
-			var p1: Vector3 = ring[(i + 1) % ring.size()]
-			var n := (p1 - p0).cross(apex - p0).normalized()
-			if n.y < 0: n = -n
-			for v in [[apex, 1.0], [p1, ao_top * 0.75], [p0, ao_top * 0.75]]:
-				var vn: Vector3 = (n + Vector3(v[0].x, 0, v[0].z).normalized() * 0.6).normalized()
-				st.set_normal(vn)
-				st.set_uv(Vector2(v[1], 1.0 - v[0].y))
-				st.add_vertex(v[0])
-			# Dark underside.
-			for v in [p0, p1, under]:
-				st.set_normal(Vector3.DOWN)
-				st.set_uv(Vector2(0.25, 1.0 - v.y))
-				st.add_vertex(v)
-	st.index()
-	return st.commit()
-
-## Broadleaf crown in unit space: a cluster of noisy lumps, centred at y = 0.
-func _leafy_mesh() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var noise := FastNoiseLite.new()
-	noise.seed = 4
-	noise.frequency = 2.2
-	var lumps := [[Vector3(0, 0, 0), 0.42], [Vector3(0.28, 0.12, 0.1), 0.3], [Vector3(-0.25, 0.1, -0.15), 0.32],
-		[Vector3(0.05, 0.3, -0.2), 0.28], [Vector3(-0.1, 0.28, 0.24), 0.27], [Vector3(0.22, -0.12, -0.24), 0.26], [Vector3(-0.3, -0.1, 0.2), 0.25]]
-	var rings := 6
-	var segs := 9
-	for l in lumps:
-		var c: Vector3 = l[0]
-		var r: float = l[1]
-		var grid := []
-		for j in rings + 1:
-			var row := []
-			var phi := PI * j / rings
-			for i in segs + 1:
-				var th := TAU * i / segs
-				var d := Vector3(sin(phi) * cos(th), cos(phi), sin(phi) * sin(th))
-				var rr := r * (1.0 + 0.28 * noise.get_noise_3dv(c * 3.0 + d))
-				var pos := c + d * rr
-				pos.y = max(pos.y, c.y - r * 0.55)
-				row.append([pos, d])
-			grid.append(row)
-		for j in rings:
-			for i in segs:
-				var quad := [grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j][i], grid[j + 1][i + 1], grid[j + 1][i]]
-				for q in quad:
-					var pos: Vector3 = q[0]
-					var nrm: Vector3 = (q[1] * 0.7 + (pos - Vector3(0, -0.1, 0)).normalized() * 0.3).normalized()
-					st.set_normal(nrm)
-					st.set_uv(Vector2(clamp(0.45 + (pos.y + 0.4) * 0.6 + pos.length() * 0.3, 0.3, 1.0), 0.5 - pos.y))
-					st.add_vertex(pos)
-	st.index()
-	return st.commit()
-
 func _trees() -> void:
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = 0.45
-	trunk.bottom_radius = 1.0
-	trunk.height = 1.0
-	trunk.radial_segments = 8
-	trunk.rings = 2
 	var trunk_mat := StandardMaterial3D.new()
 	trunk_mat.albedo_color = Color("c8b8a8")
 	trunk_mat.albedo_texture = load("res://assets/textures/bark_col.jpg")
@@ -1554,19 +1469,9 @@ func _trees() -> void:
 	trunk_mat.normal_texture = load("res://assets/textures/bark_nrm.jpg")
 	trunk_mat.uv1_scale = Vector3(2.0, 3.0, 1.0)
 	trunk_mat.roughness = 1.0
-	trunk.material = trunk_mat
-	var fol := ShaderMaterial.new()
-	fol.shader = load("res://shaders/foliage.gdshader")
-	var pine_mesh := _pine_mesh()
-	pine_mesh.surface_set_material(0, fol)
-	var leafy_mesh := _leafy_mesh()
-	leafy_mesh.surface_set_material(0, fol)
-
 	# Trees go into 256 m chunks so the renderer can cull whole chunks off screen.
-	# Near chunks use the detailed tree models; far chunks swap to the cheap
-	# solid crowns.
-	pine_mesh = _with_lods(pine_mesh)
-	leafy_mesh = _with_lods(leafy_mesh)
+	# Near chunks use the detailed tree models; far chunks swap to photo cards
+	# of the same trees (front, side and top, baked by tools/bake_impostors.gd).
 	var near_d: float = [160.0, 240.0, 320.0, 450.0, 650.0][Game.quality_level()] * Game.view_k()
 	var bark_mat := trunk_mat.duplicate() as StandardMaterial3D
 	bark_mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
@@ -1581,23 +1486,8 @@ func _trees() -> void:
 	cactus_mat.vertex_color_use_as_albedo = false
 	# Near trees: spruces from the forest pack (and some firs) in the north,
 	# palms in the south, leafy trees with a few autumn ones and sakura.
-	var leaf_mat := ShaderMaterial.new()
-	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
-	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
-	leaf_mat.set_shader_parameter("sway", wind())
-	var near_meshes := {}
-	for v in 2:
-		var bl := TreeModels.broadleaf(3 + v * 17)
-		bl.surface_set_material(0, bark_mat)
-		bl.surface_set_material(1, leaf_mat)
-		near_meshes["bl%d" % v] = bl
-	near_meshes["pn0"] = _with_lods(TreeModels.imported("broad_b"))
-	near_meshes["pn1"] = _with_lods(TreeModels.imported("broad_a"))
-	near_meshes["fr0"] = _with_lods(TreeModels.imported("fir"))
-	near_meshes["pm0"] = _with_lods(TreeModels.imported("palm_a"))
-	near_meshes["pm1"] = _with_lods(TreeModels.imported("palm_b"))
-	near_meshes["au0"] = _with_lods(TreeModels.imported("broad_c"))
-	near_meshes["sk0"] = _with_lods(TreeModels.imported("sakura"))
+	var near_meshes := near_tree_meshes(bark_mat, wind())
+	var far_meshes := _impostor_meshes()
 	# Cactus and dead trees are simple: the same mesh near and far.
 	var mid_meshes := {}
 	for v in 2:
@@ -1615,12 +1505,10 @@ func _trees() -> void:
 	var tree_root := Node3D.new()
 	tree_root.name = "TreeBodies"
 	root.add_child(tree_root)
-	var pine_cols := [Color("23401f"), Color("2a4a24"), Color("1f3a20"), Color("30502a")]
-	var leaf_cols := [Color("3f6a26"), Color("4a7228"), Color("557a2e"), Color("3a5f24"), Color("6a7a2c")]
 	for t in island.trees:
 		var key := Vector2i(int(t.pos.x / 256.0), int(t.pos.y / 256.0))
 		if not chunks.has(key):
-			chunks[key] = {"trunk": [], "pine": [], "leaf": [], "bl0": [], "bl1": [], "pn0": [], "pn1": [], "pm0": [], "pm1": [], "sk0": [], "au0": [], "fr0": [], "ca0": [], "ca1": [], "dd0": []}
+			chunks[key] = {"bl0": [], "bl1": [], "pn0": [], "pn1": [], "pm0": [], "pm1": [], "sk0": [], "au0": [], "fr0": [], "ca0": [], "ca1": [], "dd0": []}
 		var ch: Dictionary = chunks[key]
 		if not bodies.has(key):
 			var bb := StaticBody3D.new()
@@ -1639,9 +1527,6 @@ func _trees() -> void:
 				"palm":
 					var k2 := h / 10.0
 					ch["pm%d" % v2].append([Transform3D(rot2.scaled(Vector3(k2, k2, k2)), p + Vector3(0, 0.3, 0)), tint2])
-					# Far away: the trunk and a flat green crown.
-					ch.trunk.append([Transform3D(Basis.from_scale(Vector3(t.r, h, t.r)), p + Vector3(0, h * 0.5, 0)), Color.WHITE])
-					ch.leaf.append([Transform3D(rot2.scaled(Vector3(h * 0.75, h * 0.22, h * 0.75)), p + Vector3(0, h * 0.97, 0)), Color("4f7a2a")])
 				"cactus":
 					var k3 := h / 4.0
 					ch["ca%d" % v2].append([Transform3D(rot2.scaled(Vector3(k3, k3, k3)), p + Vector3(0, 0.25, 0)), Color.WHITE])
@@ -1656,25 +1541,17 @@ func _trees() -> void:
 			cs2.position = p + Vector3(0, 2.0, 0)
 			body.add_child(cs2)
 			continue
-		var trunk_h := h * (0.4 if t.pine else 0.55)
-		ch.trunk.append([Transform3D(Basis.from_scale(Vector3(t.r, trunk_h, t.r)), p + Vector3(0, trunk_h * 0.5, 0)), Color.WHITE])
 		var rot := Basis(Vector3.UP, t.shade * TAU)
 		var variant := int(t.shade * 997.0) % 2
 		var tint: Color = near_tints[int(t.shade * 31.0) % near_tints.size()]
 		var k := h / 10.0
 		var near_x := Transform3D(rot.scaled(Vector3(k, k * (0.92 + fmod(t.shade * 5.0, 1.0) * 0.16), k)), p + Vector3(0, 0.3, 0))
 		if t.pine:
-			var w := h * (0.55 + fmod(t.shade * 13.0, 1.0) * 0.15)
-			ch.pine.append([Transform3D(rot.scaled(Vector3(w, h * 0.85, w)), p + Vector3(0, h * 0.18, 0)), pine_cols[int(t.shade * 7) % 4]])
 			ch["fr0" if fmod(t.shade * 41.0, 1.0) < 0.2 else "pn%d" % variant].append([near_x, tint])
 		else:
-			var w := h * (0.62 + fmod(t.shade * 7.0, 1.0) * 0.2)
 			# One leafy tree in 30 is a sakura in bloom, one in 10 in autumn colours.
 			var pick := fmod(t.shade * 53.0, 1.0)
-			var nk := "sk0" if pick < 0.033 else ("au0" if pick < 0.13 else "bl%d" % variant)
-			var far_col: Color = {"sk0": Color("d9a0b8"), "au0": Color("9a6a2a")}.get(nk, leaf_cols[int(t.shade * 11) % 5])
-			ch.leaf.append([Transform3D(rot.scaled(Vector3(w, w * 0.85, w)), p + Vector3(0, h * 0.68, 0)), far_col])
-			ch[nk].append([near_x, tint])
+			ch["sk0" if pick < 0.033 else ("au0" if pick < 0.13 else "bl%d" % variant)].append([near_x, tint])
 		var cs := CollisionShape3D.new()
 		var cyl := CylinderShape3D.new()
 		cyl.radius = t.r + 0.1
@@ -1682,35 +1559,104 @@ func _trees() -> void:
 		cs.shape = cyl
 		cs.position = p + Vector3(0, 2.0, 0)
 		body.add_child(cs)
-	var meshes := {"trunk": trunk, "pine": pine_mesh, "leaf": leafy_mesh}
-	meshes.merge(near_meshes)
-	meshes.merge(mid_meshes)
 	for key in chunks:
-		for kind in meshes:
+		for kind in chunks[key]:
 			var list: Array = chunks[key][kind]
 			if list.is_empty(): continue
-			var colored: bool = kind != "trunk" and not mid_meshes.has(kind)
-			var mm := _multimesh(meshes[kind], list.size(), colored)
-			for i in list.size():
-				mm.set_instance_transform(i, list[i][0])
-				if colored: mm.set_instance_color(i, list[i][1])
-			var mmi := MultiMeshInstance3D.new()
-			mmi.multimesh = mm
-			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-			if mid_meshes.has(kind):
-				mmi.visibility_range_end = 700.0
-			elif near_meshes.has(kind):
-				mmi.visibility_range_end = near_d
-				mmi.visibility_range_end_margin = 40.0
-			else:
-				mmi.visibility_range_begin = near_d
-				mmi.visibility_range_begin_margin = 40.0
-				if kind == "trunk":
-					mmi.visibility_range_end = 900.0
-			root.add_child(mmi)
+			# The same instances twice: the model up close, its photo card beyond.
+			for far in ([false, true] if near_meshes.has(kind) else [false]):
+				var mesh: Mesh = (far_meshes[kind] if far else near_meshes.get(kind, mid_meshes.get(kind)))
+				var colored: bool = not mid_meshes.has(kind)
+				var mm := _multimesh(mesh, list.size(), colored)
+				for i in list.size():
+					mm.set_instance_transform(i, list[i][0])
+					if colored: mm.set_instance_color(i, list[i][1])
+				var mmi := MultiMeshInstance3D.new()
+				mmi.multimesh = mm
+				mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+				if mid_meshes.has(kind):
+					mmi.visibility_range_end = 700.0
+				elif far:
+					mmi.visibility_range_begin = near_d
+					mmi.visibility_range_begin_margin = 40.0
+					mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				else:
+					mmi.visibility_range_end = near_d
+					mmi.visibility_range_end_margin = 40.0
+				root.add_child(mmi)
+
+## Far tree cards: for each detailed tree, two crossed upright pictures and one
+## seen from above, cut from the baked atlas.
+static func _impostor_meshes() -> Dictionary:
+	var info: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://assets/textures/impostors/trees.json"))
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/impostor.gdshader")
+	mat.set_shader_parameter("albedo_tex", load("res://assets/textures/impostors/trees.png"))
+	var cols := float(info["keys"].size())
+	var out := {}
+	for key in info["keys"]:
+		var t: Dictionary = info.trees[key]
+		var u0 := float(t.col) / cols
+		var du := 1.0 / cols
+		var half := float(t.size) * 0.5
+		var foot := float(t.foot)
+		var cx := float(t.cx)
+		var cz := float(t.cz)
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		# Upright cards: [right axis, normal]; row 0 front, row 1 side.
+		var cards := [[Vector3.RIGHT, Vector3.BACK], [Vector3.FORWARD, Vector3.RIGHT]]
+		for row in 2:
+			var r: Vector3 = cards[row][0]
+			var c := Vector3(cx, foot, cz)
+			var v0 := row / 3.0
+			var q := [[c - r * half, Vector2(u0, v0 + 1.0 / 3.0)], [c + r * half, Vector2(u0 + du, v0 + 1.0 / 3.0)],
+				[c + r * half + Vector3.UP * half * 2.0, Vector2(u0 + du, v0)], [c - r * half + Vector3.UP * half * 2.0, Vector2(u0, v0)]]
+			_impostor_quad(st, q, Vector3(cx, foot + half * 1.1, cz), 0.0)
+		# The crown from above, at about two thirds of the height.
+		var th := float(t.top) * 0.5
+		var y := foot + half * 2.0 * 0.62
+		var tq := [[Vector3(cx - th, y, cz - th), Vector2(u0, 2.0 / 3.0)], [Vector3(cx + th, y, cz - th), Vector2(u0 + du, 2.0 / 3.0)],
+			[Vector3(cx + th, y, cz + th), Vector2(u0 + du, 1.0)], [Vector3(cx - th, y, cz + th), Vector2(u0, 1.0)]]
+		_impostor_quad(st, tq, Vector3(cx, y - th, cz), 1.0)
+		var mesh := st.commit()
+		mesh.surface_set_material(0, mat)
+		out[key] = mesh
+	return out
+
+static func _impostor_quad(st: SurfaceTool, q: Array, centre: Vector3, top: float) -> void:
+	for i in [0, 2, 1, 0, 3, 2]:
+		var p: Vector3 = q[i][0]
+		# Normals bulge out of the crown so the flat card lights like a volume.
+		st.set_normal(((p - centre).normalized() + Vector3.UP * 0.6).normalized())
+		st.set_uv(q[i][1])
+		st.set_uv2(Vector2(top, 0))
+		st.add_vertex(p)
+
+## The detailed tree models by key (also baked into the far tree cards by
+## tools/bake_impostors.gd).
+static func near_tree_meshes(bark_mat: Material, sway: float) -> Dictionary:
+	var leaf_mat := ShaderMaterial.new()
+	leaf_mat.shader = load("res://shaders/leaf_card.gdshader")
+	leaf_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/leaf_cluster.png"))
+	leaf_mat.set_shader_parameter("sway", sway)
+	var near_meshes := {}
+	for v in 2:
+		var bl := TreeModels.broadleaf(3 + v * 17)
+		bl.surface_set_material(0, bark_mat)
+		bl.surface_set_material(1, leaf_mat)
+		near_meshes["bl%d" % v] = bl
+	near_meshes["pn0"] = _with_lods(TreeModels.imported("broad_b"))
+	near_meshes["pn1"] = _with_lods(TreeModels.imported("broad_a"))
+	near_meshes["fr0"] = _with_lods(TreeModels.imported("fir"))
+	near_meshes["pm0"] = _with_lods(TreeModels.imported("palm_a"))
+	near_meshes["pm1"] = _with_lods(TreeModels.imported("palm_b"))
+	near_meshes["au0"] = _with_lods(TreeModels.imported("broad_c"))
+	near_meshes["sk0"] = _with_lods(TreeModels.imported("sakura"))
+	return near_meshes
 
 ## Adds automatic LOD levels to a generated mesh.
-func _with_lods(mesh: ArrayMesh) -> ArrayMesh:
+static func _with_lods(mesh: ArrayMesh) -> ArrayMesh:
 	var im := ImporterMesh.new()
 	for i in mesh.get_surface_count():
 		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, mesh.surface_get_arrays(i), [], {}, mesh.surface_get_material(i))
