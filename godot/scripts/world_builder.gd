@@ -120,6 +120,7 @@ func _environment() -> void:
 	sky_mat.set_shader_parameter("haze_amount", 0.25)
 	sky_mat.set_shader_parameter("saturation", 1.35)
 	sky_mat.set_shader_parameter("deepen", 1.0)
+	sky_mat.set_shader_parameter("sea_below", true)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_256
@@ -270,6 +271,8 @@ func _weather_look(sky_mat: ShaderMaterial) -> void:
 			env.glow_intensity = 0.2
 			env.adjustment_saturation = 0.82
 			env.adjustment_contrast = 1.02
+	# The sea drawn past the camera's range: the colour the fogged far water has.
+	sky_mat.set_shader_parameter("sea_color", Color(env.fog_light_color.r * 1.06, env.fog_light_color.g * 1.02, env.fog_light_color.b * 0.92))
 
 # ---------- Terrain ----------
 func _terrain() -> void:

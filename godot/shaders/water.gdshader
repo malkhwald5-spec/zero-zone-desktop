@@ -42,9 +42,14 @@ void fragment() {
 	NORMAL = normalize((VIEW_MATRIX * vec4(nrm, 0.0)).xyz);
 	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 	vec3 col = mix(shallow_color, deep_color, depth);
-	col = mix(col, vec3(0.55, 0.72, 0.85), fres * 0.6);
+	col = mix(col, vec3(0.42, 0.58, 0.7), fres * 0.4);
 	// Foam where the water is very shallow.
 	float foam = (1.0 - smoothstep(0.0, 0.9, -ground)) * step(-ground, 1.6) * smoothstep(0.45, 0.7, n + sin(TIME * 1.5 + wpos.x * 0.3) * 0.1);
+	// Surf: lines of foam rolling in towards the beach and breaking up.
+	float sd = -ground;
+	float roll = sin(sd * 3.2 + TIME * 1.6 + n * 2.5) * 0.5 + 0.5;
+	float surf = (1.0 - smoothstep(0.2, 2.4, sd)) * smoothstep(0.78, 0.96, roll) * smoothstep(0.3, 0.6, n);
+	foam = max(foam, surf * (1.0 - smoothstep(150.0, 500.0, dist)));
 	col = mix(col, vec3(0.92, 0.95, 0.95), foam * 0.8);
 	ALBEDO = col;
 	ROUGHNESS = 0.06;

@@ -1220,6 +1220,9 @@ func _process(delta: float) -> void:
 	head.y = maxf(head.y, Island.WATER + 0.6)
 	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
 	cam_rig.rotation = Vector3(0, yaw, 0)
+	# High up (plane, freefall, parachute) the whole island is in view.
+	var far := (4000.0 if not Game.laptop() else 2600.0) * (2.5 if head.y > 120.0 else 1.0)
+	if camera.far != far: camera.far = far
 	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
 	_update_sway(delta)
 	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh

@@ -46,14 +46,15 @@ func _run() -> void:
 		if isl.height_at(q.x, q.y) < -0.5:
 			wet += 1
 			if wet == 1: shore = q
-			if wet >= 6: break
+			if wet >= 80: break
 		else:
 			wet = 0
 	var stand := shore - dir * 14.0
+	p.jump_from_plane()
 	p.global_position = Vector3(stand.x, world.ground_height(Vector3(stand.x, 0, stand.y)) + 0.5, stand.y)
 	p.yaw = atan2(-dir.x, -dir.y)
 	p.pitch = -0.08
-	for i in 30:
+	for i in 80:
 		if p.state == "ground": break
 		await wait(0.1)
 	await wait(1.5)
@@ -62,7 +63,6 @@ func _run() -> void:
 	await wait(0.6)
 	await shot("sea_beach_side")
 	# From the parachute, 150 m up over the shore, looking out to sea.
-	p.jump_from_plane()
 	p.open_chute()
 	p.state = "chute"
 	for alt in [[150.0, -0.35, "sea_chute"], [700.0, -0.3, "sea_high"], [700.0, -0.05, "sea_horizon"]]:

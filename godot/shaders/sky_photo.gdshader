@@ -12,6 +12,8 @@ uniform float haze_amount = 0.35;
 uniform float overcast = 0.0;               // 0 clear .. 1 grey rain clouds
 uniform float saturation = 1.0;             // above 1: a deeper, clearer blue sky
 uniform float deepen = 0.0;                 // darker, bluer zenith (a crisp sunny day)
+uniform bool sea_below = false;             // open sea under the horizon (the island map)
+uniform vec3 sea_color : source_color = vec3(0.66, 0.73, 0.78);
 
 const float HALF_PI = 1.5707963;
 
@@ -47,5 +49,11 @@ void sky() {
 	// Blend toward the scene's fog colour low on the horizon so the far terrain meets it.
 	float h = 1.0 - smoothstep(-0.02, 0.22, d.y);
 	col = mix(col, haze, h * haze_amount);
+	// Past the camera's range the sea goes on to the horizon: draw it in the
+	// background (not in the light the sky gives off) so there is no pale band.
+	if (sea_below && !AT_CUBEMAP_PASS && d.y < 0.0) {
+		vec3 sea = mix(sea_color, mix(sea_color, haze, 0.5), exp(d.y * 40.0));
+		col = mix(col, sea, smoothstep(0.0, -0.004, d.y));
+	}
 	COLOR = col;
 }
