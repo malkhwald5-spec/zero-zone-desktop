@@ -132,6 +132,7 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
   - الناجي: "3D Zombie Apocalypse Survivor Male Character" لـ codersan — https://sketchfab.com/3d-models/3d-zombie-apocalypse-survivor-male-character-f56ffc64d18c40cf95d17559542ca44c
   - الجندي: "German Bundeswehr soldier - rigged" لـ 42manako — https://sketchfab.com/3d-models/german-bundeswehr-soldier-rigged-3d7944fea17b494abf220cc11ddabfd1
   - ريمي: شخصية Remy من Mixamo (Adobe)، مسموحة جوا الألعاب حسب شروط Mixamo.
+  - الكوماندوز: "Rigged and Textured Mid-Poly Soldier" لـ DenisAlbu — https://sketchfab.com/3d-models/rigged-and-textured-mid-poly-soldier-29883983eddd4808a4f90aec5ca57f16 (رخصة CC-BY-SA-4.0: نسختنا المعدّلة منه `assets/models/chars/albu.glb` تحت نفس الرخصة)
 - العتاد من Sketchfab (رخصة CC-BY-4.0، مخفف بأداة `tools/prep_prop.gd`):
   - خوذة 1: "off road helmet" لـ Pieter Ferreira (Badboy17Aiden) — https://sketchfab.com/3d-models/off-road-helmet-c9d968e024b749a7a9d0e257277a2d5c
   - خوذة 2: "Military Helmet" لـ ED BOX (Elyar) — https://sketchfab.com/3d-models/military-helmet-7b344fdb2ce846539cb420fe4d37fc13

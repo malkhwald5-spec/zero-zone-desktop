@@ -81,9 +81,12 @@ const CHARACTERS := {
 		"fit": [1.0, 0.95, 0.0, 0.0, 0.07, 0.0]},
 	"remy": {"scene": "res://assets/models/chars/remy.glb", "anims": "res://assets/anims/mixamo_remy.res", "turn": PI, "scale": 0.5, "tint": false,
 		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
+	# Desert-camo soldier from Sketchfab (DenisAlbu, CC-BY-SA).
+	"albu": {"scene": "res://assets/models/chars/albu.glb", "anims": "res://assets/anims/mixamo_albu.res", "turn": PI, "scale": 1.07, "tint": false,
+		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 }
 ## Characters the bots are drawn from.
-const BOT_CHARACTERS := ["soldier", "survivor", "bundeswehr", "remy", "lola"]
+const BOT_CHARACTERS := ["soldier", "survivor", "bundeswehr", "remy", "lola", "albu", "albu"]
 var character := "soldier"
 var _u := 1.0                   # gear offsets are in centimetres of bone space; this converts
 

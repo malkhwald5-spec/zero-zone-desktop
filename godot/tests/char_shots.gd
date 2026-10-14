@@ -4,7 +4,7 @@ extends Node3D
 ## Run with --out=/dir.
 
 var out := "user://"
-const WHO := ["soldier", "lola", "survivor", "bundeswehr", "remy"]
+const WHO := ["soldier", "lola", "survivor", "bundeswehr", "remy", "albu"]
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -44,12 +44,12 @@ func _run() -> void:
 		for i in WHO.size():
 			var m := HumanModel.new(Color("4a5d6b"), Color("c84f3a"), Color("33373d"), WHO[i])
 			add_child(m)
-			m.position = Vector3(i * 1.1 - 2.2, 0, 0)
+			m.position = Vector3(i * 1.1 - (WHO.size() - 1) * 0.55, 0, 0)
 			m.set_gear(lvl, lvl, lvl)
 			models.append(m)
 		for view in [["front", 0.0], ["back", PI], ["side", -PI / 2]]:
 			for m in models: m.rotation.y = view[1]
-			cam.position = Vector3(0, 1.4, 6.2)
+			cam.position = Vector3(0, 1.4, 8.0)
 			cam.look_at(Vector3(0, 0.95, 0))
 			for f in 8:
 				for m in models: m.set_pose("stand", 0.0, false, 0.03, f * 0.03)
@@ -66,7 +66,7 @@ func _run() -> void:
 			for m in models:
 				m.set_weapon("m416")
 				m.rotation.y = -0.6
-			cam.position = Vector3(0, 1.4, 6.2)
+			cam.position = Vector3(0, 1.4, 8.0)
 			cam.look_at(Vector3(0, 0.95, 0))
 			for f in 25:
 				for m in models:

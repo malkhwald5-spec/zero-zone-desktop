@@ -1,0 +1,11 @@
+Model Information:
+* title:	Rigged and Textured Mid-Poly Soldier
+* source:	https://sketchfab.com/3d-models/rigged-and-textured-mid-poly-soldier-29883983eddd4808a4f90aec5ca57f16
+* author:	DenisAlbu (https://sketchfab.com/DenisAlbu)
+
+Model License:
+* license type:	CC-BY-SA-4.0 (http://creativecommons.org/licenses/by-sa/4.0/)
+* requirements:	Author must be credited. Modified versions must have the same license. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Rigged and Textured Mid-Poly Soldier" (https://sketchfab.com/3d-models/rigged-and-textured-mid-poly-soldier-29883983eddd4808a4f90aec5ca57f16) by DenisAlbu (https://sketchfab.com/DenisAlbu) licensed under CC-BY-SA-4.0 (http://creativecommons.org/licenses/by-sa/4.0/)

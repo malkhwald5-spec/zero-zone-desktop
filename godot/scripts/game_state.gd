@@ -51,6 +51,7 @@ const WARDROBE := [
 	["الناجي", Color("5a4a3a"), Color("3a3a36"), 0, "survivor"],
 	["الجندي", Color("5f6b4a"), Color("4a5238"), 0, "bundeswehr"],
 	["ريمي", Color("2f3f5f"), Color("2a3550"), 0, "remy"],
+	["الكوماندوز", Color("5a5f4a"), Color("3f4436"), 0, "albu"],
 ]
 
 var settings := {
