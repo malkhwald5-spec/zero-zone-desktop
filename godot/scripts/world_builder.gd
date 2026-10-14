@@ -1798,6 +1798,7 @@ func _road_strips() -> void:
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var n := maxi(1, int(length / 4.0))
 		var prev := []
+		var made := 0
 		for k in n + 1:
 			var t := float(k) / n
 			var c := a.lerp(b, t)
@@ -1818,7 +1819,9 @@ func _road_strips() -> void:
 						st.set_normal(Vector3.UP)
 						st.set_uv(vt[1])
 						st.add_vertex(vt[0])
+					made += 1
 			prev = [] if wet else row
+		if made == 0: continue      # the whole stretch is under water (a bridge)
 		st.generate_tangents()
 		var mi := MeshInstance3D.new()
 		mi.mesh = st.commit()
