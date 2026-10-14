@@ -66,16 +66,19 @@ func _run() -> void:
 	await shot("laptop_off")
 	world = await _match(true)
 	var vp := get_viewport()
-	check("laptop draws 3D at 77%", absf(vp.scaling_3d_scale - 0.77) < 0.01 and vp.scaling_3d_mode == Viewport.SCALING_3D_MODE_FSR, str(vp.scaling_3d_scale))
+	check("laptop keeps full resolution", absf(vp.scaling_3d_scale - 1.0) < 0.01 and vp.screen_space_aa == Viewport.SCREEN_SPACE_AA_DISABLED, str(vp.scaling_3d_scale))
 	check("heavy effects off", not world.builder.env.ssao_enabled and not world.builder.env.volumetric_fog_enabled)
 	check("shorter camera range", world.player.camera.far < 3000.0)
 	var ms_on := await frame_ms(3.0)
 	print("FRAME ms: off %.1f  laptop %.1f" % [ms_off, ms_on])
 	check("laptop is not slower", ms_on <= ms_off * 1.05, "%.1f vs %.1f" % [ms_on, ms_off])
 	await shot("laptop_on")
-	Game.settings.render_scale = 0.6
+	Game.settings.render_scale = 0.75
 	Game.apply_quality(world.builder.env, null)
-	check("render scale slider", absf(vp.scaling_3d_scale - 0.6) < 0.01)
+	check("render scale slider", absf(vp.scaling_3d_scale - 0.75) < 0.01 and vp.scaling_3d_mode == Viewport.SCALING_3D_MODE_FSR)
+	Game.settings.render_scale = 0.4
+	Game.apply_quality(world.builder.env, null)
+	check("never below 70%", absf(vp.scaling_3d_scale - 0.7) < 0.01)
 	tree.change_scene_to_file("res://scenes/lobby.tscn")
 	await wait(2.0)
 	tree.current_scene._open("settings")

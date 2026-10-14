@@ -1089,8 +1089,8 @@ var _gov_test := -1
 var _gov_wait := 10.0            # first check after loading hitches and shader compiles
 
 ## Auto performance (settings): if the frame rate stays well under the cap,
-## lower the 3D resolution, then the graphics quality, then laptop mode, one
-## step every few seconds, and keep it for the next matches.
+## lower the graphics quality, then laptop mode, then (not below 80%) the 3D
+## resolution, one step every few seconds, and keep it for the next matches.
 func _perf_governor(delta: float) -> void:
 	if not Game.settings.get("auto_perf", true) or DisplayServer.get_name() == "headless": return
 	if _gov_test == 1: return
@@ -1111,15 +1111,16 @@ func _perf_governor(delta: float) -> void:
 	var want := minf(float(Game.settings.get("fps", 60)), 60.0) * 0.75
 	if fps >= want: return
 	var step := ""
-	if Game.render_scale() > 0.55:
-		Game.settings.render_scale = maxf(0.5, Game.render_scale() - 0.1)
-		step = "دقة الرسم %d%%" % roundi(Game.render_scale() * 100.0)
-	elif Game.quality_level() > 0:
+	# Effects go first; the resolution (what makes the picture blurry) last.
+	if Game.quality_level() > 0:
 		Game.settings.quality = Game.QUALITIES[Game.quality_level() - 1]
 		step = "الجودة: " + Game.QUALITY_NAMES[Game.quality_level()]
 	elif not Game.laptop():
 		Game.settings.laptop = true
 		step = "وضع اللابتوب"
+	elif Game.render_scale() > 0.8:
+		Game.settings.render_scale = maxf(0.8, Game.render_scale() - 0.1)
+		step = "دقة الرسم %d%%" % roundi(Game.render_scale() * 100.0)
 	else:
 		return
 	Game.apply_quality(builder.env, builder.sun)

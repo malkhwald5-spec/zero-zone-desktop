@@ -16,6 +16,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
 		if a.begins_with("--quality="): Game.settings.quality = a.substr(10)
+		if a == "--laptop": Game.settings.laptop = true
 	Game.settings.controls = "kbm"
 	_run.call_deferred()
 

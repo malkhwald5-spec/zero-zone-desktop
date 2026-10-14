@@ -244,12 +244,10 @@ func is_laptop_gpu() -> bool:
 		if gpu.contains(k): return true
 	return false
 
-## Laptop mode on, or the "سلس" preset: the 3D picture is drawn smaller.
+## The 3D resolution. Every preset draws at full screen resolution unless the
+## player lowers it (never below 70%: under that the picture turns to mush).
 func render_scale() -> float:
-	var sc := clampf(float(settings.get("render_scale", 1.0)), 0.5, 1.0)
-	if quality_level() == 0: sc = minf(sc, 0.8)
-	if laptop(): sc = minf(sc, 0.77)
-	return sc
+	return clampf(float(settings.get("render_scale", 1.0)), 0.7, 1.0)
 
 func laptop() -> bool:
 	return bool(settings.get("laptop", false))
@@ -291,6 +289,9 @@ func load_data() -> void:
 	if int(data.get("save_version", 1)) < 5 and RenderingServer.get_video_adapter_name().to_lower().contains("rtx") and not is_laptop_gpu():
 		settings.laptop = false
 		if quality_level() < 2: settings.quality = "high"
+	# v6: low resolution came from the old auto-performance and presets; start sharp again.
+	if int(data.get("save_version", 1)) < 6:
+		settings.render_scale = 1.0
 	if typeof(settings.get("keys")) != TYPE_DICTIONARY: settings.keys = {}
 	for k in settings.keys.keys():
 		settings.keys[k] = int(settings.keys[k])
@@ -300,7 +301,7 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"save_version": 5, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 6, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
@@ -447,27 +448,51 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 		env.sdfgi_min_cell_size = 0.4
 		env.volumetric_fog_length = 160.0 if lv >= 4 else 120.0
 	if sun:
-		sun.shadow_enabled = lv >= 1
+		# Shadows on every preset (hard and short on the lightest): without them
+		# the world looks flat and washed out.
+		sun.shadow_enabled = true
 		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 or lap else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-		sun.directional_shadow_max_distance = [80.0, 120.0, 220.0, 320.0, 500.0][lv] * (0.6 if lap else 1.0)
+		sun.directional_shadow_max_distance = [70.0, 120.0, 220.0, 320.0, 500.0][lv] * (0.6 if lap else 1.0)
 		sun.shadow_blur = 1.0 if lv < 4 else 1.4
 		sun.light_angular_distance = 0.5 if lv == 4 and not lap else 0.0
 	var vp := get_viewport()
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_DISABLED, Viewport.MSAA_2X][lv]
-	if lap: vp.msaa_3d = Viewport.MSAA_DISABLED
-	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if lv <= 1 or lap else Viewport.SCREEN_SPACE_AA_DISABLED
-	# Temporal AA from HDR up: smooths the shimmer of leaves, grass and wires.
+	# Edges are smoothed with MSAA (keeps textures sharp) rather than FXAA,
+	# which smears the whole picture; temporal AA from HDR up for the shimmer
+	# of leaves and wires, with sharpening on top (below).
+	vp.msaa_3d = Viewport.MSAA_2X if lv <= 2 or lv == 4 else Viewport.MSAA_DISABLED
+	if lv == 4 and not lap: vp.msaa_3d = Viewport.MSAA_4X
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
 	vp.use_taa = lv >= 3 and not lap
-	# A smaller 3D picture sharpened back up with FSR (like the mobile game).
 	var sc := render_scale()
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if sc < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = sc
+	vp.fsr_sharpness = 0.1
+	# Far textures (roads, ground at a slant) stay crisp: a slight mipmap bias.
+	vp.texture_mipmap_bias = -0.4
+	_sharpen(0.55 if vp.use_taa or sc < 0.99 else 0.4)
 	if env:
 		# Brightness on top of the scene's own colour grading.
 		if not env.has_meta("base_brightness"): env.set_meta("base_brightness", env.adjustment_brightness if env.adjustment_enabled else 1.0)
 		env.adjustment_enabled = true
 		env.adjustment_brightness = float(env.get_meta("base_brightness")) * clampf(float(settings.get("brightness", 1.0)), 0.7, 1.4)
-	vp.mesh_lod_threshold = [4.0, 2.0, 1.0, 1.0, 0.5][lv] * (2.0 if lap else 1.0)
+	vp.mesh_lod_threshold = [1.5, 1.2, 1.0, 1.0, 0.5][lv] * (1.3 if lap else 1.0)
 	RenderingServer.directional_soft_shadow_filter_set_quality([RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW, RenderingServer.SHADOW_QUALITY_SOFT_LOW, RenderingServer.SHADOW_QUALITY_SOFT_HIGH, RenderingServer.SHADOW_QUALITY_SOFT_HIGH][mini(lv, 2) if lap else lv])
 	RenderingServer.directional_shadow_atlas_set_size(mini([2048, 2048, 4096, 4096, 8192][lv], 2048 if lap else 8192), true)
 	apply_fps()
+
+var _sharp_mat: ShaderMaterial
+
+## Contrast-adaptive sharpening over the 3D picture (under every menu and HUD).
+func _sharpen(amount: float) -> void:
+	if _sharp_mat == null:
+		var layer := CanvasLayer.new()
+		layer.layer = -100
+		var rect := ColorRect.new()
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_sharp_mat = ShaderMaterial.new()
+		_sharp_mat.shader = load("res://shaders/sharpen.gdshader")
+		rect.material = _sharp_mat
+		layer.add_child(rect)
+		add_child(layer)
+	_sharp_mat.set_shader_parameter("amount", amount)
