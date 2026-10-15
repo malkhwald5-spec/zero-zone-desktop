@@ -1,10 +1,13 @@
 extends Node3D
-## Lobby in the style of mobile battle royales: a city rooftop at sunset with
-## the player's character and a classic car, and the full lobby UI (profile,
-## currencies, season pass, events, mode card, big start button and the
-## bottom menu bar). Solo only: no squads.
+## The lobby, made over after the big mobile shooters: an airfield at dusk,
+## the transport plane waiting with its propellers turning behind your squad
+## line-up (you in the middle, your teammates beside you, "+" where a place is
+## free), runway lights, a hangar and a jeep. Over it: your profile and level,
+## a side menu, money, rotating event banners, the season pass, today's
+## missions, the mode card and a big start button.
 
-var soldier: HumanModel
+var soldier: HumanModel           # you
+var mates: Array = []             # teammates' models in the line-up
 var holder: Node3D
 var cam: Camera3D
 var ui: CanvasLayer
@@ -15,6 +18,16 @@ var labels := {}
 var t := 0.0
 var drag_rot := 0.0
 var _dragging := false
+var _props: Array = []            # the plane's propellers
+var _runway_mat: StandardMaterial3D
+var _plates: Array = []           # [Control, slot index] name plates over the line-up
+
+const ACCENT := Color("ffb321")
+const CYAN := Color("3fd0ff")
+const GLASS := Color(0.03, 0.05, 0.08, 0.62)
+## Where each member of the squad stands (you first).
+const SLOTS := [Vector3(0, 0, 0), Vector3(1.45, 0, -0.7), Vector3(-1.45, 0, -0.7), Vector3(-2.9, 0, -1.5)]
+const MATE_NAMES := ["صقر_الليل", "Falcon_IQ", "ليث", "Viper_SY", "شاهين", "Storm_MA"]
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -43,7 +56,7 @@ func _gpu_warning() -> void:
 	box.grow_vertical = Control.GROW_DIRECTION_BOTH
 
 # =====================================================================
-# 3D scene: rooftop at sunset
+# 3D scene: the airfield at dusk
 # =====================================================================
 func _mat(c: Color, rough := 0.9, emit := 0.0, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -82,96 +95,88 @@ func _noise(freq: float, seed_v: int, size := 256) -> NoiseTexture2D:
 	return nt
 
 func _build_scene() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 42
 	var env := Environment.new()
-	# Real photographed sunset (ambientCG EveningSkyHDRI032A, CC0), sun lined up
-	# with the scene's sun light.
+	# Real photographed sunset (ambientCG EveningSkyHDRI032A, CC0).
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/sky_photo.gdshader")
 	sky_mat.set_shader_parameter("pano", load("res://assets/textures/sky_sunset.jpg"))
 	sky_mat.set_shader_parameter("photo_sun", Vector2(0.499, 0.465))
-	sky_mat.set_shader_parameter("energy", 1.2)
-	sky_mat.set_shader_parameter("sun_boost", 2.0)
+	sky_mat.set_shader_parameter("energy", 1.15)
+	sky_mat.set_shader_parameter("sun_boost", 2.2)
 	sky_mat.set_shader_parameter("haze", Color("e9a878"))
-	sky_mat.set_shader_parameter("haze_amount", 0.15)
+	sky_mat.set_shader_parameter("haze_amount", 0.2)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.55
+	env.ambient_light_energy = 0.5
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 1.1
+	env.tonemap_exposure = 1.08
 	env.glow_enabled = true
-	env.glow_intensity = 0.5
-	env.glow_bloom = 0.04
-	env.ssao_enabled = true
+	env.glow_intensity = 0.75
+	env.glow_bloom = 0.06
+	env.glow_hdr_threshold = 0.9
 	env.fog_enabled = true
-	env.fog_light_color = Color("e9a878")
-	env.fog_sun_scatter = 0.2
-	env.fog_density = 0.00025
-	env.fog_aerial_perspective = 0.35
-	# Thin warm haze only (the quality presets switch volumetric fog on, and
-	# its default thickness turned the whole lobby into a dust storm).
-	env.volumetric_fog_density = 0.006
-	env.volumetric_fog_albedo = Color("f0c8a0")
-	env.volumetric_fog_length = 40.0
-	env.volumetric_fog_anisotropy = 0.6
+	env.fog_light_color = Color("d99a72")
+	env.fog_sun_scatter = 0.3
+	env.fog_density = 0.0022
+	env.fog_aerial_perspective = 0.4
 	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.12
-	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 1.1
+	env.adjustment_contrast = 1.08
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
-	# Low warm sun behind the skyline, long shadows towards the camera.
+	# Low warm sun behind the plane, long shadows towards the camera.
 	var sun := DirectionalLight3D.new()
-	sun.light_color = Color("ffc48a")
-	sun.light_energy = 1.7
+	sun.light_color = Color("ffbf86")
+	sun.light_energy = 1.6
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 40.0
 	add_child(sun)
-	sun.look_at_from_position(Vector3(-30, 9, -60), Vector3.ZERO)
+	sun.look_at_from_position(Vector3(-25, 8, -60), Vector3.ZERO)
 	var fill := DirectionalLight3D.new()
-	fill.light_color = Color("8fa2d8")
-	fill.light_energy = 0.35
+	fill.light_color = Color("7f95d8")
+	fill.light_energy = 0.4
 	fill.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	add_child(fill)
 	fill.look_at_from_position(Vector3(10, 6, 20), Vector3.ZERO)
 	Game.apply_quality(env, sun)
 	_light_lobby(env, sun)
 
-	# The battlefield art (desert camp at dusk) as a big painted backdrop,
-	# sandy ground under the character fading into it, sandbags and ammo crates.
 	_backdrop()
-	var sand := ShaderMaterial.new()
-	sand.shader = load("res://shaders/lobby_ground.gdshader")
-	sand.set_shader_parameter("tex", load("res://assets/textures/sand_col.jpg"))
+	var apron := ShaderMaterial.new()
+	apron.shader = load("res://shaders/lobby_apron.gdshader")
+	apron.set_shader_parameter("tex", load("res://assets/textures/concrete_col.jpg"))
+	apron.set_shader_parameter("noise", _noise(0.02, 7))
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(40, 22)
-	pm.subdivide_width = 8
-	pm.subdivide_depth = 8
-	_mesh(pm, sand, Vector3(0, 0, -6))
-	_pedestal()
-	_embers()
+	pm.size = Vector2(80, 50)
+	_mesh(pm, apron, Vector3(0, 0, -10))
+	_plane()
+	_hangar()
+	_runway_lights()
+	_props_around()
+	_stage()
+	_dust()
 	holder = Node3D.new()
 	add_child(holder)
 	_spawn_soldier()
+	_spawn_mates()
 
 	cam = Camera3D.new()
-	cam.fov = 38
+	cam.fov = 40
 	add_child(cam)
 	cam.look_at_from_position(CAM_AT, CAM_LOOK)
 	cam.current = true
 
-
 var _art: MeshInstance3D
 
-## The lobby is one character on a stand: the big-world effects (global
-## illumination, screen-space reflections, volumetric fog, far shadows) cost a
-## lot here and show nothing, so they stay off whatever the quality preset.
+## The lobby shows only a small corner of a world: the big-world effects
+## (global illumination, screen-space reflections, volumetric fog) cost a lot
+## here and show nothing, so they stay off whatever the quality preset.
 func _light_lobby(env: Environment, sun: DirectionalLight3D) -> void:
 	if env:
 		env.sdfgi_enabled = false
@@ -180,76 +185,147 @@ func _light_lobby(env: Environment, sun: DirectionalLight3D) -> void:
 		env.volumetric_fog_enabled = false
 		env.ssao_enabled = false
 	if sun:
-		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
-		sun.directional_shadow_max_distance = 14.0
-	# 2x edge smoothing at most and no temporal AA (a still scene); a small
-	# shadow map is plenty for 14 m. The match sets its own when it loads.
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		sun.directional_shadow_max_distance = 40.0
 	var vp := get_viewport()
 	vp.use_taa = false
 	if vp.msaa_3d > Viewport.MSAA_2X: vp.msaa_3d = Viewport.MSAA_2X
 	RenderingServer.directional_shadow_atlas_set_size(2048, true)
-var _ring_mat: StandardMaterial3D
-const CAM_AT := Vector3(0.15, 1.2, 3.9)
-const CAM_LOOK := Vector3(0.0, 1.0, 0.0)
 
-## The stand the character poses on: a dark steel disc with a glowing gold
-## ring, a spotlight from the front and a warm rim light behind.
-func _pedestal() -> void:
+const CAM_AT := Vector3(0.35, 1.45, 5.6)
+const CAM_LOOK := Vector3(0.1, 1.15, -0.6)
+
+## The transport plane parked behind the squad, side on, its four propellers
+## turning slowly (the same plane the match starts in).
+func _plane() -> void:
+	var plane: Node3D = (load("res://assets/models/air/plane.glb") as PackedScene).instantiate()
+	add_child(plane)
+	plane.position = Vector3(-9.0, 0.0, -34.0)
+	plane.rotation.y = -1.1
+	for k in 4:
+		var p := plane.find_child("prop%d" % k, true, false)
+		if p: _props.append(p)
+
+## A hangar off to the right: corrugated walls, the doors open on a lit inside.
+func _hangar() -> void:
+	var h := Node3D.new()
+	add_child(h)
+	h.position = Vector3(13.0, 0, -26.0)
+	h.rotation.y = -0.35
+	var wall := WorldBuilder._static_wall("corrugated", 2.0, 0.4, 0.6)
+	wall.set_shader_parameter("tint", Color("8a9198"))
+	for x in [-6.0, 6.0]:
+		_mesh(_box(Vector3(0.3, 7.0, 14.0)), wall, Vector3(x, 3.5, 0), Vector3.ZERO, h)
+	_mesh(_box(Vector3(12.3, 0.3, 14.0)), wall, Vector3(0, 7.1, 0), Vector3.ZERO, h)
+	_mesh(_box(Vector3(12.0, 7.0, 0.3)), wall, Vector3(0, 3.5, -7.0), Vector3.ZERO, h)
+	_mesh(_box(Vector3(11.6, 6.8, 0.1)), _mat(Color("ffdca8"), 0.9, 0.9), Vector3(0, 3.4, -6.8), Vector3.ZERO, h)
+	var lamp := OmniLight3D.new()
+	lamp.light_color = Color("ffd7a0")
+	lamp.light_energy = 3.0
+	lamp.omni_range = 12.0
+	lamp.position = Vector3(0, 5, -2)
+	h.add_child(lamp)
+	# Its number painted on the front.
+	var lb := Label3D.new()
+	lb.text = "ZERO 01"
+	lb.font = load("res://assets/fonts/Cairo.ttf")
+	lb.font_size = 160
+	lb.pixel_size = 0.01
+	lb.modulate = Color(1, 1, 1, 0.75)
+	lb.position = Vector3(-6.2, 5.2, 4.0)
+	lb.rotation.y = -PI * 0.5
+	h.add_child(lb)
+
+## Blue taxiway lights and white runway lights running off into the dusk.
+func _runway_lights() -> void:
+	_runway_mat = _mat(Color("ffe9c8"), 0.5, 4.0)
+	var blue := _mat(Color("4aa8ff"), 0.5, 4.0)
+	var dot := SphereMesh.new()
+	dot.radius = 0.09
+	dot.height = 0.18
+	dot.radial_segments = 8
+	dot.rings = 4
+	for k in 18:
+		var x := -26.0 + k * 3.2
+		_mesh(dot, _runway_mat, Vector3(x, 0.1, -28.0))
+		_mesh(dot, _runway_mat, Vector3(x + 1.6, 0.1, -36.0))
+	for k in 8:
+		_mesh(dot, blue, Vector3(-12.0 + k * 3.0, 0.08, 3.6))
+
+## A jeep, crates and fuel drums round the squad.
+func _props_around() -> void:
+	var jeep := MeshInstance3D.new()
+	jeep.mesh = CarModels.imported("jeep").body
+	jeep.position = Vector3(-6.5, 0.45, -6.5)
+	jeep.rotation.y = 0.7
+	add_child(jeep)
+	var wood := WorldBuilder._static_wall("planks", 1.2, 0.3, 0.85)
+	for c in [[Vector3(4.6, 0.45, -2.6), 0.2], [Vector3(5.5, 0.45, -2.3), -0.1], [Vector3(5.0, 1.35, -2.5), 0.35], [Vector3(-3.8, 0.45, 0.4), 0.6]]:
+		_mesh(_box(Vector3(0.9, 0.9, 0.9)), wood, c[0], Vector3(0, c[1], 0))
+	var drum := CylinderMesh.new()
+	drum.top_radius = 0.3
+	drum.bottom_radius = 0.3
+	drum.height = 0.9
+	var red := _mat(Color("8c2a1e"), 0.6, 0.0, 0.4)
+	for p in [Vector3(-4.3, 0.45, -1.2), Vector3(-3.7, 0.45, -1.6), Vector3(6.3, 0.45, -1.4)]:
+		_mesh(drum, red, p)
+
+## Where the squad stands: a low dark platform with a glowing edge under each
+## place, a spotlight on the line-up and warm and blue rim lights behind.
+var _ring_mats: Array = []
+func _stage() -> void:
 	var disc := CylinderMesh.new()
-	disc.top_radius = 0.82
-	disc.bottom_radius = 0.88
-	disc.height = 0.1
-	disc.radial_segments = 48
-	var steel := _mat(Color("2a2d31"), 0.35, 0.0, 0.8)
-	_mesh(disc, steel, Vector3(0, 0.05, 0))
+	disc.top_radius = 0.62
+	disc.bottom_radius = 0.66
+	disc.height = 0.06
+	disc.radial_segments = 40
+	var steel := _mat(Color("1c1f24"), 0.3, 0.0, 0.7)
 	var ring := TorusMesh.new()
-	ring.inner_radius = 0.81
-	ring.outer_radius = 0.85
-	ring.rings = 64
-	_ring_mat = _mat(Color("ffcf3a"), 0.3, 1.2)
-	_mesh(ring, _ring_mat, Vector3(0, 0.1, 0))
+	ring.inner_radius = 0.62
+	ring.outer_radius = 0.65
+	ring.rings = 48
+	for i in SLOTS.size():
+		_mesh(disc, steel, SLOTS[i] + Vector3(0, 0.03, 0))
+		var rm := _mat(ACCENT if i == 0 else CYAN, 0.3, 1.4)
+		_ring_mats.append(rm)
+		_mesh(ring, rm, SLOTS[i] + Vector3(0, 0.07, 0))
 	var spot := SpotLight3D.new()
 	spot.light_color = Color("fff1dc")
-	spot.light_energy = 6.0
-	spot.spot_range = 9.0
-	spot.spot_angle = 22.0
+	spot.light_energy = 5.0
+	spot.spot_range = 12.0
+	spot.spot_angle = 30.0
 	spot.shadow_enabled = true
 	add_child(spot)
-	spot.look_at_from_position(Vector3(1.2, 4.5, 3.2), Vector3(0, 0.9, 0))
-	var rim := OmniLight3D.new()
-	rim.light_color = Color("ff9a4a")
-	rim.light_energy = 2.5
-	rim.omni_range = 4.0
-	rim.position = Vector3(-0.8, 1.9, -1.4)
-	add_child(rim)
+	spot.look_at_from_position(Vector3(1.5, 5.5, 4.2), Vector3(0, 0.8, -0.6))
+	for r in [[Vector3(-2.2, 2.2, -2.4), Color("ff8a3c"), 3.0], [Vector3(2.6, 2.4, -2.6), Color("3f8dff"), 3.0]]:
+		var o := OmniLight3D.new()
+		o.light_color = r[1]
+		o.light_energy = r[2]
+		o.omni_range = 5.0
+		o.position = r[0]
+		add_child(o)
 
-## Embers and dust drifting up through the light.
-func _embers() -> void:
+## Dust motes drifting through the light.
+func _dust() -> void:
 	var p := CPUParticles3D.new()
-	p.amount = 70
-	p.lifetime = 7.0
-	p.preprocess = 7.0
+	p.amount = 60
+	p.lifetime = 8.0
+	p.preprocess = 8.0
 	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	p.emission_box_extents = Vector3(5.0, 0.2, 3.0)
-	p.position = Vector3(0, 0.1, -1.0)
-	p.direction = Vector3(0.2, 1, 0)
-	p.spread = 25.0
-	p.gravity = Vector3(0.15, 0.05, 0)
-	p.initial_velocity_min = 0.15
-	p.initial_velocity_max = 0.45
-	p.scale_amount_min = 0.5
-	p.scale_amount_max = 1.4
+	p.emission_box_extents = Vector3(6.0, 1.5, 3.0)
+	p.position = Vector3(0, 1.5, -1.0)
+	p.direction = Vector3(1, 0.2, 0)
+	p.spread = 30.0
+	p.gravity = Vector3(0.05, 0.02, 0)
+	p.initial_velocity_min = 0.05
+	p.initial_velocity_max = 0.2
 	var q := QuadMesh.new()
-	q.size = Vector2(0.025, 0.025)
+	q.size = Vector2(0.02, 0.02)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.albedo_color = Color(1.0, 0.62, 0.25, 0.85)
-	m.emission_enabled = true
-	m.emission = Color(1.0, 0.5, 0.15)
-	m.emission_energy_multiplier = 3.0
-	# A soft round spark, not a square.
+	m.albedo_color = Color(1.0, 0.85, 0.6, 0.6)
 	var dot := GradientTexture2D.new()
 	dot.fill = GradientTexture2D.FILL_RADIAL
 	dot.fill_from = Vector2(0.5, 0.5)
@@ -261,19 +337,13 @@ func _embers() -> void:
 	m.albedo_texture = dot
 	q.material = m
 	p.mesh = q
-	var fade := Gradient.new()
-	fade.set_color(0, Color(1, 1, 1, 0))
-	fade.add_point(0.2, Color(1, 1, 1, 1))
-	fade.set_color(fade.get_point_count() - 1, Color(1, 1, 1, 0))
-	p.color_ramp = fade
 	add_child(p)
 
-## The war art far behind the scene, unlit (it is already painted), with its
-## lower edge fading into the sand.
+## The war camp painted far away behind the airfield, softened by the haze.
 func _backdrop() -> void:
 	var tex: Texture2D = load("res://assets/textures/ui/art_desert.jpg")
 	var q := QuadMesh.new()
-	var w := 66.0
+	var w := 190.0
 	q.size = Vector2(w, w * float(tex.get_height()) / tex.get_width())
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/lobby_backdrop.gdshader")
@@ -282,7 +352,7 @@ func _backdrop() -> void:
 	_art.mesh = q
 	_art.material_override = m
 	_art.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_art.position = Vector3(0, q.size.y * 0.5 - 3.4, -30)
+	_art.position = Vector3(0, q.size.y * 0.5 - 16.0, -95)
 	add_child(_art)
 
 func _spawn_soldier() -> void:
@@ -290,18 +360,40 @@ func _spawn_soldier() -> void:
 	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
-	# Standing easy, the rifle slung across the back (a cleaner pose than
-	# holding the gun in the lobby).
 	soldier.set_weapon("")
 	soldier.set_back_weapon("m416")
-	soldier.rotation.y = PI - 0.3     # turned a little off the camera: a stronger stance
+	soldier.rotation.y = PI - 0.15
 	holder.add_child(soldier)
 	_idle_t = 0.0
 	_idle_i = 0
 
-## The character's idle in the lobby: rifle at the ready, looking at you,
-## and every few seconds something else — checks the magazine, raises the
-## sight, looks around.
+## How many teammates the chosen mode brings.
+func _mate_count() -> int:
+	match Game.settings.get("mode", "solo"):
+		"duo": return 1
+		"squad", "war": return 3
+	return 0
+
+## Your teammates beside you (bot characters, each with a gun on the back).
+func _spawn_mates() -> void:
+	for m in mates: m.queue_free()
+	mates.clear()
+	var guns := ["akm", "scar", "kar98"]
+	for i in _mate_count():
+		var who: String = ["bundeswehr", "albu", "survivor"][i % 3]
+		var m := HumanModel.new(Color.from_hsv(0.3 + i * 0.2, 0.3, 0.4), Color("c84f3a"), Color.from_hsv(0.1, 0.2, 0.25), who)
+		m.set_gear(1 + i % 2, 1, 1)
+		m.set_weapon("")
+		m.set_back_weapon(guns[i])
+		add_child(m)
+		m.position = SLOTS[i + 1]
+		m.rotation.y = PI + (0.25 if SLOTS[i + 1].x > 0.0 else -0.25)
+		mates.append(m)
+	for i in _ring_mats.size():
+		(_ring_mats[i] as StandardMaterial3D).emission_energy_multiplier = 1.4 if i <= mates.size() else 0.25
+
+## The character's idle in the lobby: easy stance, looking at you, now and
+## then looking round.
 const IDLE_STEPS := [["idle", 6.0], ["look", 4.5], ["idle", 5.0], ["look", 4.5]]
 var _idle_t := 0.0
 var _idle_i := 0
@@ -314,22 +406,12 @@ func _idle_director(delta: float) -> void:
 		_idle_i = (_idle_i + 1) % IDLE_STEPS.size()
 		step = IDLE_STEPS[_idle_i]
 	var k: float = _idle_t / float(step[1])
-	soldier.reload_p = k if step[0] == "check" else -1.0
-	soldier.aiming = step[0] == "aim"
-	# Where the head turns: at the camera, or sweeping round while looking about.
 	var to_cam := soldier.global_transform.affine_inverse() * cam.global_position
-	var yaw := atan2(-to_cam.x, -to_cam.z)     # the model faces -Z; left is +
+	var yaw := atan2(-to_cam.x, -to_cam.z)
 	var pitch := atan2(to_cam.y - 1.6, Vector2(to_cam.x, to_cam.z).length())
-	match step[0]:
-		"aim":
-			yaw = 0.0
-			pitch = 0.0
-		"check":
-			yaw *= 0.2
-			pitch = -0.35
-		"look":
-			yaw = sin(k * TAU) * 0.9
-			pitch = 0.05
+	if step[0] == "look":
+		yaw = sin(k * TAU) * 0.9
+		pitch = 0.05
 	var w := minf(1.0, delta * 3.0)
 	soldier.look_yaw = lerpf(soldier.look_yaw, yaw, w)
 	soldier.look_pitch = lerpf(soldier.look_pitch, pitch, w)
@@ -339,15 +421,14 @@ func _process(delta: float) -> void:
 	holder.rotation.y = drag_rot
 	_idle_director(delta)
 	soldier.set_pose("stand", 0.0, false, delta, t)
-	# The backdrop drifts slowly and the camera breathes; the ring pulses.
-	if _art: _art.position.x = sin(t * 0.07) * 1.6
+	for i in mates.size():
+		var m: HumanModel = mates[i]
+		m.look_yaw = sin(t * 0.3 + i * 1.7) * 0.5
+		m.set_pose("stand", 0.0, false, delta, t + i * 1.3)
+	for p in _props: p.rotate_object_local(Vector3.BACK, delta * 6.0)
+	if _runway_mat: _runway_mat.emission_energy_multiplier = 2.5 + 2.0 * maxf(0.0, sin(t * 2.4))
 	if panel == null:
-		cam.look_at_from_position(CAM_AT + Vector3(sin(t * 0.21) * 0.08, sin(t * 0.33) * 0.03, 0), CAM_LOOK)
-	if _ring_mat: _ring_mat.emission_energy_multiplier = 1.0 + sin(t * 2.0) * 0.35
-	# The start button breathes, so the eye finds it.
-	var sb: Control = labels.get("start")
-	if sb and not sb.get_global_rect().has_point(sb.get_global_mouse_position()):
-		sb.modulate = Color(1, 1, 1).lerp(Color(1.18, 1.12, 0.9), 0.5 + 0.5 * sin(t * 3.0))
+		cam.look_at_from_position(CAM_AT + Vector3(sin(t * 0.17) * 0.12, sin(t * 0.29) * 0.04, 0), CAM_LOOK)
 	_tick_ui(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -374,12 +455,25 @@ func _build_ui() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(root)
-	_top_left()
-	_top_center()
+	# Dark bands top and bottom so the menus read over the scene.
+	for top in [true, false]:
+		var band := TextureRect.new()
+		band.texture = UiKit.gradient(Color(0, 0, 0, 0.6) if top else Color(0, 0, 0, 0), Color(0, 0, 0, 0) if top else Color(0, 0, 0, 0.7))
+		band.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		band.stretch_mode = TextureRect.STRETCH_SCALE
+		band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(band)
+		band.set_anchors_preset(Control.PRESET_TOP_WIDE if top else Control.PRESET_BOTTOM_WIDE)
+		if top: band.offset_bottom = 130
+		else: band.offset_top = -170
+	_profile()
+	_rail()
 	_top_right()
+	_top_tabs()
 	_right_column()
-	_bottom_left()
-	_bottom_bar()
+	_ticker()
+	_play_box()
+	_lineup_plates()
 	_refresh()
 
 func _anchor(c: Control, preset: int, offset: Vector2) -> void:
@@ -392,10 +486,6 @@ func _anchor(c: Control, preset: int, offset: Vector2) -> void:
 	if preset in [Control.PRESET_CENTER_TOP, Control.PRESET_CENTER_BOTTOM]:
 		c.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	c.position += offset
-
-func _chip(text: String, cb: Callable, col := Color.WHITE, bg := Color(0, 0, 0, 0.45)) -> Button:
-	var b := UiKit.button(text, cb, Vector2(0, 34), UiKit.style(bg, 17, Color(1, 1, 1, 0.14), 1, 12), 15, col)
-	return b
 
 ## Button with a drawn icon: either beside the text (pill) or above it (tab).
 func _icon_button(icon: String, text: String, cb: Callable, size: Vector2, icon_above := false, bg := Color(0, 0, 0, 0.45), icon_col := Color.WHITE, radius := 17) -> Button:
@@ -411,14 +501,14 @@ func _icon_button(icon: String, text: String, cb: Callable, size: Vector2, icon_
 	b.add_theme_stylebox_override("pressed", hv)
 	b.pressed.connect(cb)
 	UiKit._springy(b)
-	var lbl := UiKit.label(text, 14 if icon_above else 16, Color.WHITE, UiKit.bold(), 3)
+	var lbl := UiKit.label(text, 13 if icon_above else 16, Color.WHITE, UiKit.bold(), 3)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(lbl)
 	b.set_meta("label", lbl)
 	b.draw.connect(func():
 		var sz := b.size
 		if icon_above:
-			Icons.draw(b, icon, Vector2(sz.x * 0.5, sz.y * 0.36), sz.y * 0.2, icon_col)
+			Icons.draw(b, icon, Vector2(sz.x * 0.5, sz.y * 0.36), sz.y * 0.19, icon_col)
 		else:
 			Icons.draw(b, icon, Vector2(sz.y * 0.5 + 2, sz.y * 0.5), sz.y * 0.3, icon_col))
 	b.resized.connect(func():
@@ -432,94 +522,117 @@ func _icon_button(icon: String, text: String, cb: Callable, size: Vector2, icon_
 			lbl.size.x = sz.x - sz.y * 0.5 - 6)
 	return b
 
-func _top_left() -> void:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	_anchor(box, Control.PRESET_TOP_LEFT, Vector2(18, 14))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	box.add_child(row)
-	var av := Button.new()
-	av.custom_minimum_size = Vector2(72, 72)
-	av.add_theme_stylebox_override("normal", UiKit.style(Color("2f3a4c"), 4, Color("e8edf4"), 2, 0))
-	av.add_theme_stylebox_override("hover", UiKit.style(Color("3a475c"), 4, Color.WHITE, 2, 0))
-	av.add_theme_stylebox_override("pressed", UiKit.style(Color("3a475c"), 4, Color.WHITE, 2, 0))
-	av.add_theme_font_override("font", UiKit.bold())
-	av.add_theme_font_size_override("font_size", 32)
-	av.pressed.connect(func(): _open("cards"))
-	labels.avatar = av
-	row.add_child(av)
-	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", UiKit.style(Color("1d6fd8"), 4, Color.WHITE, 1, 3))
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var lvl := UiKit.label("", 12, Color.WHITE, UiKit.bold(), 0)
-	badge.add_child(lvl)
-	badge.position = Vector2(-6, -6)
-	av.add_child(badge)
-	labels.level_badge = lvl
-	var who := VBoxContainer.new()
-	who.add_theme_constant_override("separation", 4)
-	labels.name = UiKit.label("", 22, Color.WHITE, UiKit.bold())
-	who.add_child(labels.name)
-	var rank_btn := Button.new()
-	rank_btn.custom_minimum_size = Vector2(150, 34)
-	rank_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	rank_btn.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.45), 17, Color(1, 1, 1, 0.15), 1, 4))
-	rank_btn.add_theme_stylebox_override("hover", UiKit.style(Color(0, 0, 0, 0.6), 17, Color(1, 1, 1, 0.35), 1, 4))
-	rank_btn.add_theme_stylebox_override("pressed", UiKit.style(Color(0, 0, 0, 0.6), 17, Color(1, 1, 1, 0.35), 1, 4))
-	rank_btn.pressed.connect(func(): _open("cards"))
-	var rb := RankBadge.new(int(Game.stats.rp), 28.0)
-	rb.position = Vector2(6, 1)
-	rank_btn.add_child(rb)
-	var rl := UiKit.label("", 15, Color.WHITE, UiKit.bold(), 3)
-	rl.position = Vector2(40, 5)
-	rank_btn.add_child(rl)
+## A small coloured tag ("جديد", a count) pinned to a corner of c.
+func _tag(c: Control, text: String, col: Color, at := Vector2(-8, -6)) -> Label:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(col, 9, Color(0, 0, 0, 0), 0, 3))
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := UiKit.label(text, 11, Color.WHITE, UiKit.bold(), 0)
+	pc.add_child(l)
+	c.add_child(pc)
+	pc.position = at
+	return l
+
+## Top left: round avatar with the level ring (season XP towards the next
+## level), name, rank and level.
+func _profile() -> void:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(300, 70)
+	b.focus_mode = Control.FOCUS_NONE
+	var st := UiKit.style(GLASS, 35, Color(1, 1, 1, 0.12), 1, 0)
+	b.add_theme_stylebox_override("normal", st)
+	b.add_theme_stylebox_override("hover", UiKit.style(Color(0.08, 0.1, 0.14, 0.75), 35, Color(1, 1, 1, 0.3), 1, 0))
+	b.add_theme_stylebox_override("pressed", st)
+	b.pressed.connect(func(): _open("cards"))
+	UiKit._springy(b)
+	_anchor(b, Control.PRESET_TOP_LEFT, Vector2(16, 12))
+	b.draw.connect(func():
+		var c := Vector2(35, 35)
+		b.draw_circle(c, 29.0, Color("26344a"))
+		b.draw_arc(c, 31.0, 0, TAU, 48, Color(1, 1, 1, 0.15), 4.0, true)
+		var k := float(int(Game.wallet.xp) % Game.PASS_XP) / Game.PASS_XP
+		b.draw_arc(c, 31.0, -PI / 2, -PI / 2 + TAU * k, 48, ACCENT, 4.0, true)
+		var f := UiKit.bold()
+		var letter := Game.player_name().left(1)
+		b.draw_string(f, c + Vector2(-20, 11), letter, HORIZONTAL_ALIGNMENT_CENTER, 40, 30, Color.WHITE))
+	var lvl := PanelContainer.new()
+	lvl.add_theme_stylebox_override("panel", UiKit.style(ACCENT, 8, Color("1a1300"), 1, 2))
+	lvl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ll := UiKit.label("", 11, UiKit.INK, UiKit.bold(), 0)
+	lvl.add_child(ll)
+	b.add_child(lvl)
+	lvl.position = Vector2(20, 54)
+	labels.level_badge = ll
+	labels.name = UiKit.label("", 20, Color.WHITE, UiKit.bold(), 3)
+	labels.name.position = Vector2(76, 6)
+	b.add_child(labels.name)
+	var rb := RankBadge.new(int(Game.stats.rp), 22.0)
+	rb.position = Vector2(76, 40)
+	b.add_child(rb)
 	labels.rank_badge = rb
-	labels.rank = rl
-	who.add_child(rank_btn)
-	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 8)
-	chips.add_child(_icon_button("clan", "العشيرة", func(): _open("clan"), Vector2(118, 34)))
-	chips.add_child(_icon_button("home", "المنزل", func(): _toast("المنزل قريباً… نجهّزه للموسم الجاي"), Vector2(104, 34)))
-	who.add_child(chips)
-	row.add_child(who)
-	# Side column: mail bell and friends, like the mobile lobby.
-	var side := VBoxContainer.new()
-	side.add_theme_constant_override("separation", 8)
-	box.add_child(side)
-	var bell := _icon_button("bell", "", func(): _open("mail"), Vector2(72, 40), false, Color(0, 0, 0, 0.5), Color("ffd34d"), 6)
-	labels.bell = bell.get_meta("label")
-	bell.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	side.add_child(bell)
-	var fr := _icon_button("friends", "0/1", func(): _open("mode"), Vector2(72, 40), false, Color(0, 0, 0, 0.5), Color.WHITE, 6)
-	fr.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	side.add_child(fr)
+	labels.rank = UiKit.label("", 14, Color.WHITE, UiKit.bold(), 2)
+	labels.rank.position = Vector2(104, 38)
+	b.add_child(labels.rank)
+	labels.avatar = b
 
-func _top_center() -> void:
-	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 0)
-	_anchor(tabs, Control.PRESET_CENTER_TOP, Vector2(0, 14))
-	for tb in [["الرئيسية", ""], ["المتجر", "shop"], ["الفعاليات", "events"]]:
-		var key: String = tb[1]
-		var on := key == ""
-		var st := UiKit.style(Color(1, 1, 1, 0.92) if on else Color(0, 0, 0, 0.45), 3, Color(1, 1, 1, 0.35), 1, 6)
-		var b := UiKit.button(tb[0], func(): if key != "": _open(key), Vector2(116, 36), st, 15, Color("1b1b1b") if on else Color.WHITE)
-		b.add_theme_font_override("font", UiKit.bold())
-		tabs.add_child(b)
+## Left side menu: the pages as a column of icon buttons on dark glass.
+func _rail() -> void:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(GLASS, 14, Color(1, 1, 1, 0.1), 1, 6))
+	_anchor(pc, Control.PRESET_TOP_LEFT, Vector2(16, 98))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	pc.add_child(v)
+	var items := [["المخزون", "inventory", "shirt"], ["ورشة العمل", "workshop", "wrench"], ["المهام", "missions", "tasks"],
+		["الموسم", "season", "trophy"], ["البطاقات", "cards", "card"], ["العشيرة", "clan", "clan"], ["البريد", "mail", "mail"]]
+	for it in items:
+		var key: String = it[1]
+		var b := _icon_button(it[2], it[0], func(): _open(key), Vector2(78, 62), true, Color(0, 0, 0, 0.0), Color.WHITE, 10)
+		v.add_child(b)
+		labels["bar_" + key] = b.get_meta("label")
+		if key == "missions": labels.missions_dot = _tag(b, "", Color("e53935"), Vector2(52, 4))
+		if key == "mail": labels.mail_dot = _tag(b, "1", Color("e53935"), Vector2(52, 4))
 
+## Top right: money (gold, ZC) with + buttons, settings, full screen.
 func _top_right() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	_anchor(row, Control.PRESET_TOP_RIGHT, Vector2(-18, 14))
-	row.add_child(_icon_button("crown", "PRIME", func(): _open("season"), Vector2(104, 36), false, Color(0, 0, 0, 0.5), Color("ffd34d")))
-	var g := _icon_button("coin", "", func(): _open("shop"), Vector2(110, 36), false, Color(0, 0, 0, 0.5))
+	_anchor(row, Control.PRESET_TOP_RIGHT, Vector2(-16, 14))
+	var g := _icon_button("coin", "", func(): _open("shop"), Vector2(128, 38), false, GLASS, Color.WHITE, 19)
 	labels.gold = g.get_meta("label")
 	row.add_child(g)
-	var z := _icon_button("gem", "", func(): _open("season"), Vector2(110, 36), false, Color(0, 0, 0, 0.5))
+	var z := _icon_button("gem", "", func(): _open("season"), Vector2(118, 38), false, GLASS, Color.WHITE, 19)
 	labels.zc = z.get_meta("label")
 	row.add_child(z)
-	row.add_child(_icon_button("plus", "", func(): _open("shop"), Vector2(36, 36), false, Color("ffd34d"), UiKit.INK, 18))
-	row.add_child(_icon_button("gear", "", func(): _open("settings"), Vector2(36, 36), false, Color(0, 0, 0, 0.5), Color.WHITE, 18))
+	row.add_child(_icon_button("plus", "", func(): _open("shop"), Vector2(38, 38), false, ACCENT, UiKit.INK, 19))
+	var bell := _icon_button("bell", "", func(): _open("mail"), Vector2(38, 38), false, GLASS, Color("ffd34d"), 19)
+	labels.bell = bell.get_meta("label")
+	row.add_child(bell)
+	row.add_child(_icon_button("expand", "", func(): _toggle_fullscreen(), Vector2(38, 38), false, GLASS, Color.WHITE, 19))
+	row.add_child(_icon_button("gear", "", func(): _open("settings"), Vector2(38, 38), false, GLASS, Color.WHITE, 19))
+
+## Top middle: the main sections as tabs with an underline.
+func _top_tabs() -> void:
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 6)
+	_anchor(tabs, Control.PRESET_CENTER_TOP, Vector2(-40, 16))
+	for tb in [["لعب", ""], ["المتجر", "shop"], ["الصناديق", "crate"], ["الفعاليات", "events"]]:
+		var key: String = tb[1]
+		var on := key == ""
+		var b := Button.new()
+		b.text = tb[0]
+		b.custom_minimum_size = Vector2(96, 36)
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_override("font", UiKit.bold())
+		b.add_theme_font_size_override("font_size", 17)
+		var empty := StyleBoxEmpty.new()
+		for s in ["normal", "hover", "pressed"]: b.add_theme_stylebox_override(s, empty)
+		b.add_theme_color_override("font_color", Color.WHITE if on else Color(1, 1, 1, 0.6))
+		b.add_theme_color_override("font_hover_color", Color.WHITE)
+		b.pressed.connect(func(): if key != "": _open(key))
+		if on:
+			b.draw.connect(func(): b.draw_rect(Rect2(b.size.x * 0.2, b.size.y - 3, b.size.x * 0.6, 3), ACCENT))
+		tabs.add_child(b)
 
 func _card(size: Vector2, top: Color, bottom: Color, cb: Callable) -> Button:
 	var b := Button.new()
@@ -537,8 +650,9 @@ func _card(size: Vector2, top: Color, bottom: Color, cb: Callable) -> Button:
 	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var fs := StyleBoxFlat.new()
 	fs.draw_center = false
-	fs.border_color = Color(1, 1, 1, 0.35)
+	fs.border_color = Color(1, 1, 1, 0.25)
 	fs.set_border_width_all(1)
+	fs.set_corner_radius_all(10)
 	frame.add_theme_stylebox_override("panel", fs)
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(frame)
@@ -551,157 +665,344 @@ func _place(parent: Control, c: Control, pos: Vector2) -> Control:
 	c.position = pos
 	return c
 
+## A picture filling a card, cut to its shape (rounded corners via a clip).
+func _pic(parent: Control, tex: Texture2D, size: Vector2) -> TextureRect:
+	var tr := TextureRect.new()
+	tr.texture = tex
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	tr.size = size
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(tr)
+	return tr
+
+## Event banners (rotating every few seconds) with dots under them.
+var BANNERS := [
+	["⚔ حرب الفرق", "4 فرق • حصون • قلوب • مدرعات", "res://assets/textures/ui/modes/war.jpg", "mode", "جديد"],
+	["ZERO PASS", "الموسم: " + Game.SEASON_NAME, "res://assets/textures/ui/art_soldier.jpg", "season", ""],
+	["صندوق القمر الأحمر", "ملابس أسطورية بانتظارك", "res://assets/textures/ui/art_city.jpg", "crate", "محدود"],
+]
+var _banner_i := 0
+var _banner_t := 0.0
+
 func _right_column() -> void:
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 6)
-	_anchor(col, Control.PRESET_TOP_RIGHT, Vector2(-18, 64))
-	# Season pass card.
-	var pass_card := _card(Vector2(236, 132), Color("2a1838"), Color("8a1f35"), func(): _open("season"))
-	pass_card.draw.connect(func(): Icons.draw(pass_card, "trophy", Vector2(200, 40), 22, Color(1, 0.84, 0.3, 0.9)))
-	_place(pass_card, UiKit.label("ZERO PASS", 26, Color.WHITE, UiKit.italic()), Vector2(12, 4))
-	_place(pass_card, UiKit.label(Game.SEASON_NAME, 13, Color("ffb0c0")), Vector2(12, 42))
-	var lv := PanelContainer.new()
-	lv.add_theme_stylebox_override("panel", UiKit.style(UiKit.YELLOW, 3, Color(0, 0, 0, 0), 0, 5))
-	var lvl := UiKit.label("", 20, UiKit.INK, UiKit.bold(), 0)
-	lv.add_child(lvl)
+	col.add_theme_constant_override("separation", 8)
+	_anchor(col, Control.PRESET_TOP_RIGHT, Vector2(-16, 64))
+	# Event banner.
+	var ban := Button.new()
+	ban.custom_minimum_size = Vector2(300, 150)
+	ban.flat = true
+	ban.focus_mode = Control.FOCUS_NONE
+	ban.clip_contents = true
+	ban.pressed.connect(func(): _open(BANNERS[_banner_i][3]))
+	UiKit._springy(ban)
+	col.add_child(ban)
+	var pic := _pic(ban, null, Vector2(300, 150))
+	var shade := TextureRect.new()
+	shade.texture = UiKit.gradient(Color(0, 0, 0, 0.0), Color(0, 0, 0, 0.85))
+	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shade.stretch_mode = TextureRect.STRETCH_SCALE
+	shade.size = Vector2(300, 150)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ban.add_child(shade)
+	var bt := UiKit.label("", 22, Color.WHITE, UiKit.bold(), 4)
+	_place(ban, bt, Vector2(14, 84))
+	var bs := UiKit.label("", 13, Color(1, 1, 1, 0.85), null, 3)
+	_place(ban, bs, Vector2(14, 116))
+	var tag := _tag(ban, "", Color("e53935"), Vector2(250, 10))
+	ban.draw.connect(func():
+		for i in BANNERS.size():
+			ban.draw_circle(Vector2(272 - (BANNERS.size() - 1 - i) * 12, 138), 3.5, ACCENT if i == _banner_i else Color(1, 1, 1, 0.4)))
+	labels.banner = [ban, pic, bt, bs, tag]
+	_show_banner(0)
+	# Season pass.
+	var pass_card := _card(Vector2(300, 64), Color("3a1f5c"), Color("1b0f2e"), func(): _open("season"))
+	pass_card.draw.connect(func(): Icons.draw(pass_card, "crown", Vector2(26, 32), 14, ACCENT))
+	_place(pass_card, UiKit.label("ZERO PASS", 18, Color.WHITE, UiKit.italic(), 2), Vector2(48, 4))
+	var lvl := UiKit.label("", 16, ACCENT, UiKit.bold(), 2)
 	labels.pass_level = lvl
-	_place(pass_card, lv, Vector2(160, 86))
+	_place(pass_card, lvl, Vector2(236, 6))
 	var bar := ProgressBar.new()
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(136, 8)
-	bar.add_theme_stylebox_override("background", UiKit.style(Color(0, 0, 0, 0.5), 3, Color(0, 0, 0, 0), 0, 0))
-	bar.add_theme_stylebox_override("fill", UiKit.style(UiKit.YELLOW, 3, Color(0, 0, 0, 0), 0, 0))
+	bar.custom_minimum_size = Vector2(236, 7)
+	bar.size = Vector2(236, 7)
+	bar.add_theme_stylebox_override("background", UiKit.style(Color(1, 1, 1, 0.12), 3, Color(0, 0, 0, 0), 0, 0))
+	bar.add_theme_stylebox_override("fill", UiKit.style(ACCENT, 3, Color(0, 0, 0, 0), 0, 0))
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	labels.pass_bar = bar
-	_place(pass_card, bar, Vector2(12, 100))
+	_place(pass_card, bar, Vector2(48, 42))
 	col.add_child(pass_card)
-	# Yellow crate / shop strip.
-	var strip := HBoxContainer.new()
-	strip.add_theme_constant_override("separation", 4)
-	strip.add_child(_icon_button("crate", "الصناديق", func(): _open("crate"), Vector2(116, 58), true, UiKit.YELLOW, UiKit.INK, 4))
-	strip.add_child(_icon_button("cart", "المتجر", func(): _open("shop"), Vector2(116, 58), true, UiKit.YELLOW, UiKit.INK, 4))
-	for b in strip.get_children(): (b.get_meta("label") as Label).add_theme_color_override("font_color", UiKit.INK)
-	for b in strip.get_children(): (b.get_meta("label") as Label).add_theme_constant_override("outline_size", 0)
-	col.add_child(strip)
-	# Two offer cards.
-	var offers := HBoxContainer.new()
-	offers.add_theme_constant_override("separation", 4)
-	var sale := _card(Vector2(116, 62), Color("f5f5f5"), Color("cfd6de"), func(): _open("shop"))
-	_place(sale, UiKit.label("عروض", 17, Color("c62828"), UiKit.bold(), 0), Vector2(10, 4))
-	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", UiKit.style(Color("e53935"), 3, Color(0, 0, 0, 0), 0, 3))
-	badge.add_child(UiKit.label("NEW", 11, Color.WHITE, UiKit.bold(), 0))
-	_place(sale, badge, Vector2(66, 6))
-	_place(sale, UiKit.label("SALE", 14, Color("1b1b1b"), UiKit.bold(), 0), Vector2(10, 32))
-	offers.add_child(sale)
-	var zp := _card(Vector2(116, 62), Color("f5f5f5"), Color("cfd6de"), func(): _open("missions"))
-	zp.draw.connect(func(): Icons.draw(zp, "tasks", Vector2(94, 20), 11, Color("2d6fb8")))
-	_place(zp, UiKit.label("المهام", 17, Color("1b1b1b"), UiKit.bold(), 0), Vector2(10, 4))
-	var mlabel := UiKit.label("", 12, Color("2d6fb8"), null, 0)
-	labels.missions_hint = mlabel
-	_place(zp, mlabel, Vector2(10, 34))
-	offers.add_child(zp)
-	col.add_child(offers)
-	var ev := _icon_button("calendar", "الفعاليات", func(): _open("events"), Vector2(236, 54), false, Color(0.96, 0.96, 0.96, 0.95), Color("c62828"), 4)
-	(ev.get_meta("label") as Label).add_theme_color_override("font_color", Color("1b1b1b"))
-	(ev.get_meta("label") as Label).add_theme_constant_override("outline_size", 0)
-	col.add_child(ev)
+	# Today's missions: the three closest to done.
+	var mc := PanelContainer.new()
+	mc.add_theme_stylebox_override("panel", UiKit.style(GLASS, 10, Color(1, 1, 1, 0.1), 1, 10))
+	mc.custom_minimum_size = Vector2(300, 0)
+	col.add_child(mc)
+	var mv := VBoxContainer.new()
+	mv.add_theme_constant_override("separation", 5)
+	mc.add_child(mv)
+	var mh := HBoxContainer.new()
+	mh.add_child(UiKit.label("مهام اليوم", 16, Color.WHITE, UiKit.bold(), 2))
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mh.add_child(sp)
+	var more := UiKit.button("الكل ›", func(): _open("missions"), Vector2(64, 26), UiKit.style(Color(1, 1, 1, 0.08), 13, Color(0, 0, 0, 0), 0, 4), 13)
+	mh.add_child(more)
+	mv.add_child(mh)
+	labels.mission_list = mv
 
-func _bottom_left() -> void:
+func _show_banner(i: int) -> void:
+	_banner_i = i
+	var b: Array = labels.banner
+	var e: Array = BANNERS[i]
+	(b[1] as TextureRect).texture = load(e[2])
+	(b[2] as Label).text = e[0]
+	(b[3] as Label).text = e[1]
+	(b[4] as Label).text = e[4]
+	(b[4] as Label).get_parent().visible = e[4] != ""
+	(b[0] as Control).queue_redraw()
+	(b[1] as Control).modulate.a = 0.0
+	(b[1] as Control).create_tween().tween_property(b[1], "modulate:a", 1.0, 0.4)
+
+## The three missions closest to done, with their bars (refreshed with the rest).
+func _fill_missions() -> void:
+	var mv: VBoxContainer = labels.mission_list
+	for k in range(mv.get_child_count() - 1, 0, -1): mv.get_child(k).queue_free()
+	var ms := _missions().filter(func(m): return not _claimed(m.id))
+	ms.sort_custom(func(a, b): return float(a.cur) / a.goal > float(b.cur) / b.goal)
+	for m in ms.slice(0, 3):
+		var row := VBoxContainer.new()
+		row.add_theme_constant_override("separation", 2)
+		var hb := HBoxContainer.new()
+		var tl := UiKit.label(m.text, 13, Color(1, 1, 1, 0.9), null, 2)
+		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(tl)
+		hb.add_child(UiKit.label(("✓ جاهزة" if m.done else "%d/%d" % [mini(int(m.cur), int(m.goal)), int(m.goal)]), 12, Color("7dff8a") if m.done else ACCENT, UiKit.bold(), 2))
+		row.add_child(hb)
+		var bar := ProgressBar.new()
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(0, 5)
+		bar.value = clampf(float(m.cur) / float(m.goal), 0.0, 1.0) * 100.0
+		bar.add_theme_stylebox_override("background", UiKit.style(Color(1, 1, 1, 0.1), 2, Color(0, 0, 0, 0), 0, 0))
+		bar.add_theme_stylebox_override("fill", UiKit.style(Color("7dff8a") if m.done else CYAN, 2, Color(0, 0, 0, 0), 0, 0))
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(bar)
+		mv.add_child(row)
+
+## Bottom left: news and tips sliding by, and a few small actions.
+const TIPS := ["جديد: وضع حرب الفرق — اكسر قلب حصن العدو!", "نصيحة: اقفز فوق المدينة لغنائم أكتر بس انتبه من الزحمة",
+	"راديو الصفر بيحكيلك شو عم يصير بالمباراة", "اللي قتلك بيرجع بالمباراة الجاية… وبيدوّر عليك", "برّا المنطقة الآمنة الجزيرة بتنقلب عليك",
+	"المهام اليومية بتعطيك ذهب — شوفها من القائمة"]
+var _tip_i := 0
+var _tip_t := 0.0
+
+func _ticker() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
-	_anchor(box, Control.PRESET_BOTTOM_LEFT, Vector2(18, -22))
-	var auto := CheckBox.new()
-	auto.text = "مطابقة تلقائية"
-	auto.button_pressed = true
-	auto.add_theme_font_size_override("font_size", 14)
-	auto.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.5), 3, Color(1, 1, 1, 0.12), 1, 6))
-	box.add_child(auto)
-	var mode := _card(Vector2(264, 72), Color(0, 0, 0, 0.62), Color(0, 0, 0, 0.78), func(): _open("mode"))
-	var thumb := TextureRect.new()
-	thumb.texture = UiKit.gradient(Color("3f7a5a"), Color("2c6d8f"))
-	thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	thumb.custom_minimum_size = Vector2(84, 62)
-	thumb.size = Vector2(84, 62)
-	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_place(mode, thumb, Vector2(5, 5))
-	thumb.draw.connect(func(): Icons.draw(thumb, "globe", Vector2(42, 31), 20, Color(1, 1, 1, 0.9)))
-	_place(mode, UiKit.label("منظور الشخص الثالث", 16, Color.WHITE, UiKit.bold(), 0), Vector2(96, 6))
-	var ml := UiKit.label("", 12, Color(1, 1, 1, 0.8), null, 0)
-	labels.mode = ml
-	_place(mode, ml, Vector2(96, 38))
-	box.add_child(mode)
-	var start := UiKit.yellow_button("انطلاق", _start, Vector2(264, 92), 46)
-	start.pivot_offset = Vector2(132, 46)
-	labels.start = start
-	box.add_child(start)
-	var status := UiKit.label("", 12, Color(1, 1, 1, 0.75), null, 3)
+	_anchor(box, Control.PRESET_BOTTOM_LEFT, Vector2(16, -16))
+	var icons := HBoxContainer.new()
+	icons.add_theme_constant_override("separation", 8)
+	for ic in [["question", func(): _open("help")], ["hand", func(): soldier.wave(2.2)], ["friends", func(): _open("mode")]]:
+		icons.add_child(_icon_button(ic[0], "", ic[1], Vector2(40, 40), false, GLASS, Color.WHITE, 20))
+	box.add_child(icons)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(GLASS, 16, Color(1, 1, 1, 0.08), 1, 8))
+	pc.custom_minimum_size = Vector2(430, 34)
+	pc.clip_contents = true
+	box.add_child(pc)
+	var tip := UiKit.label(TIPS[0], 14, Color(1, 1, 1, 0.9), null, 2)
+	pc.add_child(tip)
+	labels.tip = tip
+	var status := UiKit.label("", 11, Color(1, 1, 1, 0.55), null, 2)
 	labels.status = status
 	box.add_child(status)
 
-func _bottom_bar() -> void:
-	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 2)
-	_anchor(bar, Control.PRESET_BOTTOM_RIGHT, Vector2(-18, -12))
-	var items := [["العشيرة", "clan", "clan"], ["البريد", "mail", "mail"], ["المهام", "missions", "tasks"], ["الموسم", "season", "trophy"],
-		["ورشة العمل", "workshop", "wrench"], ["البطاقات", "cards", "card"], ["المخزون", "inventory", "shirt"]]
-	for it in items:
-		var key: String = it[1]
-		var b := _icon_button(it[2], it[0], func(): _open(key), Vector2(92, 66), true, Color(0, 0, 0, 0.0), Color.WHITE, 6)
-		bar.add_child(b)
-		labels["bar_" + key] = b.get_meta("label")
-	# Small round action icons above the bar.
-	var icons := HBoxContainer.new()
-	icons.add_theme_constant_override("separation", 10)
-	_anchor(icons, Control.PRESET_BOTTOM_RIGHT, Vector2(-22, -92))
-	for ic in [["question", func(): _open("help")], ["hand", func(): soldier.wave(2.2)], ["expand", func(): _toggle_fullscreen()]]:
-		icons.add_child(_icon_button(ic[0], "", ic[1], Vector2(40, 40), false, Color(0, 0, 0, 0.45), Color.WHITE, 20))
-	# Darkened strip behind the bar.
-	var strip := TextureRect.new()
-	strip.texture = UiKit.gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.65))
-	strip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	strip.stretch_mode = TextureRect.STRETCH_SCALE
-	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(strip)
-	root.move_child(strip, 0)
-	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	strip.offset_top = -110
+## Bottom right: the mode card and the big start button.
+func _play_box() -> void:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	_anchor(box, Control.PRESET_BOTTOM_RIGHT, Vector2(-16, -16))
+	var mode := Button.new()
+	mode.custom_minimum_size = Vector2(320, 84)
+	mode.focus_mode = Control.FOCUS_NONE
+	mode.clip_contents = true
+	var st := UiKit.style(GLASS, 12, Color(1, 1, 1, 0.18), 1, 0)
+	mode.add_theme_stylebox_override("normal", st)
+	mode.add_theme_stylebox_override("hover", UiKit.style(Color(0.08, 0.1, 0.14, 0.8), 12, ACCENT, 1, 0))
+	mode.add_theme_stylebox_override("pressed", st)
+	mode.pressed.connect(func(): _open("mode"))
+	UiKit._springy(mode)
+	box.add_child(mode)
+	var thumb := _pic(mode, null, Vector2(118, 84))
+	labels.mode_pic = thumb
+	var fade := TextureRect.new()
+	fade.texture = UiKit.gradient(Color(0, 0, 0, 0), Color(0.03, 0.05, 0.08, 0.95), true)
+	fade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	fade.stretch_mode = TextureRect.STRETCH_SCALE
+	fade.size = Vector2(60, 84)
+	fade.position = Vector2(60, 0)
+	fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mode.add_child(fade)
+	var mt := UiKit.label("", 19, Color.WHITE, UiKit.bold(), 3)
+	_place(mode, mt, Vector2(128, 8))
+	labels.mode_title = mt
+	var ml := UiKit.label("", 12, Color(1, 1, 1, 0.75), null, 2)
+	_place(mode, ml, Vector2(128, 40))
+	labels.mode = ml
+	_place(mode, UiKit.label("تغيير الوضع ›", 12, ACCENT, UiKit.bold(), 2), Vector2(128, 60))
+	# Start: a wide glowing button with a light sweeping across it.
+	var start := Button.new()
+	start.custom_minimum_size = Vector2(320, 92)
+	start.focus_mode = Control.FOCUS_NONE
+	start.clip_contents = true
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus"]: start.add_theme_stylebox_override(s, empty)
+	start.pressed.connect(_start)
+	UiKit._springy(start)
+	box.add_child(start)
+	var grad := TextureRect.new()
+	grad.texture = UiKit.gradient(Color("ffd34d"), Color("ff8a1e"))
+	grad.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	grad.stretch_mode = TextureRect.STRETCH_SCALE
+	grad.set_anchors_preset(Control.PRESET_FULL_RECT)
+	grad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	start.add_child(grad)
+	var shine := ColorRect.new()
+	shine.color = Color(1, 1, 1, 0.35)
+	shine.size = Vector2(36, 140)
+	shine.rotation = 0.35
+	shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	start.add_child(shine)
+	labels.shine = shine
+	var sl := UiKit.label("ابدأ", 42, UiKit.INK, UiKit.bold(), 0)
+	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sl.size = Vector2(320, 60)
+	sl.position = Vector2(0, 4)
+	start.add_child(sl)
+	var sub := UiKit.label("مطابقة تلقائية • الشرق الأوسط", 12, Color(0.12, 0.08, 0.0, 0.8), null, 0)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.size = Vector2(320, 20)
+	sub.position = Vector2(0, 62)
+	start.add_child(sub)
+	start.draw.connect(func():
+		# Chevrons each side.
+		for s in [-1.0, 1.0]:
+			for k in 2:
+				var x: float = 160.0 + s * (112.0 + k * 14.0)
+				start.draw_polyline(PackedVector2Array([Vector2(x - s * 6, 34), Vector2(x + s * 2, 46), Vector2(x - s * 6, 58)]), Color(0.1, 0.06, 0.0, 0.55 - k * 0.2), 3.0))
+	labels.start = start
+
+## Name plates over the line-up (or "+" to bring teammates where a place is free).
+func _lineup_plates() -> void:
+	for p in _plates: (p[0] as Control).queue_free()
+	_plates.clear()
+	for i in SLOTS.size():
+		var c: Control
+		if i == 0 or i - 1 < mates.size():
+			var pc := PanelContainer.new()
+			pc.add_theme_stylebox_override("panel", UiKit.style(Color(0, 0, 0, 0.55), 12, (ACCENT if i == 0 else CYAN) * Color(1, 1, 1, 0.6), 1, 6))
+			pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var v := VBoxContainer.new()
+			v.add_theme_constant_override("separation", 0)
+			pc.add_child(v)
+			var nm := Game.player_name() if i == 0 else String(MATE_NAMES[(i - 1) % MATE_NAMES.size()])
+			var l1 := UiKit.label(nm, 14, Color.WHITE, UiKit.bold(), 2)
+			l1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			v.add_child(l1)
+			var l2 := UiKit.label(("المستوى %d" % Game.level()) if i == 0 else "✓ جاهز", 11, ACCENT if i == 0 else Color("7dff8a"), null, 2)
+			l2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			v.add_child(l2)
+			c = pc
+		else:
+			var b := Button.new()
+			b.text = "+"
+			b.custom_minimum_size = Vector2(54, 54)
+			b.focus_mode = Control.FOCUS_NONE
+			b.add_theme_font_size_override("font_size", 30)
+			b.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.45), 27, Color(1, 1, 1, 0.5), 2, 0))
+			b.add_theme_stylebox_override("hover", UiKit.style(Color(0, 0, 0, 0.6), 27, ACCENT, 2, 0))
+			b.add_theme_stylebox_override("pressed", UiKit.style(Color(0, 0, 0, 0.6), 27, ACCENT, 2, 0))
+			b.tooltip_text = "زميل — اختار ثنائي أو فرقة"
+			b.pressed.connect(func(): _open("mode"))
+			UiKit._springy(b)
+			c = b
+		root.add_child(c)
+		root.move_child(c, 2)
+		_plates.append([c, i])
+
+func _place_plates() -> void:
+	if cam == null: return
+	for p in _plates:
+		var c: Control = p[0]
+		var i: int = p[1]
+		var occupied: bool = i == 0 or i - 1 < mates.size()
+		var wp: Vector3 = SLOTS[i] + Vector3(0, 2.05 if occupied else 1.1, 0)
+		if i == 0: wp = soldier.global_position + Vector3(0, 2.05, 0)
+		var sp := cam.unproject_position(wp)
+		c.position = sp - c.size * 0.5
 
 func _toggle_fullscreen() -> void:
 	var w := get_window()
 	w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
 
-func _tick_ui(_delta: float) -> void:
-	# The start button breathes gently.
+func _tick_ui(delta: float) -> void:
+	_place_plates()
 	if labels.has("start"):
-		var k := 1.0 + sin(t * 3.0) * 0.025
+		var k := 1.0 + sin(t * 3.0) * 0.02
 		labels.start.scale = Vector2(k, k)
+		labels.start.pivot_offset = labels.start.size * 0.5
+		# The light sweeps across every few seconds.
+		var sw := fmod(t, 3.2) / 0.8
+		labels.shine.position = Vector2(lerpf(-80.0, 400.0, clampf(sw, 0.0, 1.0)), -24)
+	if labels.has("banner"):
+		_banner_t += delta
+		if _banner_t > 5.0:
+			_banner_t = 0.0
+			_show_banner((_banner_i + 1) % BANNERS.size())
+	if labels.has("tip"):
+		_tip_t += delta
+		var lt: Label = labels.tip
+		lt.modulate.a = clampf(minf(_tip_t, 6.0 - _tip_t) * 2.0, 0.0, 1.0)
+		if _tip_t > 6.0:
+			_tip_t = 0.0
+			_tip_i = (_tip_i + 1) % TIPS.size()
+			lt.text = TIPS[_tip_i]
 	if labels.has("status"):
-		# Only when the minute changes (re-shaping the text every frame costs).
 		var now := Time.get_time_dict_from_system()
-		var txt := "📶 عالية الدقة  الشرق الأوسط   %02d:%02d   %s" % [now.hour, now.minute, Game.VERSION]
+		var txt := "📶 عالية الدقة • الشرق الأوسط • %02d:%02d • %s" % [now.hour, now.minute, Game.VERSION]
 		if labels.status.text != txt: labels.status.text = txt
+
+const MODE_PICS := {"solo": "br", "duo": "duo", "squad": "squad", "war": "war"}
 
 func _refresh() -> void:
 	labels.name.text = Game.player_name()
-	labels.avatar.text = Game.player_name().left(1)
-	labels.level_badge.text = str(Game.level())
+	labels.avatar.queue_redraw()
+	labels.level_badge.text = " %d " % Game.level()
 	var ri := Game.rank_info(int(Game.stats.rp))
 	labels.rank.text = ri.name
 	labels.rank.add_theme_color_override("font_color", ri.color)
 	labels.rank_badge.rp = int(Game.stats.rp)
 	labels.gold.text = "%d" % int(Game.wallet.gold)
-	labels.zc.text = "ZC %d" % int(Game.wallet.zc)
-	labels.pass_level.text = " %d ›" % Game.pass_level()
+	labels.zc.text = "%d" % int(Game.wallet.zc)
+	labels.pass_level.text = "%d ›" % Game.pass_level()
 	labels.pass_bar.value = float(int(Game.wallet.xp) % Game.PASS_XP) / Game.PASS_XP * 100.0
+	var mode: String = Game.settings.get("mode", "solo")
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
-	labels.mode.text = "%s - %s | %s" % ["سريع" if Game.settings.get("length", "classic") == "quick" else "كلاسيكي", Game.MODE_NAMES.get(Game.settings.get("mode", "solo"), "فردي"), d]
-	if Game.settings.get("mode", "solo") == "war": labels.mode.text = "%s | %s" % [Game.MODE_NAMES.war, d]
+	var war := mode == "war"
+	labels.mode_title.text = "⚔ حرب الفرق" if war else "باتل رويال — " + Game.MODE_NAMES.get(mode, "فردي")
+	var quick: bool = Game.settings.get("length", "classic") == "quick"
+	labels.mode.text = ("4 فرق × 25 • %s" % d) if war else ("%s • %s • %s" % [Island.MAP_NAME, "50 لاعب" if quick else "100 لاعب", d])
+	labels.mode_pic.texture = load("res://assets/textures/ui/modes/%s.jpg" % MODE_PICS.get(mode, "br"))
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()
-	labels.missions_hint.text = ("%d جاهزة!" % ready) if ready > 0 else "متاح الآن"
+	labels.missions_dot.text = str(ready)
+	labels.missions_dot.get_parent().visible = ready > 0
 	var unread := not bool(Game.wallet.mail_read)
-	labels.bell.text = "1" if unread else ""
-	labels.bar_mail.text = "البريد •" if unread else "البريد"
+	labels.mail_dot.get_parent().visible = unread
+	labels.bell.text = ""
+	_fill_missions()
+	if mates.size() != _mate_count():
+		_spawn_mates()
+		_lineup_plates()
 
 func _start() -> void:
 	if _starting: return
@@ -792,35 +1093,48 @@ func _open(which: String) -> void:
 		art.set_anchors_preset(Control.PRESET_FULL_RECT)
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		page.add_child(art)
-	var bg := ColorRect.new()
-	bg.color = Color(0.03, 0.04, 0.07, 0.86 if side else 0.74)
+	var bg := TextureRect.new()
+	bg.texture = UiKit.gradient(Color(0.02, 0.04, 0.08, 0.9 if side else 0.78), Color(0.01, 0.02, 0.04, 0.95 if side else 0.88))
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	if side:
 		bg.anchor_left = 0.5
 	page.add_child(bg)
-	# Header.
+	# Header: glass bar with a gold line under it, round back button, title, money.
 	var head := ColorRect.new()
-	head.color = Color(0, 0, 0, 0.7)
+	head.color = Color(0.02, 0.03, 0.05, 0.85)
 	head.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	head.offset_bottom = 56
+	head.offset_bottom = 60
 	page.add_child(head)
-	var back := UiKit.button("‹  رجوع", func(): _close_panel(), Vector2(110, 40), UiKit.style(Color(1, 1, 1, 0.08), 3, Color(1, 1, 1, 0.2), 1, 6), 16)
-	back.position = Vector2(12, 8)
+	var line := ColorRect.new()
+	line.color = Color(ACCENT, 0.7)
+	line.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	line.offset_top = 60
+	line.offset_bottom = 62
+	page.add_child(line)
+	var back := UiKit.button("‹", func(): _close_panel(), Vector2(44, 44), UiKit.style(Color(1, 1, 1, 0.1), 22, Color(1, 1, 1, 0.3), 1, 0), 26)
+	back.position = Vector2(14, 8)
 	page.add_child(back)
-	var title := UiKit.label(TITLES.get(which, ""), 22, Color("ffd34d"), UiKit.bold())
-	title.position = Vector2(140, 10)
+	var title := UiKit.label(TITLES.get(which, ""), 24, Color.WHITE, UiKit.bold(), 3)
+	title.position = Vector2(70, 10)
 	page.add_child(title)
-	var money := UiKit.label("🪙 %d     💎 %d" % [int(Game.wallet.gold), int(Game.wallet.zc)], 16, Color.WHITE, UiKit.bold())
+	var money := HBoxContainer.new()
+	money.add_theme_constant_override("separation", 8)
+	for m in [["coin", int(Game.wallet.gold)], ["gem", int(Game.wallet.zc)]]:
+		var pill := _icon_button(m[0], str(m[1]), func(): pass, Vector2(118, 36), false, Color(1, 1, 1, 0.08), Color.WHITE, 18)
+		pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		money.add_child(pill)
 	page.add_child(money)
 	money.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	money.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	money.position += Vector2(-20, 12)
+	money.position += Vector2(-16, 12)
 	# Body.
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	page.add_child(scroll)
 	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scroll.offset_top = 70
+	scroll.offset_top = 76
 	scroll.offset_bottom = -16
 	scroll.offset_left = 40
 	scroll.offset_right = -40
@@ -1637,19 +1951,70 @@ func _input(event: InputEvent) -> void:
 	_wait_key = ""
 	_open("keys")
 
+## Choosing how to play: four big cards (solo, duo, squad, team war) with a
+## picture each, then how long and how hard.
+const MODES := [
+	["solo", "فردي", "100 لاعب، كل واحد لحاله. آخر واحد واقف بيربح.", "br"],
+	["duo", "ثنائي", "إنت وزميل من الكمبيوتر بتنزلوا سوا وبترفعوا بعض.", "duo"],
+	["squad", "فرقة", "فرقة من 4: بتنطّوا سوا، بتقاتلوا سوا، بترفعوا بعض.", "squad"],
+	["war", "⚔ حرب الفرق", "4 فرق × 25، حصون وقلوب، احتلال، فلوس ومتجر ومدرعات.", "war"],
+]
+
 func _page_mode(body: VBoxContainer) -> void:
-	var c := _box_panel(Color(0.1, 0.3, 0.25, 0.35))
-	var v := VBoxContainer.new()
-	c.add_child(v)
-	v.add_child(UiKit.label("كلاسيكي — جزيرة الصفر (8×8)", 20, Color.WHITE, UiKit.bold(), 0))
-	v.add_child(UiKit.label("منظور الشخص الثالث • 100 لاعب", 14, Color(1, 1, 1, 0.75), null, 0))
-	body.add_child(c)
-	body.add_child(_row("طول المباراة", _seg(["classic", "quick"], ["كلاسيكي (100 لاعب، 25 دقيقة)", "سريع (50 لاعب، 10 دقايق)"], "length", "mode")))
-	body.add_child(_row("الفريق", _seg(["solo", "duo", "squad", "war"], ["فردي", "ثنائي (زميل واحد)", "فرقة (3 زملاء)", "⚔ حرب الفرق"], "mode", "mode")))
-	body.add_child(UiKit.label("بالثنائي والفرقة: زملاؤك من الكمبيوتر بينطّوا معك ويلحقوك، واللي بينصاب بينسقط على الأرض وزميله بيرفعه (F مطوّل).", 14, Color(1, 1, 1, 0.7), null, 0))
-	body.add_child(UiKit.label("⚔ حرب الفرق: 4 فرق × 25 لاعب، كل فريق بحصنه بمنطقته (الجليد، النار، الرمال، الغابة). دقيقة ونص تحضير والبوابات مسكّرة، بعدين الحرب. طول ما قلب حصنك واقف بترجع تولد فيه. احتل الأماكن بالسهول لتجمع فلوس، واكسر قلوب حصون الأعداء. بعد 15 دقيقة القلوب بتنطفي والمعركة الأخيرة بالنص.", 14, Color("ffd34d"), null, 0))
-	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
-	body.add_child(_row("", _small_btn("تأكيد", func(): _close_panel())))
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 14)
+	body.add_child(cards)
+	for m in MODES:
+		var id: String = m[0]
+		var on: bool = Game.settings.get("mode", "solo") == id
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(250, 300)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.focus_mode = Control.FOCUS_NONE
+		b.clip_contents = true
+		var st := UiKit.style(Color(0.05, 0.07, 0.1, 0.9), 12, ACCENT if on else Color(1, 1, 1, 0.15), 3 if on else 1, 0)
+		b.add_theme_stylebox_override("normal", st)
+		b.add_theme_stylebox_override("hover", UiKit.style(Color(0.08, 0.1, 0.14, 0.95), 12, ACCENT, 2, 0))
+		b.add_theme_stylebox_override("pressed", st)
+		b.pressed.connect(func():
+			Game.settings.mode = id
+			Game.save_data()
+			_open("mode"))
+		UiKit._springy(b)
+		cards.add_child(b)
+		var pic := TextureRect.new()
+		pic.texture = load("res://assets/textures/ui/modes/%s.jpg" % m[3])
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		pic.set_anchors_preset(Control.PRESET_TOP_WIDE)
+		pic.offset_bottom = 150
+		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(pic)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 6)
+		v.set_anchors_preset(Control.PRESET_FULL_RECT)
+		v.offset_top = 160
+		v.offset_left = 14
+		v.offset_right = -14
+		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(v)
+		v.add_child(UiKit.label(m[1], 22, ACCENT if on else Color.WHITE, UiKit.bold(), 2))
+		var d := UiKit.label(m[2], 14, Color(1, 1, 1, 0.75), null, 0)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size = Vector2(200, 0)
+		v.add_child(d)
+		if on: v.add_child(UiKit.label("✓ مختار", 15, Color("7dff8a"), UiKit.bold(), 0))
+	var opts := _box_panel()
+	body.add_child(opts)
+	var ov := VBoxContainer.new()
+	ov.add_theme_constant_override("separation", 10)
+	opts.add_child(ov)
+	if Game.settings.get("mode", "solo") != "war":
+		ov.add_child(_row("طول المباراة", _seg(["classic", "quick"], ["كلاسيكي (100 لاعب، 25 دقيقة)", "سريع (50 لاعب، 10 دقايق)"], "length", "mode")))
+	ov.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
+	var go := UiKit.yellow_button("تأكيد", func(): _close_panel(), Vector2(220, 52), 24)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	body.add_child(go)
 
 func _page_help(body: VBoxContainer) -> void:
 	body.add_child(UiKit.label("• اقفز من الطائرة فوق الجزيرة، وافتح المظلة.\n• اجمع الأسلحة والذخيرة (F أو زر «التقاط»).\n• عصا الحركة يسار — اسحبها لفوق لتثبيت الركض.\n• اسحب يمين الشاشة للنظر، وأزرار الإطلاق بتدوّر الكاميرا كمان.\n• كيبورد: WASD حركة، Shift ركض، C انحناء، Z انبطاح،\n   Space قفز ونطّ فوق الحيطان والشبابيك، R تلقيم، زر الماوس اليمين منظار،\n   Q و E ميلان، M الخريطة، B الحقيبة، Ctrl لإظهار الماوس أو إخفائه.\n   (كل الأزرار بتقدر تغيّرها من الإعدادات ← تغيير الأزرار)\n• H علاج، Y منشّط، G قنبلة (اترك الزر للرمي)، T نوع القنبلة.\n• F جنب صندوق الميت بتفتح أغراضه، وبتركب سيارة أو موتور أو قارب.\n• العب مباريات لتجمع ذهب وخبرة الموسم، واشتري ملابس من المخزون.", 17, Color.WHITE, null, 0))
