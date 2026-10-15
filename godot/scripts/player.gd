@@ -329,6 +329,10 @@ func interact() -> void:
 				firing = false
 				cancel_heal()
 				return
+			# Team war: the shop stall in your fort.
+			if world.war and world.war.near_shop(global_position):
+				world.hud.toggle_shop()
+				return
 			var door := door_target()
 			if not door.is_empty():
 				world.toggle_door(door, global_position)
@@ -1048,7 +1052,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 			if killed:
 				kills += 1
 				if head: head_kills += 1
-			world.effects.impact(end, hit.normal, not (col is Vehicle))     # cars get holes, not blood
+			world.effects.impact(end, hit.normal, not (col is Vehicle or col is FortHeart))     # cars get holes, not blood
 		else:
 			world.effects.impact(end, hit.normal, false)
 
@@ -1198,7 +1202,7 @@ func _update_camera(delta: float) -> void:
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
 	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
 	_update_wind()
-	model.visible = not scoped() and state != "plane"
+	model.visible = not scoped() and state != "plane" and not (state == "vehicle" and vehicle and vehicle.kind == "apc")
 
 var _cam_offset := Vector3(0, 1.6, 0)
 var _body_yaw := 0.0            # which way the body faces (lags the camera when standing still)
@@ -1557,7 +1561,8 @@ func enter_vehicle(v: Vehicle) -> void:
 	aiming = false
 	throw_ready = false
 	cancel_heal()
-	message.emit("WASD للقيادة • Space فرامل • F للنزول")
+	if v.kind == "apc": message.emit("WASD للقيادة • زر الإطلاق للرشاش اللي عالسقف • F للنزول")
+	else: message.emit("WASD للقيادة • Space فرامل • F للنزول")
 
 ## Get out (F). From a boat only where you can stand: next to the shore or
 ## in shallow water. `force` (the vehicle blew up): out anyway, on the
@@ -1619,3 +1624,5 @@ func _drive(_delta: float) -> void:
 	vehicle.steer_in = move_input.x
 	vehicle.handbrake = jump_queued or (Game.settings.controls == "kbm" and Input.is_physical_key_pressed(Game.key("jump")))
 	jump_queued = false
+	if vehicle.kind == "apc":
+		vehicle.turret_aim(yaw, pitch, firing, self, _delta)

@@ -7,12 +7,17 @@ const BOT_COUNT_MOBILE := 49   # phones: 50 players (a phone CPU can't run 99 bo
 
 ## Quick match: 50 players and a zone that closes about twice as fast (~10 minutes).
 func quick() -> bool:
-	return Game.settings.get("length", "classic") == "quick"
+	return Game.settings.get("length", "classic") == "quick" and not war_mode()
+
+## Team war (حرب الفرق): four teams with forts, see War.
+func war_mode() -> bool:
+	return Game.settings.get("mode", "solo") == "war"
 
 var island: Island
 var builder: WorldBuilder
 var effects: Effects
 var events: MatchEvents           # mid-match surprises: plane crash, eruption, earthquake
+var war: War = null               # team war mode only
 var birds: Birds
 var player: Player
 var hud: Hud
@@ -61,6 +66,7 @@ func _build() -> void:
 	if OS.has_feature("debug") and OS.get_cmdline_user_args().has("--fixed-seed"):
 		seed_v = 12345
 	island = Island.new(seed_v, Game.MAP_SIZE)
+	island.war = war_mode()
 	island.generate()
 	builder = WorldBuilder.new(island, self)
 	weather = Game.pick_weather()
@@ -91,7 +97,17 @@ func _build() -> void:
 	player.global_position = plane_position()
 	player.yaw = atan2(-(plane_to - plane_from).x, -(plane_to - plane_from).z)
 	player.pitch = -0.5
-	_spawn_bots()
+	if war_mode():
+		# No plane: everyone starts in their team's fort.
+		Game.spawn_island = false
+		plane_active = false
+		plane.visible = false
+		team_size = Game.team_size()
+		war = War.new()
+		add_child(war)
+		war.setup(self)
+	else:
+		_spawn_bots()
 	if Game.spawn_island:
 		Game.spawn_island = false
 		_start_waiting()
@@ -586,8 +602,37 @@ func _crosses(a: Vector2, b: Vector2, c: Vector2, h: Vector2) -> bool:
 	return true
 
 ## Waypoints for walking from a to b: leave/enter buildings through doors and
-## cross deep water on bridges. The goal itself is not included.
+## cross deep water on bridges (and, in team war, forts through their gates).
+## The goal itself is not included.
 func route(a: Vector3, b: Vector3) -> Array:
+	if war:
+		var wa := war.fort_at(Vector2(a.x, a.z), 1.0)
+		var wb := war.fort_at(Vector2(b.x, b.z), 1.0)
+		if wa != wb or wa < 0:
+			# Out through the gate, round the walls of any fort in the way,
+			# in through the other gate.
+			var pre := []
+			var post := []
+			var a2 := a
+			var b2 := b
+			if wa >= 0:
+				pre = war.gate_path(wa, true)
+				a2 = pre[-1]
+			if wb >= 0:
+				post = war.gate_path(wb, false)
+				b2 = post[0]
+			var mid: Array = war.around_forts(a2, b2)
+			var s := a2
+			var res := pre
+			for q in mid:
+				res.append_array(_route_plain(s, q))
+				res.append(q)
+				s = q
+			res.append_array(_route_plain(s, b2))
+			return res + post
+	return _route_plain(a, b)
+
+func _route_plain(a: Vector3, b: Vector3) -> Array:
 	var pts := []
 	var a2 := Vector2(a.x, a.z)
 	var b2 := Vector2(b.x, b.z)
@@ -684,6 +729,11 @@ func _build_cover() -> void:
 					if cx != 0.0 or cz != 0.0: add.call(s.pos + Vector2(cx * sh.x, cz * sh.y), 1.5)
 		else:
 			add.call(s.pos, 1.6)
+
+func _cover_add(p: Vector2, r: float) -> void:
+	var k := Vector2i(floori(p.x / COVER_CELL), floori(p.y / COVER_CELL))
+	if not _cover.has(k): _cover[k] = []
+	_cover[k].append([p, r])
 
 ## A spot behind something solid, away from `threat`, within `reach` metres
 ## of `from` (Vector3.INF if none). Checked with a ray from the threat's eyes.
@@ -826,7 +876,7 @@ static func is_gone(a: Node) -> bool:
 ## Can `a` be knocked down instead of dying? Only with a teammate still on
 ## their feet to pick them up.
 func can_knock(a: Node) -> bool:
-	if team_size <= 1 or is_down(a): return false
+	if team_size <= 1 or is_down(a) or war: return false
 	for m in teammates(a):
 		if not is_gone(m) and not is_down(m): return true
 	return false
@@ -910,6 +960,9 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 		Game.profile.rival = {"name": attacker.display_name, "persona": attacker.persona}
 		player.longest_kill = maxf(player.longest_kill, player.global_position.distance_to(victim.global_position))
 	if attacker == null: zone_deaths += 1
+	if war:
+		war.on_kill(victim, attacker)
+		return
 	_commentate(victim, attacker)
 	# Bled out or team wiped: the kill goes to whoever knocked them down.
 	if victim is Bot and victim.bled and attacker != null and is_instance_valid(attacker) and attacker != victim:
@@ -941,6 +994,9 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 		_end_match(false)
 
 func _on_player_died(_killer: String) -> void:
+	if war:
+		war.on_player_died()
+		return
 	# In a team the match goes on while a teammate lives: you watch them.
 	if team_alive(player.team) and team_size > 1:
 		hud.team_still_alive()
@@ -951,6 +1007,7 @@ func _end_match(won: bool) -> void:
 	if match_over: return
 	match_over = true
 	var rank := 1 if won else (teams_alive() + 1 if team_size > 1 else alive_count() + 1)
+	if war and not won: rank = war.teams_in() + 1
 	if won: Game.stats.wins += 1
 	if Game.stats.best == 0 or rank < Game.stats.best: Game.stats.best = rank
 	var reward := Game.reward_match(rank, player.kills, won)
@@ -1386,6 +1443,7 @@ func explode(pos: Vector3, thrower: Node, exclude: Array = []) -> void:
 	for v in vehicles:
 		if v.dead or v.global_position.distance_to(pos) > Grenade.FRAG_RADIUS: continue
 		v.take_damage(Grenade.FRAG_DAMAGE * 2.0 * (1.0 - v.global_position.distance_to(pos) / Grenade.FRAG_RADIUS), thrower)
+	if war: war.blast(pos, thrower)
 	var pd := pos.distance_to(player.global_position)
 	if pd < 40.0: player.shake = maxf(player.shake, 1.0 - pd / 40.0)
 

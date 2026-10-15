@@ -53,6 +53,11 @@ const PLACES := [
 	["الأطلال", "ruins", Vector2(1095, 1795), 55.0, "desert", false],
 	["المنارة", "lighthouse", Vector2(1823, 98), 35.0, "nordic", false],
 ]
+## Team war: each team's fort in its own region (in team order: ice, fire,
+## sand, forest), and the places in the plains worth fighting over.
+const FORT_SPOTS := [["nordic", Vector2(850, 560)], ["volcano", Vector2(1440, 1300)], ["desert", Vector2(720, 1500)], ["jungle", Vector2(600, 900)]]
+const FORT_HALF := 40.0
+const WAR_POINTS := [["مزارع الشمال", Vector2(805, 765)], ["مدينة الشفق", Vector2(1225, 892)], ["المزارع", Vector2(968, 1262)], ["تلة الصقور", Vector2(700, 1200)]]
 ## Small islands the painting has but the coast map may have lost: centre, radius (px).
 const ISLETS := [[Vector2(1823, 98), 42.0], [Vector2(1095, 1800), 30.0], [Vector2(105, 1822), 45.0]]
 ## Paved roads (w 9 m) and dirt tracks (w 6 m) as polylines.
@@ -123,6 +128,9 @@ var warp := FastNoiseLite.new()
 var ridge := FastNoiseLite.new()
 ## Region weights on a coarse grid: desert, jungle (the forest), nordic, volcano (plains = the rest).
 var biome := PackedFloat32Array()
+var war := false               # team war: four forts, places to capture
+var forts: Array = []          # {team, region, pos: Vector2, y, gate: Vector2 (unit, outwards)}
+var war_points: Array = []     # {name, pos: Vector2}
 var _water_d := PackedFloat32Array()   # per height sample: metres to the nearest river line
 var _lava_d := PackedFloat32Array()    # per height sample: metres to the nearest lava line
 
@@ -152,6 +160,7 @@ func generate() -> void:
 	_roads()
 	_carve_water()
 	_buildings()
+	if war: _war_points()
 	_props()
 
 ## A point of the painted map (pixels) in world metres.
@@ -473,8 +482,9 @@ func _towns() -> void:
 	for pl in PLACES:
 		var t := {"name": pl[0], "kind": pl[1], "pos": _m(pl[2]), "r": pl[3], "region": pl[4], "military": pl[5]}
 		towns.append(t)
+	if war: _forts()
 	for t in towns:
-		if t.kind in ["crater", "lighthouse", "ruins"]: continue
+		if t.kind in ["crater", "lighthouse", "ruins", "fort"]: continue
 		# Town ground: level, a little above the sea (ports stay low by the water).
 		var level := maxf(1.6, height_at(t.pos.x, t.pos.y) * (0.5 if t.kind != "city" else 0.35))
 		if t.kind == "port": level = maxf(1.8, height_at(t.pos.x, t.pos.y) * 0.3)
@@ -484,6 +494,35 @@ func _towns() -> void:
 		var r: Rect2 = fa
 		var c := _m(r.get_center())
 		flatten(c, _m(r.size) * 0.5, 60.0, maxf(1.8, height_at(c.x, c.y)))
+
+## The four forts: a level square of ground each (no houses, trees or rocks
+## on it), the gate on the side facing the middle of the island.
+func _forts() -> void:
+	var mid := _m(LAKE_C)
+	for i in FORT_SPOTS.size():
+		var c := _m(FORT_SPOTS[i][1])
+		var y := maxf(2.0, height_at(c.x, c.y))
+		flatten(c, Vector2(FORT_HALF + 6.0, FORT_HALF + 6.0), 70.0, y)
+		var to := mid - c
+		var gate := Vector2(signf(to.x), 0) if absf(to.x) > absf(to.y) else Vector2(0, signf(to.y))
+		forts.append({"team": i, "region": FORT_SPOTS[i][0], "pos": c, "y": y, "gate": gate})
+		towns.append({"name": "", "kind": "fort", "pos": c, "r": FORT_HALF + 20.0, "region": FORT_SPOTS[i][0], "military": false})
+		var half := Vector2(FORT_HALF + 4.0, FORT_HALF + 4.0)
+		_fp_add(c, half)
+		obstacles.append({"pos": c, "half": half})
+
+## Where each capture point's flag stands: near its place, on open ground.
+func _war_points() -> void:
+	for wp in WAR_POINTS:
+		var c := _m(wp[1])
+		var at := c
+		for k in 60:
+			var p := c + Vector2(k * 1.5, 0).rotated(k * 2.4)
+			if _land_around(p, 8.0) and not _overlaps(p, Vector2(6, 6), 2.0) and not near_road(p, 4.0):
+				at = p
+				break
+		_fp_add(at, Vector2(4, 4))
+		war_points.append({"name": wp[0], "pos": at})
 
 func _roads() -> void:
 	for spec in [[PAVED, 9.0, false], [DIRT, 6.0, true]]:
@@ -701,6 +740,7 @@ func _buildings() -> void:
 			"airport": _airport(t); continue
 			"ruins": _ruins(t); continue
 			"lighthouse": _lighthouse(t); continue
+			"fort": continue
 			"crater":
 				for k in 6:
 					loot_spots.append({"pos": t.pos + Vector2(rng.randf_range(70.0, 100.0), 0).rotated(rng.randf() * TAU), "military": true})

@@ -78,6 +78,13 @@ func start() -> void:
 	if state != "idle": return
 	_begin_phase(0)
 
+## Team war's final battle: the zone starts round the middle of the plains
+## (c, radius r) at a later phase, and closes in from there.
+func start_war(c: Vector2, r: float) -> void:
+	center = c
+	radius = r
+	_begin_phase(2)
+
 func _begin_phase(i: int) -> void:
 	phase = i
 	if i >= PHASES.size():
@@ -127,7 +134,7 @@ func _process(delta: float) -> void:
 
 ## The big map gives everyone a bit longer to reach each circle.
 func _time_k() -> float:
-	return clampf(world.island.size / 4096.0, 1.0, 1.35) * (0.45 if world.quick() else 1.0)
+	return clampf(world.island.size / 4096.0, 1.0, 1.35) * (0.45 if world.quick() else 1.0) * (0.6 if world.war else 1.0)
 
 func _update_wall() -> void:
 	_wall.position = Vector3(center.x, 300.0, center.y)

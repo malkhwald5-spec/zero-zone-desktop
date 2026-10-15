@@ -129,11 +129,11 @@ func touch_override(act: String) -> Array:
 	var v = all[i].get(act, [])
 	return v if typeof(v) == TYPE_ARRAY and v.size() == 3 else []
 
-const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة"}
+const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة", "war": "حرب الفرق"}
 
 ## Players per team in the chosen mode.
 func team_size() -> int:
-	return {"solo": 1, "duo": 2, "squad": 4}.get(settings.get("mode", "solo"), 1)
+	return {"solo": 1, "duo": 2, "squad": 4, "war": 25}.get(settings.get("mode", "solo"), 1)
 
 ## Keyboard actions you can rebind (Settings → الأزرار), their default keys
 ## and names. Esc and 4-8 (heals) stay fixed.
