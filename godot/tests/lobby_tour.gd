@@ -52,5 +52,11 @@ func _run() -> void:
 	print("TOUR match ready after %.1f s" % ((Time.get_ticks_msec() - t0) / 1000.0))
 	await wait(2.0)
 	await shot("tour_spawn")
+	# The pause menu and its settings panel.
+	world.hud.toggle_pause()
+	await get_tree().process_frame
+	world.hud._match_settings()
+	await get_tree().process_frame
+	await shot("tour_match_settings")
 	print("TOUR DONE")
 	tree.quit()

@@ -1267,13 +1267,37 @@ func _page_shop(body: VBoxContainer) -> void:
 
 func _page_crate(body: VBoxContainer) -> void:
 	var c := _box_panel(Color(0.55, 0.12, 0.22, 0.3))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 20)
+	c.add_child(hb)
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(120, 120)
+	box.draw.connect(func():
+		box.draw_circle(Vector2(60, 60), 58, Color(1, 0.75, 0.2, 0.18))
+		Icons.draw(box, "crate", Vector2(60, 60), 34, Color("ffd34d")))
+	hb.add_child(box)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
-	c.add_child(v)
-	v.add_child(UiKit.label("افتح الصندوق بـ 🪙 150 وجرّب حظك:", 18, Color.WHITE, UiKit.bold(), 0))
-	v.add_child(UiKit.label("• ملابس ما عندك (فرصة 40%)\n• أو ذهب بين 60 و 300", 15, Color(1, 1, 1, 0.8), null, 0))
-	v.add_child(_small_btn("افتح الصندوق", _open_crate, int(Game.wallet.gold) >= 150))
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(UiKit.label("صندوق القمر الأحمر — 🪙 150", 22, Color.WHITE, UiKit.bold(), 0))
+	v.add_child(UiKit.label("40% فرصة تطلعلك ملابس ما عندك، غير هيك ذهب بين 60 و 300", 15, Color(1, 1, 1, 0.8), null, 0))
+	var open_b := UiKit.yellow_button("افتح الصندوق", _open_crate, Vector2(260, 56), 24)
+	open_b.disabled = int(Game.wallet.gold) < 150
+	v.add_child(open_b)
+	hb.add_child(v)
 	body.add_child(c)
+	var missing := []
+	for i in Game.WARDROBE.size():
+		if not Game.owns(i): missing.append(i)
+	if missing.is_empty():
+		body.add_child(UiKit.label("عندك كل الملابس! الصندوق بيعطيك ذهب بس.", 15, Color(1, 1, 1, 0.7), null, 0))
+		return
+	body.add_child(UiKit.label("ممكن يطلعلك:", 15, Color(1, 1, 1, 0.7), null, 0))
+	var grid := GridContainer.new()
+	grid.columns = 6
+	grid.add_theme_constant_override("h_separation", 12)
+	body.add_child(grid)
+	for i in missing: grid.add_child(_outfit_card(i))
 
 func _open_crate() -> void:
 	if int(Game.wallet.gold) < 150: return
@@ -1284,13 +1308,64 @@ func _open_crate() -> void:
 	if not missing.is_empty() and randf() < 0.4:
 		var i: int = missing[randi() % missing.size()]
 		Game.profile.owned.append(i)
-		_toast("🎉 طلعلك: %s" % Game.WARDROBE[i][0])
+		Game.save_data()
+		_open("crate")
+		_reveal("🎉 طلعلك: %s" % Game.WARDROBE[i][0], load("res://assets/textures/ui/outfits/outfit_%d.png" % i))
 	else:
 		var g := randi_range(60, 300)
 		Game.wallet.gold = int(Game.wallet.gold) + g
-		_toast("طلعلك 🪙 %d" % g)
-	Game.save_data()
-	_open("crate")
+		Game.save_data()
+		_open("crate")
+		_reveal("طلعلك 🪙 %d" % g, null)
+
+## The prize: a burst of light and the prize growing into view; click to close.
+func _reveal(text: String, pic: Texture2D) -> void:
+	var o := Button.new()
+	o.flat = true
+	o.set_anchors_preset(Control.PRESET_FULL_RECT)
+	o.add_theme_stylebox_override("normal", UiKit.style(Color(0, 0, 0, 0.78), 0))
+	o.add_theme_stylebox_override("hover", UiKit.style(Color(0, 0, 0, 0.78), 0))
+	o.add_theme_stylebox_override("pressed", UiKit.style(Color(0, 0, 0, 0.78), 0))
+	o.pressed.connect(o.queue_free)
+	ui.add_child(o)
+	var burst := Control.new()
+	burst.set_anchors_preset(Control.PRESET_FULL_RECT)
+	burst.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	o.add_child(burst)
+	var spin := [0.0]
+	burst.draw.connect(func():
+		var c := burst.size * 0.5
+		for k in 16:
+			var a: float = spin[0] + k * TAU / 16.0
+			burst.draw_colored_polygon(PackedVector2Array([c, c + Vector2(cos(a - 0.08), sin(a - 0.08)) * 520.0, c + Vector2(cos(a + 0.08), sin(a + 0.08)) * 520.0]), Color(1, 0.8, 0.3, 0.09))
+		burst.draw_circle(c, 150, Color(1, 0.8, 0.3, 0.12)))
+	var tw_spin := burst.create_tween().set_loops()
+	tw_spin.tween_method(func(v): spin[0] = v; burst.queue_redraw(), 0.0, TAU / 16.0, 1.2)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	o.add_child(col)
+	if pic:
+		var tr := TextureRect.new()
+		tr.texture = pic
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.custom_minimum_size = Vector2(240, 320)
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(tr)
+	var l := UiKit.label(text, 34, Color("ffd34d"), UiKit.bold(), 6)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(l)
+	var hint := UiKit.label("اضغط بأي مكان للمتابعة", 14, Color(1, 1, 1, 0.6), null, 2)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(hint)
+	col.pivot_offset = get_viewport().get_visible_rect().size * 0.5
+	col.scale = Vector2(0.3, 0.3)
+	col.modulate.a = 0.0
+	var tw := col.create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(col, "scale", Vector2.ONE, 0.45)
+	tw.tween_property(col, "modulate:a", 1.0, 0.25)
 
 func _page_events(body: VBoxContainer) -> void:
 	var c := _box_panel(Color(0.35, 0.08, 0.2, 0.4))
