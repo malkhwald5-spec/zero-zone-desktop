@@ -196,6 +196,17 @@ func _make_fx(kind: String) -> void:
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES if kind != "storm" else BaseMaterial3D.BILLBOARD_FIXED_Y
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.albedo_color = d[2]
+	if kind != "storm":
+		# Soft round flakes and sparks, not squares.
+		var dot := GradientTexture2D.new()
+		dot.fill = GradientTexture2D.FILL_RADIAL
+		dot.fill_from = Vector2(0.5, 0.5)
+		dot.fill_to = Vector2(1.0, 0.5)
+		var g := Gradient.new()
+		g.set_color(0, Color(1, 1, 1, 1))
+		g.set_color(1, Color(1, 1, 1, 0))
+		dot.gradient = g
+		m.albedo_texture = dot
 	if kind == "volcano":
 		m.emission_enabled = true
 		m.emission = Color(1.0, 0.45, 0.1)
