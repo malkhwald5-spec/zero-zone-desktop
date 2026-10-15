@@ -3,6 +3,7 @@ extends Node
 ## town from above. Run with --out=/dir.
 
 var out := "user://"
+var kinds: PackedStringArray = []     # --kinds=bld_a,bld_b: only these
 
 func wait(sec: float) -> void:
 	await get_tree().create_timer(sec).timeout
@@ -15,6 +16,7 @@ func shot(name: String) -> void:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
+		if a.begins_with("--kinds="): kinds = a.substr(8).split(",")
 	Game.settings.quality = "high"
 	Game.settings.weather = "clear"
 	_run.call_deferred()
@@ -43,7 +45,7 @@ func _run() -> void:
 	print("model buildings ", counts)
 	for st in world.island.structures:
 		var k := String(st.kind)
-		if not k.begins_with("bld_") or done.has(k): continue
+		if not k.begins_with("bld_") or done.has(k) or (kinds.size() > 0 and not k in kinds): continue
 		done[k] = true
 		var c := Vector3(st.pos.x, world.island.height_at(st.pos.x, st.pos.y), st.pos.y)
 		var h: Vector2 = st.half

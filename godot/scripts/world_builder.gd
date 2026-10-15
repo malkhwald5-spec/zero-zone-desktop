@@ -2099,6 +2099,10 @@ func _power_lines() -> void:
 			for bld in island.buildings:
 				if free and q.distance_to(bld.pos) < maxf(bld.size.x, bld.size.y) * 0.75 + 2.0:
 					free = false
+			for stc in island.structures:
+				# Model buildings (the pool's dome, the warehouse) keep clear of poles too.
+				if free and String(stc.kind).begins_with("bld_") and absf(q.x - stc.pos.x) < stc.half.x + 3.0 and absf(q.y - stc.pos.y) < stc.half.y + 3.0:
+					free = false
 			if not free:
 				prev = []
 				continue
