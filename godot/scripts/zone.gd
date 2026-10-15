@@ -17,12 +17,12 @@ const PHASES := [
 	[30.0, 20.0, 0.0, 14.0],
 ]
 
-## Region -> [name, screen tint, particle colour, particle size, fall speed].
+## Region -> [name, screen tint, particle colour, particle size, fall speed, fog colour].
 const DISASTERS := {
-	"volcano": ["حمم ورماد", Color(1.0, 0.35, 0.05, 0.16), Color(1.0, 0.45, 0.1, 0.9), 0.05, -1.2],
-	"nordic": ["عاصفة ثلجية", Color(0.85, 0.92, 1.0, 0.22), Color(1, 1, 1, 0.9), 0.06, 4.0],
-	"desert": ["عاصفة رملية", Color(0.8, 0.62, 0.35, 0.24), Color(0.85, 0.68, 0.42, 0.7), 0.04, 0.6],
-	"storm": ["عاصفة", Color(0.15, 0.22, 0.4, 0.18), Color(0.7, 0.8, 0.95, 0.55), 0.02, 18.0],
+	"volcano": ["حمم ورماد", Color(1.0, 0.3, 0.05, 0.22), Color(1.0, 0.45, 0.1, 0.95), 0.07, -1.2, Color(0.45, 0.22, 0.12)],
+	"nordic": ["عاصفة ثلجية", Color(0.85, 0.92, 1.0, 0.3), Color(1, 1, 1, 0.95), 0.07, 4.0, Color(0.88, 0.92, 0.97)],
+	"desert": ["عاصفة رملية", Color(0.8, 0.6, 0.32, 0.32), Color(0.86, 0.68, 0.4, 0.8), 0.07, 0.6, Color(0.78, 0.6, 0.38)],
+	"storm": ["عاصفة", Color(0.12, 0.18, 0.32, 0.25), Color(0.75, 0.82, 0.95, 0.6), 0.03, 18.0, Color(0.35, 0.4, 0.48)],
 }
 
 var world: Node
@@ -42,6 +42,7 @@ var _mat: ShaderMaterial
 var _fx: CPUParticles3D           # snow, sand, ash or rain round the player outside the zone
 var _fx_kind := ""
 var _fog_base := -1.0
+var _fog_col := Color.WHITE
 var _fog_k := 0.0
 
 func setup(w: Node) -> void:
@@ -168,10 +169,14 @@ func _disaster_fx(delta: float) -> void:
 		if cam: _fx.global_position = cam.global_position
 	var env: Environment = world.builder.env
 	if env:
-		if _fog_base < 0.0: _fog_base = env.fog_density
+		if _fog_base < 0.0:
+			_fog_base = env.fog_density
+			_fog_col = env.fog_light_color
 		_fog_k = move_toward(_fog_k, 1.0 if out else 0.0, delta * 0.6)
-		var extra: float = {"nordic": 0.012, "desert": 0.01, "volcano": 0.005, "storm": 0.004}.get(_fx_kind, 0.0)
-		env.fog_density = _fog_base + extra * _fog_k
+		if _fx_kind != "":
+			var extra: float = {"nordic": 0.03, "desert": 0.025, "volcano": 0.012, "storm": 0.008}[_fx_kind]
+			env.fog_density = _fog_base + extra * _fog_k
+			env.fog_light_color = _fog_col.lerp(DISASTERS[_fx_kind][5], _fog_k)
 
 func _make_fx(kind: String) -> void:
 	_fx_kind = kind
@@ -179,13 +184,13 @@ func _make_fx(kind: String) -> void:
 	if _fx == null:
 		_fx = CPUParticles3D.new()
 		_fx.amount = 260
-		_fx.lifetime = 2.2
+		_fx.lifetime = 1.6
 		_fx.local_coords = false
 		_fx.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-		_fx.emission_box_extents = Vector3(14, 8, 14)
+		_fx.emission_box_extents = Vector3(7, 4, 7)
 		add_child(_fx)
 	var q := QuadMesh.new()
-	q.size = Vector2.ONE * float(d[3]) * (Vector2(1, 6) if kind == "storm" else Vector2.ONE)
+	q.size = Vector2.ONE * float(d[3]) * (Vector2(1, 14) if kind == "storm" else Vector2.ONE)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES if kind != "storm" else BaseMaterial3D.BILLBOARD_FIXED_Y
@@ -204,4 +209,4 @@ func _make_fx(kind: String) -> void:
 	_fx.gravity = Vector3(0, -fall, 0)
 	_fx.initial_velocity_min = 6.0 if kind in ["nordic", "desert"] else 1.0
 	_fx.initial_velocity_max = 12.0 if kind in ["nordic", "desert"] else 3.0
-	_fx.amount = 420 if kind in ["nordic", "desert"] else 260
+	_fx.amount = 900 if kind in ["nordic", "desert"] else 450
