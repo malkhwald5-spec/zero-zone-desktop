@@ -794,8 +794,8 @@ func _city(t: Dictionary) -> void:
 		var off := (gi + 0.5) * cell
 		var half_len := sqrt(maxf(0.0, r * r - off * off))
 		if half_len < 40.0: continue
-		roads.append({"a": c + Vector2(off, -half_len), "b": c + Vector2(off, half_len), "w": 8.0, "street": true})
-		roads.append({"a": c + Vector2(-half_len, off), "b": c + Vector2(half_len, off), "w": 8.0, "street": true})
+		_street(c + Vector2(off, -half_len), c + Vector2(off, half_len))
+		_street(c + Vector2(-half_len, off), c + Vector2(half_len, off))
 	_road_grid()
 	for gj in range(-n, n + 1):
 		for gi in range(-n, n + 1):
@@ -808,6 +808,28 @@ func _city(t: Dictionary) -> void:
 			if _overlaps(p, half, 5.0) or near_road(p, half.length() + 2.0) or near_water(p, 8.0): continue
 			_add_building(p, sz, false, 2 if rng.randf() < 0.55 else 1)
 	_structure("water_tower", c + Vector2(r * 0.7, -r * 0.3), Vector2(3.6, 3.6))
+
+## A city street from a to b, broken where it would run through one of the
+## model buildings (the pool, the warehouse, the apartment blocks).
+func _street(a: Vector2, b: Vector2) -> void:
+	var length := a.distance_to(b)
+	var dir := (b - a) / length
+	var start := -1.0
+	var d := 0.0
+	while d <= length:
+		var q := a + dir * d
+		var blocked := false
+		for st in structures:
+			if String(st.kind).begins_with("bld_") and absf(q.x - st.pos.x) < st.half.x + 5.0 and absf(q.y - st.pos.y) < st.half.y + 5.0:
+				blocked = true
+				break
+		if not blocked and start < 0.0: start = d
+		if (blocked or d + 4.0 > length) and start >= 0.0:
+			var end := d if blocked else length
+			if end - start >= 20.0:
+				roads.append({"a": a + dir * start, "b": a + dir * end, "w": 8.0, "street": true})
+			start = -1.0
+		d += 4.0
 
 ## Harbour: the village, a pier out over the water, containers and a crane on the quay.
 func _port(t: Dictionary) -> void:
