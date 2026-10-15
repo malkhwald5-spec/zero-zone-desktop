@@ -141,6 +141,7 @@ func _build_scene() -> void:
 	add_child(fill)
 	fill.look_at_from_position(Vector3(10, 6, 20), Vector3.ZERO)
 	Game.apply_quality(env, sun)
+	_light_lobby(env, sun)
 
 	# The battlefield art (desert camp at dusk) as a big painted backdrop,
 	# sandy ground under the character fading into it, sandbags and ammo crates.
@@ -167,6 +168,26 @@ func _build_scene() -> void:
 
 
 var _art: MeshInstance3D
+
+## The lobby is one character on a stand: the big-world effects (global
+## illumination, screen-space reflections, volumetric fog, far shadows) cost a
+## lot here and show nothing, so they stay off whatever the quality preset.
+func _light_lobby(env: Environment, sun: DirectionalLight3D) -> void:
+	if env:
+		env.sdfgi_enabled = false
+		env.ssil_enabled = false
+		env.ssr_enabled = false
+		env.volumetric_fog_enabled = false
+		env.ssao_enabled = false
+	if sun:
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		sun.directional_shadow_max_distance = 14.0
+	# 2x edge smoothing at most and no temporal AA (a still scene); a small
+	# shadow map is plenty for 14 m. The match sets its own when it loads.
+	var vp := get_viewport()
+	vp.use_taa = false
+	if vp.msaa_3d > Viewport.MSAA_2X: vp.msaa_3d = Viewport.MSAA_2X
+	RenderingServer.directional_shadow_atlas_set_size(2048, true)
 var _ring_mat: StandardMaterial3D
 const CAM_AT := Vector3(0.15, 1.2, 3.9)
 const CAM_LOOK := Vector3(0.0, 1.0, 0.0)
@@ -269,8 +290,11 @@ func _spawn_soldier() -> void:
 	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
-	soldier.set_weapon("m416")
-	soldier.rotation.y = PI - 0.45    # turned a little off the camera: a stronger stance
+	# Standing easy, the rifle slung across the back (a cleaner pose than
+	# holding the gun in the lobby).
+	soldier.set_weapon("")
+	soldier.set_back_weapon("m416")
+	soldier.rotation.y = PI - 0.3     # turned a little off the camera: a stronger stance
 	holder.add_child(soldier)
 	_idle_t = 0.0
 	_idle_i = 0
@@ -278,7 +302,7 @@ func _spawn_soldier() -> void:
 ## The character's idle in the lobby: rifle at the ready, looking at you,
 ## and every few seconds something else — checks the magazine, raises the
 ## sight, looks around.
-const IDLE_STEPS := [["idle", 6.0], ["check", 2.6], ["idle", 5.0], ["aim", 2.4], ["idle", 5.0], ["look", 4.5]]
+const IDLE_STEPS := [["idle", 6.0], ["look", 4.5], ["idle", 5.0], ["look", 4.5]]
 var _idle_t := 0.0
 var _idle_i := 0
 
@@ -314,7 +338,7 @@ func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
 	_idle_director(delta)
-	soldier.set_pose("stand", 0.0, true, delta, t)
+	soldier.set_pose("stand", 0.0, false, delta, t)
 	# The backdrop drifts slowly and the camera breathes; the ring pulses.
 	if _art: _art.position.x = sin(t * 0.07) * 1.6
 	if panel == null:
@@ -653,8 +677,10 @@ func _tick_ui(_delta: float) -> void:
 		var k := 1.0 + sin(t * 3.0) * 0.025
 		labels.start.scale = Vector2(k, k)
 	if labels.has("status"):
+		# Only when the minute changes (re-shaping the text every frame costs).
 		var now := Time.get_time_dict_from_system()
-		labels.status.text = "📶 عالية الدقة  الشرق الأوسط   %02d:%02d   %s" % [now.hour, now.minute, Game.VERSION]
+		var txt := "📶 عالية الدقة  الشرق الأوسط   %02d:%02d   %s" % [now.hour, now.minute, Game.VERSION]
+		if labels.status.text != txt: labels.status.text = txt
 
 func _refresh() -> void:
 	labels.name.text = Game.player_name()
@@ -1223,6 +1249,7 @@ func _apply_gfx() -> void:
 		if n is WorldEnvironment: env = n.environment
 		elif n is DirectionalLight3D and sun == null: sun = n
 	Game.apply_quality(env, sun)
+	_light_lobby(env, sun)
 
 # ---------------------------------------------------------------- settings
 const SET_TABS := [["basic", "أساسي"], ["graphics", "الرسومات"], ["controls", "التحكم"], ["vehicle", "المركبات"],

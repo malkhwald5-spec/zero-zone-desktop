@@ -293,6 +293,9 @@ func toggle_pause() -> void:
 		Game.save_data()
 		pause_panel.queue_free()
 		pause_panel = null
+		if _settings_box:
+			_settings_box.queue_free()
+			_settings_box = null
 		get_tree().paused = false
 		if Game.settings.controls == "kbm":
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -300,26 +303,112 @@ func toggle_pause() -> void:
 		return
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	pause_panel = _panel("إيقاف مؤقت", [["متابعة", toggle_pause], ["القائمة الرئيسية", _to_lobby]])
+	pause_panel = _panel("إيقاف مؤقت", [["متابعة", toggle_pause], ["الإعدادات", _match_settings], ["القائمة الرئيسية", _to_lobby]])
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
-	# Look and aim speed can be changed without leaving the match.
-	var vb: VBoxContainer = pause_panel.get_child(0)
-	for opt in [["حساسية النظر", "sensitivity", 0.3, 3.0, 1.0], ["حساسية التصويب والسكوب", "aim_sens", 0.15, 1.2, 0.45]]:
-		var l := Label.new()
-		l.text = opt[0]
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		vb.add_child(l)
-		var sl := HSlider.new()
-		sl.min_value = opt[2]
-		sl.max_value = opt[3]
-		sl.step = 0.05
-		sl.value = float(Game.settings.get(opt[1], opt[4]))
-		sl.custom_minimum_size = Vector2(280, 28)
-		var key: String = opt[1]
-		sl.value_changed.connect(func(v):
+
+var _settings_box: Control
+
+## Graphics and controls without leaving the match (opened from the pause menu).
+func _match_settings() -> void:
+	if _settings_box: _settings_box.queue_free()
+	var pc := PanelContainer.new()
+	pc.process_mode = Node.PROCESS_MODE_ALWAYS
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.04, 0.06, 0.09, 0.95), 12, Color(1, 0.83, 0.3, 0.35), 1, 24))
+	add_child(pc)
+	_settings_box = pc
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 10)
+	pc.add_child(vb)
+	var head := UiKit.label("الإعدادات", 28, Color("ffd34d"), bold)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(head)
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 40)
+	vb.add_child(cols)
+	var gfx := _settings_col(cols, "الجرافيك")
+	var apply := func():
+		Game.apply_quality(world.builder.env, world.builder.sun)
+		Game.save_data()
+	_seg_row(gfx, "الجودة", Game.QUALITIES, Game.QUALITY_NAMES, "quality", apply)
+	_seg_row(gfx, "الإطارات بالثانية", Game.FPS_OPTIONS, Game.FPS_OPTIONS.map(func(f): return str(f)), "fps", apply)
+	_seg_row(gfx, "وضع اللابتوب", [true, false], ["تشغيل", "إيقاف"], "laptop", apply)
+	_slider_row(gfx, "دقة الرسم", "render_scale", 0.7, 1.0, 1.0, apply, true)
+	_slider_row(gfx, "السطوع", "brightness", 0.7, 1.4, 1.0, apply, true)
+	_seg_row(gfx, "عداد الإطارات", [true, false], ["تشغيل", "إيقاف"], "show_fps", apply)
+	var note := UiKit.label("بعض التغييرات (المسافة والعشب) بتبين بالمباراة الجاية", 13, Color(1, 1, 1, 0.6))
+	gfx.add_child(note)
+	var ctl := _settings_col(cols, "التحكم")
+	var sens := func():
+		world.player.sens = float(Game.settings.sensitivity)
+		Game.save_data()
+	_slider_row(ctl, "حساسية النظر", "sensitivity", 0.3, 3.0, 1.0, sens)
+	_slider_row(ctl, "حساسية التصويب والسكوب", "aim_sens", 0.15, 1.2, 0.45, sens)
+	_seg_row(ctl, "عكس محور النظر", [false, true], ["عادي", "معكوس"], "invert_y", sens)
+	_seg_row(ctl, "مساعدة التصويب", [true, false], ["تشغيل", "إيقاف"], "aim_assist", sens)
+	_seg_row(ctl, "التحكم", ["kbm", "touch"], ["كيبورد وماوس", "أزرار لمس"], "controls", func():
+		touch.visible = Game.settings.controls == "touch"
+		Game.save_data())
+	_seg_row(ctl, "الصوت", [true, false], ["تشغيل", "إيقاف"], "sound", func():
+		Game.apply_audio()
+		Game.save_data())
+	var done := UiKit.yellow_button("تمام", func():
+		_settings_box.queue_free()
+		_settings_box = null, Vector2(200, 48), 22)
+	done.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vb.add_child(done)
+	pc.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pc.grow_vertical = Control.GROW_DIRECTION_BOTH
+
+func _settings_col(parent: Control, title: String) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	col.custom_minimum_size = Vector2(380, 0)
+	parent.add_child(col)
+	col.add_child(UiKit.label(title, 20, Color.WHITE, bold))
+	return col
+
+## A row of choices for one setting; the chosen one is yellow.
+func _seg_row(parent: Control, text: String, values: Array, names: Array, key: String, after: Callable) -> void:
+	parent.add_child(UiKit.label(text, 14, Color(1, 1, 1, 0.75)))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	parent.add_child(row)
+	var btns := []
+	for i in values.size():
+		var b := UiKit.button(str(names[i]), func(): pass, Vector2(0, 34), null, 14)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
+		btns.append(b)
+	var paint := func():
+		for i in values.size():
+			var on: bool = str(Game.settings.get(key)) == str(values[i])
+			btns[i].add_theme_stylebox_override("normal", UiKit.style(Color("ffd34d") if on else Color(1, 1, 1, 0.08), 4))
+			btns[i].add_theme_color_override("font_color", Color("1a1a1a") if on else Color.WHITE)
+	for i in values.size():
+		var v = values[i]
+		btns[i].pressed.connect(func():
 			Game.settings[key] = v
-			world.player.sens = float(Game.settings.sensitivity))
-		vb.add_child(sl)
+			paint.call()
+			after.call())
+	paint.call()
+
+func _slider_row(parent: Control, text: String, key: String, lo: float, hi: float, def: float, after: Callable, pct := false) -> void:
+	var lab := UiKit.label("", 14, Color(1, 1, 1, 0.75))
+	parent.add_child(lab)
+	var sl := HSlider.new()
+	sl.min_value = lo
+	sl.max_value = hi
+	sl.step = 0.05
+	sl.value = float(Game.settings.get(key, def))
+	sl.custom_minimum_size = Vector2(360, 26)
+	parent.add_child(sl)
+	var show := func(v: float): lab.text = "%s: %s" % [text, ("%d%%" % roundi(v * 100.0)) if pct else ("%.2f" % v)]
+	show.call(sl.value)
+	sl.value_changed.connect(func(v):
+		Game.settings[key] = v
+		show.call(v)
+		after.call())
 
 func show_results(won: bool, rank: int, kills: int, reward: Dictionary = {}) -> void:
 	if spectating:
