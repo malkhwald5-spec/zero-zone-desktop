@@ -4,6 +4,8 @@ extends Node
 ## Run: godot --path godot res://tests/lobby_tour.tscn -- --out=/dir
 
 var out := "user://"
+var pages_only := false
+var only: PackedStringArray = []
 
 func wait(sec: float) -> void:
 	await get_tree().create_timer(sec).timeout
@@ -16,6 +18,8 @@ func shot(name: String) -> void:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
+		if a == "--pages-only": pages_only = true
+		if a.begins_with("--only="): only = a.substr(7).split(",")
 	Game.settings.controls = "kbm"
 	_run.call_deferred()
 
@@ -33,6 +37,9 @@ func _run() -> void:
 		await shot("tour_" + page)
 		lobby._close_panel()
 		await wait(0.2)
+	if pages_only:
+		tree.quit()
+		return
 	var t0 := Time.get_ticks_msec()
 	lobby._start()
 	await wait(1.5)

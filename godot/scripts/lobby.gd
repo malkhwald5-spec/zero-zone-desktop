@@ -747,12 +747,17 @@ func _claim(id: String, gold: int, zc := 0) -> void:
 	_refresh()
 
 func _missions() -> Array:
+	var top10 := int(Game.stats.get("top10", 0))
 	return [
-		{"id": "m_play1", "text": "العب مباراة واحدة", "cur": Game.stats.games, "goal": 1, "gold": 100},
-		{"id": "m_play5", "text": "العب 5 مباريات", "cur": Game.stats.games, "goal": 5, "gold": 250},
-		{"id": "m_kill5", "text": "اقضِ على 5 خصوم", "cur": Game.stats.kills, "goal": 5, "gold": 200},
-		{"id": "m_kill25", "text": "اقضِ على 25 خصماً", "cur": Game.stats.kills, "goal": 25, "gold": 500},
-		{"id": "m_win1", "text": "افز بمباراة", "cur": Game.stats.wins, "goal": 1, "gold": 400},
+		{"id": "m_play1", "text": "العب مباراة واحدة", "cur": Game.stats.games, "goal": 1, "gold": 100, "icon": "globe"},
+		{"id": "m_play5", "text": "العب 5 مباريات", "cur": Game.stats.games, "goal": 5, "gold": 250, "icon": "globe"},
+		{"id": "m_play20", "text": "العب 20 مباراة", "cur": Game.stats.games, "goal": 20, "gold": 800, "icon": "globe"},
+		{"id": "m_kill5", "text": "اقضِ على 5 خصوم", "cur": Game.stats.kills, "goal": 5, "gold": 200, "icon": "tasks"},
+		{"id": "m_kill25", "text": "اقضِ على 25 خصماً", "cur": Game.stats.kills, "goal": 25, "gold": 500, "icon": "tasks"},
+		{"id": "m_kill100", "text": "اقضِ على 100 خصم", "cur": Game.stats.kills, "goal": 100, "gold": 1500, "icon": "tasks"},
+		{"id": "m_top10", "text": "خلّص بين أول 10 بـ 3 مباريات", "cur": top10, "goal": 3, "gold": 350, "icon": "crown"},
+		{"id": "m_win1", "text": "افز بمباراة", "cur": Game.stats.wins, "goal": 1, "gold": 400, "icon": "trophy"},
+		{"id": "m_win5", "text": "افز بـ 5 مباريات", "cur": Game.stats.wins, "goal": 5, "gold": 2000, "icon": "trophy"},
 	].map(func(m): m.done = int(m.cur) >= int(m.goal); return m)
 
 # =====================================================================
@@ -764,8 +769,11 @@ const TITLES := {
 	"events": "الفعاليات", "settings": "الإعدادات", "keys": "الأزرار", "mode": "اختيار الوضع", "help": "طريقة اللعب",
 }
 
+var _page := ""
+
 func _open(which: String) -> void:
 	_close_panel(false)
+	_page = which
 	var page := Control.new()
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -880,44 +888,80 @@ func _small_btn(text: String, cb: Callable, enabled := true, primary := true) ->
 	return b
 
 func _page_inventory(body: VBoxContainer) -> void:
-	body.add_child(UiKit.label("الملابس — اضغط للتجهيز أو الشراء", 15, Color(1, 1, 1, 0.7), null, 0))
+	_outfit_grid(body, 3)
+
+## Rarity by price: [name, top colour, bottom colour].
+func _rarity(price: int) -> Array:
+	if price >= 1000: return ["أسطوري", Color("c98a1c"), Color("4a2e08")]
+	if price >= 500: return ["ملحمي", Color("7b3fb8"), Color("2a1240")]
+	if price > 0: return ["نادر", Color("2f6fc0"), Color("0f2240")]
+	return ["عادي", Color("4a5866"), Color("1c232b")]
+
+## The wardrobe as tall cards with the outfit's portrait: rarity colours,
+## price or "owned", the equipped one marked; the whole card is the button.
+func _outfit_grid(body: VBoxContainer, columns: int) -> void:
+	body.add_child(UiKit.label("الملابس — اضغط على البطاقة للتجهيز أو الشراء", 15, Color(1, 1, 1, 0.7), null, 0))
 	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
+	grid.columns = columns
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
 	body.add_child(grid)
 	for i in Game.WARDROBE.size():
-		var w: Array = Game.WARDROBE[i]
-		var idx := i
-		var owned := Game.owns(i)
-		var equipped := int(Game.profile.outfit) == i
-		var card := _box_panel(Color(1, 0.82, 0.12, 0.18) if equipped else Color(1, 1, 1, 0.06))
-		card.custom_minimum_size = Vector2(270, 0)
-		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 10)
-		card.add_child(hb)
-		var sw := Control.new()
-		sw.custom_minimum_size = Vector2(46, 76)
-		var style: String = w[4] if w.size() > 4 else ""
-		sw.draw.connect(func():
-			if style == "panda":
-				sw.draw_circle(Vector2(16, 3), 4, Color.BLACK)
-				sw.draw_circle(Vector2(30, 3), 4, Color.BLACK)
-			sw.draw_circle(Vector2(23, 8), 7, Color.WHITE if style == "panda" else (Color("e8b84a") if style == "gold" else Color("d9a77f")))
-			sw.draw_rect(Rect2(8, 16, 30, 28), w[1])
-			sw.draw_rect(Rect2(10, 44, 12, 30), w[2])
-			sw.draw_rect(Rect2(24, 44, 12, 30), w[2]))
-		hb.add_child(sw)
-		var info := VBoxContainer.new()
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		info.add_child(UiKit.label(w[0], 16, Color.WHITE, UiKit.bold(), 0))
-		var state := "مُجهّز" if equipped else ("مملوك" if owned else "🪙 %d" % int(w[3]))
-		info.add_child(UiKit.label(state, 13, Color("ffd34d") if not owned else Color(1, 1, 1, 0.7), null, 0))
-		hb.add_child(info)
-		var b := _small_btn("تجهيز" if owned else "شراء", func(): _wear_or_buy(idx), not equipped)
-		b.custom_minimum_size = Vector2(80, 36)
-		hb.add_child(b)
-		grid.add_child(card)
+		grid.add_child(_outfit_card(i))
+
+func _outfit_card(i: int) -> Control:
+	var w: Array = Game.WARDROBE[i]
+	var owned := Game.owns(i)
+	var equipped := int(Game.profile.outfit) == i
+	var rar := _rarity(int(w[3]))
+	var card := Button.new()
+	card.custom_minimum_size = Vector2(172, 262)
+	card.clip_contents = true
+	var st := UiKit.style(Color(0, 0, 0, 0), 10, Color("ffd34d") if equipped else Color(1, 1, 1, 0.12), 3 if equipped else 1, 0)
+	for k in ["normal", "hover", "pressed", "focus"]:
+		var sk := st.duplicate() as StyleBoxFlat
+		if k == "hover": sk.border_color = Color(1, 1, 1, 0.6)
+		card.add_theme_stylebox_override(k, sk)
+	card.pressed.connect(func(): _wear_or_buy(i))
+	UiKit._springy(card)
+	var bg := TextureRect.new()
+	bg.texture = UiKit.gradient(rar[1], rar[2])
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(bg)
+	var path := "res://assets/textures/ui/outfits/outfit_%d.png" % i
+	if ResourceLoader.exists(path):
+		var pic := TextureRect.new()
+		pic.texture = load(path)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pic.set_anchors_preset(Control.PRESET_FULL_RECT)
+		pic.offset_top = 22
+		pic.offset_bottom = -58
+		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(pic)
+	var tag := UiKit.label(rar[0], 12, Color(1, 1, 1, 0.85), UiKit.bold(), 2)
+	tag.position = Vector2(8, 4)
+	card.add_child(tag)
+	var foot := ColorRect.new()
+	foot.color = Color(0, 0, 0, 0.55)
+	foot.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	foot.offset_top = -56
+	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(foot)
+	var name_l := UiKit.label(w[0], 16, Color.WHITE, UiKit.bold(), 2)
+	name_l.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	name_l.offset_top = -54
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(name_l)
+	var state := "✔ مُجهّز" if equipped else ("مملوك — اضغط للتجهيز" if owned else "🪙 %d" % int(w[3]))
+	var st_l := UiKit.label(state, 13, Color("ffd34d") if (equipped or not owned) else Color(1, 1, 1, 0.75), null, 2)
+	st_l.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	st_l.offset_top = -28
+	st_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(st_l)
+	return card
 
 func _wear_or_buy(i: int) -> void:
 	if not Game.owns(i):
@@ -931,7 +975,7 @@ func _wear_or_buy(i: int) -> void:
 	Game.profile.outfit = i
 	Game.save_data()
 	_spawn_soldier()
-	_open("inventory")
+	_open(_page if _page in ["inventory", "shop"] else "inventory")
 
 func _page_cards(body: VBoxContainer) -> void:
 	var le := LineEdit.new()
@@ -1122,24 +1166,64 @@ func _page_season(body: VBoxContainer) -> void:
 		grid.add_child(c)
 
 func _page_missions(body: VBoxContainer) -> void:
-	for m in _missions():
-		var c := _box_panel()
-		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 14)
-		c.add_child(hb)
-		var v := VBoxContainer.new()
-		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		v.add_child(UiKit.label(m.text, 17, Color.WHITE, UiKit.bold(), 0))
-		var pr := _bar(float(m.cur) / float(m.goal), Color("4caf50"))
-		pr.custom_minimum_size = Vector2(300, 8)
-		v.add_child(pr)
-		v.add_child(UiKit.label("%d / %d     المكافأة: 🪙 %d" % [mini(int(m.cur), int(m.goal)), m.goal, m.gold], 13, Color(1, 1, 1, 0.7), null, 0))
-		hb.add_child(v)
-		var id: String = m.id
-		var gold: int = m.gold
-		var claimed := _claimed(id)
-		hb.add_child(_small_btn("مستلم ✓" if claimed else ("استلام" if m.done else "قيد التقدم"), func(): _claim(id, gold); _open("missions"), m.done and not claimed))
-		body.add_child(c)
+	var list := _missions()
+	var ready := list.filter(func(m): return m.done and not _claimed(m.id))
+	var head := _box_panel(Color(1, 0.82, 0.12, 0.12))
+	var hh := HBoxContainer.new()
+	head.add_child(hh)
+	var ht := UiKit.label(("عندك %d مهام جاهزة للاستلام!" % ready.size()) if ready.size() > 0 else "خلّص المهام واجمع الذهب — بتتحدث كل ما تلعب", 17, Color("ffd34d"), UiKit.bold(), 0)
+	ht.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hh.add_child(ht)
+	if ready.size() > 1:
+		hh.add_child(_small_btn("استلم الكل", func():
+			for m in ready: _claim(m.id, m.gold)
+			_open("missions")))
+	body.add_child(head)
+	# Ready ones first, then the ones in progress, the claimed ones last.
+	list.sort_custom(func(x, y): return _mission_order(x) < _mission_order(y))
+	for m in list:
+		body.add_child(_mission_card(m))
+
+func _mission_order(m: Dictionary) -> int:
+	if _claimed(m.id): return 2
+	return 0 if m.done else 1
+
+func _mission_card(m: Dictionary) -> Control:
+	var claimed := _claimed(m.id)
+	var ready: bool = m.done and not claimed
+	var c := _box_panel(Color(1, 0.82, 0.12, 0.16) if ready else Color(1, 1, 1, 0.05 if not claimed else 0.025))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 16)
+	c.add_child(hb)
+	var ic := Control.new()
+	ic.custom_minimum_size = Vector2(52, 52)
+	var icon: String = m.get("icon", "tasks")
+	ic.draw.connect(func():
+		ic.draw_circle(Vector2(26, 26), 25, Color("ffd34d") if ready else Color(1, 1, 1, 0.1))
+		Icons.draw(ic, icon, Vector2(26, 26), 13, Color("1a1a1a") if ready else Color(1, 1, 1, 0.85)))
+	hb.add_child(ic)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 6)
+	v.add_child(UiKit.label(m.text, 17, Color.WHITE if not claimed else Color(1, 1, 1, 0.5), UiKit.bold(), 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var pr := _bar(float(m.cur) / float(m.goal), Color("ffd34d") if not claimed else Color(1, 1, 1, 0.3))
+	pr.custom_minimum_size = Vector2(360, 10)
+	row.add_child(pr)
+	row.add_child(UiKit.label("%d / %d" % [mini(int(m.cur), int(m.goal)), m.goal], 13, Color(1, 1, 1, 0.75), null, 0))
+	v.add_child(row)
+	hb.add_child(v)
+	var reward := UiKit.label("🪙 %d" % m.gold, 18, Color("ffd34d"), UiKit.bold(), 0)
+	reward.custom_minimum_size = Vector2(90, 0)
+	reward.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hb.add_child(reward)
+	var id: String = m.id
+	var gold: int = m.gold
+	var btn := _small_btn("مستلم ✓" if claimed else ("استلام" if m.done else "قيد التقدم"), func(): _claim(id, gold); _open("missions"), ready)
+	btn.custom_minimum_size = Vector2(130, 44)
+	hb.add_child(btn)
+	return c
 
 func _page_mail(body: VBoxContainer) -> void:
 	Game.wallet.mail_read = true
@@ -1179,7 +1263,7 @@ func _page_shop(body: VBoxContainer) -> void:
 	hb.add_child(v)
 	hb.add_child(_small_btn("افتح", func(): _open("crate")))
 	body.add_child(c)
-	_page_inventory(body)
+	_outfit_grid(body, 6)
 
 func _page_crate(body: VBoxContainer) -> void:
 	var c := _box_panel(Color(0.55, 0.12, 0.22, 0.3))
