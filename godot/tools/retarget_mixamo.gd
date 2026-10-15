@@ -42,14 +42,16 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	# Weapon switching, pistol, prone death, door, second throw, vault.
 	"draw": "grab_and_put_back_rifle", "holster": "put_back_rifle_behind_shoulder",
 	"preload": "pistol_reload", "pfire": "pistol_shooting", "pgunplay": "gunplay",
-	"prone_death": "prone_death", "door": "opening", "toss2": "throw_grenade", "vault": "jumping_over_into_combat"}
+	"prone_death": "prone_death", "door": "opening", "toss2": "throw_grenade", "vault": "jumping_over_into_combat",
+	# Vehicles, ladders, reviving a teammate.
+	"drive": "driving", "sit": "sitting_idle", "car_enter": "entering_car", "ladder": "climbing_ladder", "revive": "kneel_1"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
 	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump",
-	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault"]
+	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault", "car_enter"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

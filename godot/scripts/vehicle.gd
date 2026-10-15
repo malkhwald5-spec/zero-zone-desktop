@@ -190,7 +190,7 @@ func _effect_nodes(dust_at: Vector3, xs: Array, engine_at: Vector3) -> void:
 func seat_xform() -> Transform3D:
 	match kind:
 		"bike": return Transform3D(Basis(Vector3.BACK, lean), Vector3.ZERO) * Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.53, -0.08))
-		"boat": return Transform3D(Basis(Vector3.UP, PI), Vector3(-0.57, 1.45, -0.9))
+		"boat": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.55, 1.23, -0.3))
 		"jeep": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.62, -0.18))
 		"pickup": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.42, 0.5, 0.45))
 	return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.42, -0.18))

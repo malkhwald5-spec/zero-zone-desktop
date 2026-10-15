@@ -820,8 +820,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		# Bottle to the mouth: loop the drinking part of the clip.
 		_play("mx/drink", 1.0)
 		if ap.current_animation_position < 1.9 or ap.current_animation_position > 5.7: ap.seek(2.0, true)
+	elif reviving and pose in ["stand", "crouch"] and ap.has_animation("mx/revive"):
+		# Down on one knee by the teammate, tending them: loop the low part of the clip.
+		_play("mx/revive", 1.0)
+		if ap.current_animation_position < 2.8 or ap.current_animation_position > 6.4: ap.seek(3.0, true)
 	elif reviving and pose in ["stand", "crouch"]:
-		# Down on one knee by the teammate: loop the kneeling part of the clip.
 		_play("mx/kneel", 1.0)
 		if ap.current_animation_position < 1.8 or ap.current_animation_position > 6.2: ap.seek(3.2, true)
 	elif turn_dir != 0 and pose == "stand" and speed < 0.3:
@@ -884,6 +887,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/idle", 1.0)
 	elif pose == "stand" and ap.has_animation("mx/u_idle"):
 		_play("mx/u_idle", 1.0)
+	elif pose == "drive" and ride != "bike" and ap.has_animation("mx/drive"):
+		# Seated at the wheel (Mixamo driving clip); the hands follow the wheel below.
+		_play("mx/drive", 1.0)
 	elif pose == "fall" and ap.has_animation("mx/skydive"):
 		# Belly to earth, arched, arms and legs out (Mixamo skydive clip).
 		_play("mx/skydive", 1.0)
@@ -933,7 +939,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			_leg("Right", Vector3(0.32, 0.12, 0.3).lerp(Vector3(0.1, 0.02, 0.06), d), Vector3(0, 0, 1))
 		"drive":
 			# Seated: hips low, feet on the pedals, hands on the wheel (turning it).
-			body.position.y = -0.6
+			# The driving clip is already seated (hips 37 cm lower than standing).
+			var seated := _anim == "mx/drive"
+			body.position.y = -0.23 if seated else -0.6
 			if ride == "bike":
 				# Astride: hands on the grips (turning with the bars), feet on the pegs.
 				for side in [["Left", -1.0], ["Right", 1.0]]:
@@ -941,18 +949,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 					_arm(side[0], Vector3(sd * 0.32, 0.58 + sd * steer * 0.04, -0.55 - sd * steer * 0.08), Vector3(sd, -1, 0.3))
 					_leg(side[0], Vector3(sd * 0.2, -0.08, -0.18), Vector3(0, 0.5, -1))
 				return
-			if ride == "boat":
-				# On the stern bench: right hand on the tiller, left on the knee.
-				_arm("Right", Vector3(0.36, 0.66, 0.1 + steer * 0.12), Vector3(1, -1, 0))
-				_arm("Left", Vector3(-0.16, 0.45, -0.28), Vector3(-1, -1, 0))
-				_leg("Left", Vector3(-0.16, -0.18, -0.5), Vector3(0, 0.5, -1))
-				_leg("Right", Vector3(0.16, -0.18, -0.5), Vector3(0, 0.5, -1))
-				return
 			var a := steer * 0.9
 			for side in [["Left", -1.0], ["Right", 1.0]]:
 				var ang: float = (PI * 0.5 + 0.35) * side[1] + a
 				_arm(side[0], Vector3(sin(ang) * 0.17, 1.02 + cos(ang) * 0.17 * 0.8, -0.42), Vector3(side[1], -1, 0.5))
-				_leg(side[0], Vector3(side[1] * 0.16, 0.02, -0.62), Vector3(0, 1, -1))
+				if not seated: _leg(side[0], Vector3(side[1] * 0.16, 0.02, -0.62), Vector3(0, 1, -1))
 		"chute":
 			# Hands on the toggles; pulling one down turns, both down flares.
 			var pl := 0.4 * maxf(-steer, 0.0) + 0.35 * brake
