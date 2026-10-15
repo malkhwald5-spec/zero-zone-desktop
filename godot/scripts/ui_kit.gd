@@ -77,7 +77,20 @@ static func button(text: String, cb: Callable, size := Vector2(0, 44), st: Style
 	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		b.add_theme_color_override(k, col)
 	b.pressed.connect(cb)
+	_springy(b)
 	return b
+
+## Grows a little under the mouse and dips when pressed.
+static func _springy(b: Control) -> void:
+	b.resized.connect(func(): b.pivot_offset = b.size * 0.5)
+	var to := func(k: float) -> void:
+		if not b.is_inside_tree(): return
+		b.create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).tween_property(b, "scale", Vector2.ONE * k, 0.14)
+	b.mouse_entered.connect(to.bind(1.04))
+	b.mouse_exited.connect(to.bind(1.0))
+	if b is BaseButton:
+		(b as BaseButton).button_down.connect(to.bind(0.95))
+		(b as BaseButton).button_up.connect(to.bind(1.04))
 
 static func yellow_button(text: String, cb: Callable, size: Vector2, font_size := 36) -> Button:
 	var st := style(YELLOW, 3, Color("fff3a0"), 2)

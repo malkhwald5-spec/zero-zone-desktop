@@ -153,43 +153,89 @@ func _build_scene() -> void:
 	pm.subdivide_width = 8
 	pm.subdivide_depth = 8
 	_mesh(pm, sand, Vector3(0, 0, -6))
-	var bag := _mat(Color("b39c74"), 0.95)
-	bag.albedo_texture = _noise(0.25, 21)
-	for row in [[Vector3(-3.6, 0, -2.8), 7, 0.35], [Vector3(2.9, 0, -3.4), 6, -0.25]]:
-		var at: Vector3 = row[0]
-		var n: int = row[1]
-		var ang: float = row[2]
-		var dir := Vector3(cos(ang), 0, sin(ang))
-		for layer in 3:
-			for k in n - layer:
-				var c := CapsuleMesh.new()
-				c.radius = 0.2
-				c.height = 0.78
-				c.radial_segments = 10
-				c.rings = 4
-				var pos := at + dir * ((k - (n - layer - 1) * 0.5) * 0.66) + Vector3(0, 0.17 + layer * 0.3, 0)
-				var m := _mesh(c, bag, pos, Vector3(0, -ang, PI / 2))
-				m.scale = Vector3(1, 1, 0.75)
-	var crate := _mat(Color("3f4f34"), 0.7)
-	crate.albedo_texture = _noise(0.5, 31)
-	var steel := _mat(Color("2b2f2c"), 0.5, 0.0, 0.6)
-	for c in [[Vector3(2.7, 0, -4.6), 0.3, Vector3(0.8, 0.4, 0.45)], [Vector3(2.8, 0.4, -4.65), 0.15, Vector3(0.7, 0.32, 0.4)],
-			[Vector3(-3.1, 0, -5.0), -0.4, Vector3(0.85, 0.42, 0.48)]]:
-		var box_n := _mesh(_box(c[2]), crate, c[0] + Vector3(0, c[2].y * 0.5, 0), Vector3(0, c[1], 0))
-		_mesh(_box(Vector3(c[2].x + 0.02, 0.06, c[2].z + 0.02)), steel, c[0] + Vector3(0, c[2].y - 0.05, 0), Vector3(0, c[1], 0))
-		box_n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-
+	_pedestal()
+	_embers()
 	holder = Node3D.new()
 	add_child(holder)
 	_spawn_soldier()
 
 	cam = Camera3D.new()
-	cam.fov = 40
+	cam.fov = 38
 	add_child(cam)
-	cam.look_at_from_position(Vector3(0.2, 1.25, 4.6), Vector3(0.0, 1.05, 0.0))
+	cam.look_at_from_position(CAM_AT, CAM_LOOK)
 	cam.current = true
 
+
 var _art: MeshInstance3D
+var _ring_mat: StandardMaterial3D
+const CAM_AT := Vector3(0.15, 1.2, 3.9)
+const CAM_LOOK := Vector3(0.0, 1.0, 0.0)
+
+## The stand the character poses on: a dark steel disc with a glowing gold
+## ring, a spotlight from the front and a warm rim light behind.
+func _pedestal() -> void:
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.82
+	disc.bottom_radius = 0.88
+	disc.height = 0.1
+	disc.radial_segments = 48
+	var steel := _mat(Color("2a2d31"), 0.35, 0.0, 0.8)
+	_mesh(disc, steel, Vector3(0, 0.05, 0))
+	var ring := TorusMesh.new()
+	ring.inner_radius = 0.81
+	ring.outer_radius = 0.85
+	ring.rings = 64
+	_ring_mat = _mat(Color("ffcf3a"), 0.3, 1.2)
+	_mesh(ring, _ring_mat, Vector3(0, 0.1, 0))
+	var spot := SpotLight3D.new()
+	spot.light_color = Color("fff1dc")
+	spot.light_energy = 6.0
+	spot.spot_range = 9.0
+	spot.spot_angle = 22.0
+	spot.shadow_enabled = true
+	add_child(spot)
+	spot.look_at_from_position(Vector3(1.2, 4.5, 3.2), Vector3(0, 0.9, 0))
+	var rim := OmniLight3D.new()
+	rim.light_color = Color("ff9a4a")
+	rim.light_energy = 2.5
+	rim.omni_range = 4.0
+	rim.position = Vector3(-0.8, 1.9, -1.4)
+	add_child(rim)
+
+## Embers and dust drifting up through the light.
+func _embers() -> void:
+	var p := CPUParticles3D.new()
+	p.amount = 70
+	p.lifetime = 7.0
+	p.preprocess = 7.0
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	p.emission_box_extents = Vector3(5.0, 0.2, 3.0)
+	p.position = Vector3(0, 0.1, -1.0)
+	p.direction = Vector3(0.2, 1, 0)
+	p.spread = 25.0
+	p.gravity = Vector3(0.15, 0.05, 0)
+	p.initial_velocity_min = 0.15
+	p.initial_velocity_max = 0.45
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.4
+	var q := QuadMesh.new()
+	q.size = Vector2(0.025, 0.025)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(1.0, 0.62, 0.25, 0.85)
+	m.emission_enabled = true
+	m.emission = Color(1.0, 0.5, 0.15)
+	m.emission_energy_multiplier = 3.0
+	q.material = m
+	p.mesh = q
+	var fade := Gradient.new()
+	fade.set_color(0, Color(1, 1, 1, 0))
+	fade.add_point(0.2, Color(1, 1, 1, 1))
+	fade.set_color(fade.get_point_count() - 1, Color(1, 1, 1, 0))
+	p.color_ramp = fade
+	add_child(p)
 
 ## The war art far behind the scene, unlit (it is already painted), with its
 ## lower edge fading into the sand.
@@ -259,8 +305,15 @@ func _process(delta: float) -> void:
 	holder.rotation.y = drag_rot
 	_idle_director(delta)
 	soldier.set_pose("stand", 0.0, true, delta, t)
-	# The backdrop drifts slowly, like a camera breathing.
+	# The backdrop drifts slowly and the camera breathes; the ring pulses.
 	if _art: _art.position.x = sin(t * 0.07) * 1.6
+	if panel == null:
+		cam.look_at_from_position(CAM_AT + Vector3(sin(t * 0.21) * 0.08, sin(t * 0.33) * 0.03, 0), CAM_LOOK)
+	if _ring_mat: _ring_mat.emission_energy_multiplier = 1.0 + sin(t * 2.0) * 0.35
+	# The start button breathes, so the eye finds it.
+	var sb: Control = labels.get("start")
+	if sb and not sb.get_global_rect().has_point(sb.get_global_mouse_position()):
+		sb.modulate = Color(1, 1, 1).lerp(Color(1.18, 1.12, 0.9), 0.5 + 0.5 * sin(t * 3.0))
 	_tick_ui(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -277,6 +330,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_ui() -> void:
 	ui = CanvasLayer.new()
 	add_child(ui)
+	var vig := ColorRect.new()
+	vig.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vig.material = ShaderMaterial.new()
+	vig.material.shader = load("res://shaders/vignette.gdshader")
+	ui.add_child(vig)
 	root = Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -317,6 +376,7 @@ func _icon_button(icon: String, text: String, cb: Callable, size: Vector2, icon_
 	b.add_theme_stylebox_override("hover", hv)
 	b.add_theme_stylebox_override("pressed", hv)
 	b.pressed.connect(cb)
+	UiKit._springy(b)
 	var lbl := UiKit.label(text, 14 if icon_above else 16, Color.WHITE, UiKit.bold(), 3)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(lbl)
@@ -449,6 +509,7 @@ func _card(size: Vector2, top: Color, bottom: Color, cb: Callable) -> Button:
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(frame)
 	b.pressed.connect(cb)
+	UiKit._springy(b)
 	return b
 
 func _place(parent: Control, c: Control, pos: Vector2) -> Control:
@@ -606,8 +667,19 @@ func _refresh() -> void:
 	labels.bar_mail.text = "البريد •" if unread else "البريد"
 
 func _start() -> void:
+	if _starting: return
+	_starting = true
 	Game.spawn_island = true
-	get_tree().change_scene_to_file("res://scenes/world.tscn")
+	# A quick fade to black, then the match loads behind its loading screen.
+	var fade := ColorRect.new()
+	fade.color = Color(0, 0, 0, 0)
+	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(fade)
+	var tw := create_tween()
+	tw.tween_property(fade, "color:a", 1.0, 0.35)
+	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/world.tscn"))
+
+var _starting := false
 
 # ---------- Toasts / rewards ----------
 func _toast(text: String) -> void:
@@ -735,6 +807,12 @@ func _open(which: String) -> void:
 		"help": _page_help(body)
 	if side:
 		drag_rot = 0.5
+	# Pages fade and slide in.
+	page.modulate.a = 0.0
+	scroll.position.y += 18.0
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(page, "modulate:a", 1.0, 0.18)
+	tw.tween_property(scroll, "position:y", scroll.position.y - 18.0, 0.22)
 
 func _close_panel(refresh := true) -> void:
 	if panel:

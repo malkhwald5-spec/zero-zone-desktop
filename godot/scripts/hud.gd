@@ -59,7 +59,7 @@ func _ready() -> void:
 	p.hit_confirmed.connect(func(head, _killed, _pos): hit_t = 0.22; hit_head = head)
 	p.damaged.connect(func(dir): dmg_dirs.append({"dir": dir, "t": 1.2}))
 	p.message.connect(show_banner)
-	show_banner("مرحباً في منطقة الصفر — اقفز من الطائرة فوق الجزيرة")
+	show_banner("مرحباً في منطقة الصفر — جهّز حالك، الطيارة جاية" if world.spawn != null else "مرحباً في منطقة الصفر — اقفز من الطائرة فوق الجزيرة")
 	Game.cursor_free = false
 	if Game.settings.controls == "kbm":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -201,6 +201,8 @@ func _process(delta: float) -> void:
 		AudioServer.set_bus_volume_db(0, 0.0 if flash_t <= 0.0 else move_toward(vol, 0.0, delta * 18.0 / flash_len))
 	for d in dmg_dirs: d.t -= delta
 	dmg_dirs = dmg_dirs.filter(func(d): return d.t > 0.0)
+	# On the spawn island the countdown sits where messages go: messages drop below it.
+	banner.position.y = (get_viewport().get_visible_rect().size.y * 0.21 + 64.0) if world.spawn != null else 120.0
 	if _banner_t > 0.0:
 		_banner_t -= delta
 		banner.modulate.a = clampf(_banner_t, 0.0, 1.0)

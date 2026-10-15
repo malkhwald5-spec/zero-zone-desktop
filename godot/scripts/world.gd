@@ -101,8 +101,9 @@ func _build() -> void:
 	loading.set_progress(0.95, "جاري رسم الخريطة")
 	await _capture_map()
 	loading.set_progress(1.0, "يلا!")
-	await get_tree().create_timer(0.6).timeout
-	loading.queue_free()
+	await get_tree().create_timer(0.4).timeout
+	# Fade the loading screen away over the first view instead of cutting to it.
+	loading.fade_out()
 	loading = null
 	birds = Birds.new()
 	add_child(birds)

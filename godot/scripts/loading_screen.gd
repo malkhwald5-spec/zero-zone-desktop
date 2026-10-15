@@ -46,6 +46,13 @@ func _ready() -> void:
 	canvas.draw.connect(_draw_ui)
 	add_child(canvas)
 
+## Fades away over the first view of the match, then removes itself.
+func fade_out(sec := 0.6) -> void:
+	var tw := create_tween().set_parallel()
+	for c in get_children():
+		if c is CanvasItem: tw.tween_property(c, "modulate:a", 0.0, sec)
+	tw.chain().tween_callback(queue_free)
+
 func set_progress(v: float, text := "") -> void:
 	progress = clampf(v, 0.0, 1.0)
 	if text != "": note = text
