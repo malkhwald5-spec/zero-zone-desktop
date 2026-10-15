@@ -5,7 +5,9 @@ extends SceneTree
 ##   merged into one mesh, a surface per material, in the model's own space;
 ## - simplified to about --tris triangles with the engine's mesh simplifier,
 ##   which keeps the UVs (so the textures still fit);
-## - textures shrunk to --tex pixels; written as one .glb.
+## - textures shrunk to --tex pixels; written as one .glb, or, when --out ends
+##   in .obj, as an OBJ with its .mtl and textures (what Mixamo's auto-rigger
+##   takes: zip the folder and upload it).
 
 func _init() -> void:
 	var src := ""
@@ -46,6 +48,12 @@ func _init() -> void:
 		var m := im.get_surface_material(s)
 		if m is BaseMaterial3D: _shrink(m, tex)
 		mesh.surface_set_material(s, m)
+	if out.ends_with(".obj"):
+		_write_obj(mesh, out)
+		print("obj ", src, " tris ", total, " -> ", got, " aabb ", mesh.get_aabb())
+		sc.free()
+		quit()
+		return
 	var root := Node3D.new()
 	root.name = "prop"
 	var mi := MeshInstance3D.new()
@@ -121,3 +129,46 @@ func _shrink(m: BaseMaterial3D, tex: int) -> void:
 		var k := float(tex) / maxf(img.get_width(), img.get_height())
 		if k < 1.0: img.resize(maxi(4, int(img.get_width() * k)), maxi(4, int(img.get_height() * k)), Image.INTERPOLATE_LANCZOS)
 		m.set(p, ImageTexture.create_from_image(img))
+
+## OBJ + MTL + PNG textures, one material group per surface.
+func _write_obj(mesh: ArrayMesh, out: String) -> void:
+	var dir := out.get_base_dir()
+	var base := out.get_file().get_basename()
+	DirAccess.make_dir_recursive_absolute(dir)
+	var obj := FileAccess.open(out, FileAccess.WRITE)
+	var mtl := FileAccess.open(dir.path_join(base + ".mtl"), FileAccess.WRITE)
+	obj.store_line("mtllib %s.mtl" % base)
+	var off := 1
+	for s in mesh.get_surface_count():
+		var arr := mesh.surface_get_arrays(s)
+		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var uv = arr[Mesh.ARRAY_TEX_UV]
+		var nr = arr[Mesh.ARRAY_NORMAL]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+		var mname := "mat%d" % s
+		obj.store_line("o part%d" % s)
+		for p in v: obj.store_line("v %f %f %f" % [p.x, p.y, p.z])
+		if uv:
+			for t in uv: obj.store_line("vt %f %f" % [t.x, 1.0 - t.y])
+		if nr:
+			for n in nr: obj.store_line("vn %f %f %f" % [n.x, n.y, n.z])
+		obj.store_line("usemtl " + mname)
+		for t in idx.size() / 3:
+			# Godot winds clockwise; OBJ counter-clockwise.
+			var a := idx[t * 3] + off
+			var b := idx[t * 3 + 2] + off
+			var c := idx[t * 3 + 1] + off
+			obj.store_line("f %d/%d/%d %d/%d/%d %d/%d/%d" % [a, a, a, b, b, b, c, c, c])
+		off += v.size()
+		mtl.store_line("newmtl " + mname)
+		var m := mesh.surface_get_material(s) as BaseMaterial3D
+		if m and m.albedo_texture:
+			var img := m.albedo_texture.get_image()
+			if img.is_compressed(): img.decompress()
+			img.save_png(dir.path_join(mname + ".png"))
+			mtl.store_line("Kd 1 1 1")
+			mtl.store_line("map_Kd %s.png" % mname)
+		elif m:
+			mtl.store_line("Kd %f %f %f" % [m.albedo_color.r, m.albedo_color.g, m.albedo_color.b])
+	obj.close()
+	mtl.close()

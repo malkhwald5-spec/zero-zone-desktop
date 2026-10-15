@@ -446,7 +446,24 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, trim: SurfaceTool, body: StaticB
 		if _lining:
 			_add_box(_lining, c + inward, Vector3(sz.x, sz.y, 0.02) if along_x else Vector3(0.02, sz.y, sz.z), Color("ddd5c4"))
 
+static var _grime_noise: Texture2D
+
+## Wall material without the vertex-colour paint (for models), on the grime
+## noise the builder last used.
+static func _static_wall(tex: String, tile: float, grime: float, rough: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/building_wall.gdshader")
+	m.set_shader_parameter("albedo_tex", load("res://assets/textures/%s_col.jpg" % tex))
+	m.set_shader_parameter("normal_tex", load("res://assets/textures/%s_nrm.jpg" % tex))
+	m.set_shader_parameter("grime_noise", _grime_noise)
+	m.set_shader_parameter("tile", tile)
+	m.set_shader_parameter("tint_amount", 0.0)
+	m.set_shader_parameter("grime", grime if _grime_noise else 0.0)
+	m.set_shader_parameter("roughness", rough)
+	return m
+
 func _wall_shader(tex: String, tile: float, tint: float, grime: float, rough: float) -> ShaderMaterial:
+	_grime_noise = noise_b
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/building_wall.gdshader")
 	m.set_shader_parameter("albedo_tex", load("res://assets/textures/%s_col.jpg" % tex))
@@ -818,12 +835,25 @@ func _trim_mat() -> StandardMaterial3D:
 # ---------- Containers, silos, chimneys, water towers, hay, gas stations ----------
 static var _bld_cache := {}
 
-## [mesh, height]: a model building scaled to its footprint (Island.MODEL_BUILDINGS),
-## centred, its base 25 cm below 0.
+## Model buildings: file, whether people go inside (then it collides as its
+## real shape, not as one box), doorways cut into closed models (boxes in the
+## placed building's metres) and models that come without colours ("paint").
+const MODEL_FILES := {
+	"bld_house": {"file": "house_us"}, "bld_shed": {"file": "shed"},
+	"bld_tenement": {"file": "tenement"}, "bld_tower": {"file": "tower"},
+	"bld_abandoned": {"file": "abandoned", "enter": true, "paint": true},
+	"bld_warehouse": {"file": "warehouse", "enter": true,
+		"cut": [AABB(Vector3(-2.2, -1.0, -23.6), Vector3(4.4, 4.2, 1.2)), AABB(Vector3(-2.2, -1.0, 22.4), Vector3(4.4, 4.2, 1.2))]},
+	"bld_pool": {"file": "pool", "enter": true,
+		"cut": [AABB(Vector3(-2.0, -1.0, -26.0), Vector3(4.0, 3.4, 3.0)), AABB(Vector3(-2.0, -1.0, 23.5), Vector3(4.0, 3.4, 3.0))]},
+}
+
+## [mesh, height, collision shape or null]: a model building scaled to its
+## footprint (Island.MODEL_BUILDINGS), centred, its base 25 cm below 0.
 static func _model_building(kind: String) -> Array:
 	if _bld_cache.has(kind): return _bld_cache[kind]
-	var file: String = {"bld_house": "house_us", "bld_shed": "shed", "bld_tenement": "tenement", "bld_tower": "tower"}[kind]
-	var sc: Node3D = load("res://assets/models/buildings/%s.glb" % file).instantiate()
+	var cfg: Dictionary = MODEL_FILES[kind]
+	var sc: Node3D = load("res://assets/models/buildings/%s.glb" % cfg.file).instantiate()
 	var src: Mesh = null
 	for m: MeshInstance3D in sc.find_children("*", "MeshInstance3D", true, false):
 		if m.mesh: src = m.mesh
@@ -832,15 +862,68 @@ static func _model_building(kind: String) -> Array:
 	var k := fp.x / a.size.x
 	var xf := Transform3D(Basis.from_scale(Vector3.ONE * k), Vector3(-a.get_center().x * k, -a.position.y * k - 0.25, -a.get_center().z * k))
 	var mesh := ArrayMesh.new()
-	for i in src.get_surface_count():
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		st.append_from(src, i, xf)
-		st.set_material(src.surface_get_material(i))
-		st.commit(mesh)
+	if cfg.get("paint", false):
+		_painted_building(src, xf, a.size.y * k, mesh)
+	else:
+		for i in src.get_surface_count():
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			st.append_from(src, i, xf)
+			var arr := st.commit_to_arrays()
+			if cfg.has("cut"): arr = _cut_doorways(arr, cfg.cut)
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			mesh.surface_set_material(mesh.get_surface_count() - 1, src.surface_get_material(i))
 	sc.free()
-	_bld_cache[kind] = [mesh, a.size.y * k]
+	var shape: Shape3D = mesh.create_trimesh_shape() if cfg.get("enter", false) else null
+	_bld_cache[kind] = [mesh, a.size.y * k, shape]
 	return _bld_cache[kind]
+
+## Removes the triangles inside the doorway boxes (closed models get a way in).
+static func _cut_doorways(arr: Array, cuts: Array) -> Array:
+	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] else PackedInt32Array(range(v.size()))
+	var keep := PackedInt32Array()
+	for t in idx.size() / 3:
+		var c := (v[idx[t * 3]] + v[idx[t * 3 + 1]] + v[idx[t * 3 + 2]]) / 3.0
+		var inside := false
+		for box: AABB in cuts:
+			if box.has_point(c): inside = true
+		if not inside:
+			keep.append(idx[t * 3])
+			keep.append(idx[t * 3 + 1])
+			keep.append(idx[t * 3 + 2])
+	arr[Mesh.ARRAY_INDEX] = keep
+	return arr
+
+## A model with no colours of its own (the old wooden house): weathered planks
+## on the walls, darker boards on the roof, wooden floors, by the way each
+## triangle faces and how high it is.
+static func _painted_building(src: Mesh, xf: Transform3D, h: float, mesh: ArrayMesh) -> void:
+	var walls := _static_wall("planks", 2.0, 0.9, 0.9)
+	walls.set_shader_parameter("tint", Color("b9ab98"))
+	var roof := _static_wall("planks", 1.4, 0.6, 0.85)
+	roof.set_shader_parameter("tint", Color("5e5650"))
+	var floor_m := _static_wall("wood", 2.0, 0.3, 0.8)
+	var parts := {"walls": SurfaceTool.new(), "roof": SurfaceTool.new(), "floor": SurfaceTool.new()}
+	for key in parts: parts[key].begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in src.get_surface_count():
+		var arr := src.surface_get_arrays(i)
+		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] else PackedInt32Array(range(v.size()))
+		for t in idx.size() / 3:
+			var p := [xf * v[idx[t * 3]], xf * v[idx[t * 3 + 1]], xf * v[idx[t * 3 + 2]]]
+			var n: Vector3 = (p[2] - p[0]).cross(p[1] - p[0]).normalized()
+			var cy: float = (p[0].y + p[1].y + p[2].y) / 3.0
+			var key := "walls"
+			if absf(n.y) > 0.3 and cy > h * 0.55: key = "roof"
+			elif n.y > 0.8 and cy < h * 0.5: key = "floor"
+			for q in p:
+				parts[key].set_normal(n)
+				parts[key].add_vertex(q)
+	for key in parts:
+		var st: SurfaceTool = parts[key]
+		st.set_material({"walls": walls, "roof": roof, "floor": floor_m}[key])
+		st.commit(mesh)
 
 func _structures() -> void:
 	var parent := Node3D.new()
@@ -876,17 +959,24 @@ func _structures() -> void:
 		node.position = Vector3(p2.x, g, p2.y)
 		parent.add_child(node)
 		match st.kind:
-			"bld_house", "bld_shed", "bld_tenement", "bld_tower":
+			"bld_house", "bld_shed", "bld_tenement", "bld_tower", "bld_abandoned", "bld_warehouse", "bld_pool":
 				# Model building, turned in quarter turns, sitting a little into
-				# the ground; one solid box to bump into.
+				# the ground; one solid box to bump into, or its real shape for
+				# the ones you can walk into.
 				var bm: Array = _model_building(st.kind)
 				var mi := MeshInstance3D.new()
 				mi.mesh = bm[0]
 				mi.rotation.y = int(st.rot) * PI * 0.5
 				mi.visibility_range_end = 1600.0
 				node.add_child(mi)
-				var sh: Vector2 = st.half
-				_shape(body, node.position + Vector3(0, bm[1] * 0.5, 0), Vector3(sh.x * 2.0 - 0.3, bm[1], sh.y * 2.0 - 0.3))
+				if bm[2]:
+					var cs := CollisionShape3D.new()
+					cs.shape = bm[2]
+					cs.transform = Transform3D(Basis(Vector3.UP, mi.rotation.y), node.position)
+					body.add_child(cs)
+				else:
+					var sh: Vector2 = st.half
+					_shape(body, node.position + Vector3(0, bm[1] * 0.5, 0), Vector3(sh.x * 2.0 - 0.3, bm[1], sh.y * 2.0 - 0.3))
 			"container":
 				var size := Vector3(6.06, 2.59, 2.44)
 				var y: float = 2.59 * st.level + 1.295

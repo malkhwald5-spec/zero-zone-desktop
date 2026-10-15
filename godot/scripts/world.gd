@@ -216,6 +216,10 @@ func _spawn_loot() -> void:
 		for b in island.buildings:
 			if absf(p.x - b.pos.x) < b.size.x * 0.5 and absf(p.y - b.pos.y) < b.size.y * 0.5:
 				y = b.floor + (WorldBuilder.STOREY_H if spot.get("level", 0) == 1 else 0.0)
+		if spot.get("ray", false):
+			# Inside a model building: on the floor under the spot.
+			var hit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(p.x, y + 1.6, p.y), Vector3(p.x, y - 1.0, p.y)))
+			if hit: y = hit.position.y
 		var id := _pick_weapon(spot.military)
 		_add_pickup({"kind": "weapon", "id": id, "mag": 0}, Vector3(p.x, y, p.y))
 		var at: String = Game.WEAPONS[id].ammo
@@ -1172,7 +1176,7 @@ func _spawn_vehicles() -> void:
 			var v := Vehicle.new()
 			v.world = self
 			var r := randf()
-			v.kind = "bike" if r < 0.25 else ("jeep" if r < 0.55 else "sedan")
+			v.kind = "bike" if r < 0.22 else ("jeep" if r < 0.45 else ("pickup" if r < 0.65 else "sedan"))
 			v.paint = CAR_COLORS[randi() % CAR_COLORS.size()] if v.kind != "jeep" else [Color("4b5a3a"), Color("6b6250"), Color("3d4a52")][randi() % 3]
 			v.position = Vector3(p.x, island.height_at(p.x, p.y) + (0.9 if v.kind != "bike" else 0.6), p.y)
 			v.rotation.y = atan2(dir.x, dir.y) + (PI if randf() < 0.5 else 0.0)   # cars face +Z

@@ -123,6 +123,9 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
 - مركبات من Sketchfab (رخصة CC-BY-4.0، معدّلة: تصغير القوام، والموتور مخفف من ٤٤٠ ألف مثلث لـ ١٨ ألف بأداة `bike_bake` وعجلاته مفصولة):
   - الجيب: "Uaz-469" لـ Yo.Ri (grox777) — https://sketchfab.com/3d-models/uaz-469-70c8691c6fb64b859fbfc16babfa2c5f
   - الموتور: "2 stroke dirt-bike" لـ moto man 135 (csharp122705) — https://sketchfab.com/3d-models/2-stroke-dirt-bike-703c2391f70c47bea4f86412c8b4738b
+  - السيارة: "LADA 2107" لـ tiunov.se — https://sketchfab.com/3d-models/lada-2107-31201f80892b404a8e49c272490a664c (مخففة بأداة `tools/prep_vehicle.gd`)
+  - البيك أب: "Pickup Truck" لـ 00amza — https://sketchfab.com/3d-models/pickup-truck-047615f53e2d45b9a1a2a4dd203d459c (عجلاته مفصولة بأداة `tools/prep_vehicle.gd`)
+  - القارب: "SpeedBoat" لـ hsinpa — https://sketchfab.com/3d-models/speedboat-df5db2118b1944e0915441012c89527c (مخفف بأداة `tools/prep_vehicle.gd`)
 - شجر من Sketchfab (رخصة CC-BY-4.0، كل شجرة مقصوصة من الحزمة لملف لحالها في `assets/models/trees/`):
   - النخيل: "Low Poly Palms Pack" لـ Rusoski — https://sketchfab.com/3d-models/low-poly-palms-pack-bf1cadd21a704739bc19d535ae741728
   - شجر الغابة: "Low Poly Forest Tree Pack" لـ 99.Miles — https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b
@@ -146,6 +149,10 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
   - العمارة: "Low-poly Modular Building Tenement House" لـ Orzechu — https://sketchfab.com/3d-models/low-poly-modular-building-tenement-house-c579c4f421f94574b98e7eba7cd5f2a8
   - العمارة العالية: "Realistic Tiling Apartment Building low-poly" لـ kyantoran — https://sketchfab.com/3d-models/realistic-tiling-apartment-building-low-poly-12dc03948fd24f23af477cc8e5445353
   - المخزن: "Low Poly Portuguese Warehouse" لـ lexferreira89 — https://sketchfab.com/3d-models/low-poly-portuguese-warehouse-d2dc18ccd95745f695f634e6ab937109
+- مباني بتفوت عليها من Sketchfab (رخصة CC-BY-4.0، مخففة بأداة `tools/prep_prop.gd`، الأبواب مقصوصة بالكود):
+  - البيت المهجور: "Old Abandoned House with minor interior" لـ DavidFalke — https://sketchfab.com/3d-models/old-abandoned-house-with-minor-interior-393574fbcab4422cae9549f7d5af70b5 (ملوّن بقوام الخشب تبعنا)
+  - المستودع الكبير: "Warehouse FBX Model Free" لـ Nicholas-3D — https://sketchfab.com/3d-models/warehouse-fbx-model-free-daa7fd3ff88945298d00045ca40a4c03
+  - المسبح: "pool" لـ Arbin4444 — https://sketchfab.com/3d-models/pool-1711ea3b6e884ff8acb0ff0d0bded17f
 - الطيارة والبراشوت من Sketchfab (رخصة CC-BY-4.0، في `assets/models/air/`):
   - الطيارة: "Lockheed AC-130 Hercules" لـ helijah — https://sketchfab.com/3d-models/lockheed-ac-130-hercules-361991c9874d4680931b3e0d23500e43 (معدّلة بأداة `tools/prep_plane.gd`: شلنا الكابينة من جوا، خففناها، والمراوح الأربع مفصولة لتلف)
   - البراشوت: "Parachute - Low Poly" لـ calebcram — https://sketchfab.com/3d-models/parachute-low-poly-c6208b577e6b4d83a8bd5d5402ee485e

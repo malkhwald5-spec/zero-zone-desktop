@@ -54,6 +54,12 @@ func _run() -> void:
 		cam.look_at_from_position(c + Vector3(d * 0.8, 3.0 + h.length() * 0.25, d * 0.6), c + Vector3(0, 4.0 + h.length() * 0.2, 0))
 		await wait(0.6)
 		await shot("bld_" + k.substr(4))
+		if WorldBuilder.MODEL_FILES[k].get("enter", false):
+			# Inside, at eye height, looking along the longer side.
+			var along := Vector3(h.x * 0.8, 0, h.y * 0.3) if h.x > h.y else Vector3(h.x * 0.3, 0, h.y * 0.8)
+			cam.look_at_from_position(c + Vector3(0, 1.9, 0), c + along + Vector3(0, 1.4, 0))
+			await wait(0.6)
+			await shot("bld_" + k.substr(4) + "_in")
 		if k == "bld_tenement" or k == "bld_tower":
 			cam.look_at_from_position(c + Vector3(70, 55, 70), c)
 			await wait(0.6)

@@ -1,0 +1,11 @@
+Model Information:
+* title:	Old Abandoned House with minor interior
+* source:	https://sketchfab.com/3d-models/old-abandoned-house-with-minor-interior-393574fbcab4422cae9549f7d5af70b5
+* author:	DavidFalke (https://sketchfab.com/davidfalke)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Old Abandoned House with minor interior" (https://sketchfab.com/3d-models/old-abandoned-house-with-minor-interior-393574fbcab4422cae9549f7d5af70b5) by DavidFalke (https://sketchfab.com/davidfalke) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

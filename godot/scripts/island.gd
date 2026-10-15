@@ -773,7 +773,7 @@ func _houses(c: Vector2, r: float, count: int, military := false, two_storey := 
 func _city(t: Dictionary) -> void:
 	var c: Vector2 = t.pos
 	var r: float = t.r
-	var models := ["bld_tower", "bld_tenement", "bld_tower", "bld_tenement", "bld_tower", "bld_tenement", "bld_house", "bld_shed"]
+	var models := ["bld_pool", "bld_tower", "bld_tenement", "bld_tower", "bld_tenement", "bld_tower", "bld_tenement", "bld_house", "bld_shed", "bld_warehouse"]
 	for kind in models:
 		for attempt in 60:
 			var rot := rng.randi_range(0, 3)
@@ -784,6 +784,7 @@ func _city(t: Dictionary) -> void:
 			if _overlaps(p, half, 9.0) or near_road(p, half.length() + 3.0): continue
 			flatten(p, half, 10.0, maxf(1.6, height_at(p.x, p.y)))
 			_structure(kind, p, half, {"rot": rot, "half": half})
+			_model_loot(kind, p, half)
 			break
 	# Street grid: lots of 36 m with paved streets between them, a house on
 	# most lots, the middle left as a park.
@@ -902,13 +903,22 @@ func _lighthouse(t: Dictionary) -> void:
 ## house and a storehouse in every town, an apartment block in the bigger
 ## ones. Footprint in metres as drawn (world_builder scales the models to it).
 const MODEL_BUILDINGS := {"bld_house": Vector2(9.7, 7.8), "bld_shed": Vector2(13.9, 7.9),
-	"bld_tenement": Vector2(20.9, 45.3), "bld_tower": Vector2(17.7, 21.6)}
+	"bld_tenement": Vector2(20.9, 45.3), "bld_tower": Vector2(17.7, 21.6),
+	"bld_abandoned": Vector2(11.03, 7.98), "bld_warehouse": Vector2(16.0, 46.27), "bld_pool": Vector2(42.83, 50.8)}
+## The model buildings you can walk into, and how many loot spots each holds.
+const MODEL_LOOT := {"bld_abandoned": 2, "bld_warehouse": 4, "bld_pool": 3}
 
 func _model_buildings() -> void:
 	for t in towns:
-		if t.military or t.get("kind", "town") != "town": continue
-		var want := ["bld_house", "bld_shed"]
-		if float(t.r) >= 100.0: want.append("bld_tenement" if rng.randf() < 0.5 else "bld_tower")
+		var want := []
+		if t.military:
+			want = ["bld_warehouse"]
+		elif t.get("kind", "town") == "town":
+			want = ["bld_house", "bld_shed", "bld_abandoned"]
+			if rng.randf() < 0.4: want.append("bld_abandoned")
+			if float(t.r) >= 100.0: want.append("bld_tenement" if rng.randf() < 0.5 else "bld_tower")
+		elif t.get("kind", "") == "farm":
+			want = ["bld_abandoned"]
 		for kind in want:
 			for attempt in 80:
 				var rot := rng.randi_range(0, 3)
@@ -919,7 +929,15 @@ func _model_buildings() -> void:
 				if _overlaps(c, half, 6.0) or near_road(c, half.length() + 2.0): continue
 				flatten(c, half, 10.0, maxf(1.6, height_at(c.x, c.y)))
 				_structure(kind, c, half, {"rot": rot, "half": half})
+				_model_loot(kind, c, half)
 				break
+
+## Loot on the floors of a model building you can walk into ("ray": the
+## world finds the floor under it).
+func _model_loot(kind: String, c: Vector2, half: Vector2) -> void:
+	for k in MODEL_LOOT.get(kind, 0):
+		loot_spots.append({"pos": c + Vector2(rng.randf_range(-half.x, half.x), rng.randf_range(-half.y, half.y)) * 0.55,
+			"military": kind == "bld_warehouse" and rng.randf() < 0.5, "ray": true})
 
 ## Windmills (as on the small flowery map): one by each farm and a few more
 ## on open plains hills, among the lupine fields.

@@ -299,7 +299,9 @@ static func _fitted(id: String) -> Array:
 	sc.free()
 	return _fit_cache[id]
 
-static func _merge_fitted(n: Node, xf: Transform3D, by_mat: Dictionary, flat: SurfaceTool, has_flat: Array) -> void:
+## `keep`: plain-colour materials (by name) that stay their own surface, e.g. a
+## car's paint, so it can be recoloured.
+static func _merge_fitted(n: Node, xf: Transform3D, by_mat: Dictionary, flat: SurfaceTool, has_flat: Array, keep: Array = []) -> void:
 	if n is Node3D:
 		if not (n as Node3D).visible: return
 		xf = xf * (n as Node3D).transform
@@ -308,7 +310,8 @@ static func _merge_fitted(n: Node, xf: Transform3D, by_mat: Dictionary, flat: Su
 		for i in mi.mesh.get_surface_count():
 			var mat: Material = mi.get_surface_override_material(i)
 			if mat == null: mat = mi.mesh.surface_get_material(i)
-			if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture == null and (mat as BaseMaterial3D).normal_texture == null:
+			if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture == null and (mat as BaseMaterial3D).normal_texture == null \
+					and not mat.resource_name in keep:
 				# Plain colour: into the shared surface, the colour as vertex colours.
 				var tmp := SurfaceTool.new()
 				tmp.create_from(mi.mesh, i)
@@ -328,7 +331,7 @@ static func _merge_fitted(n: Node, xf: Transform3D, by_mat: Dictionary, flat: Su
 				by_mat[mat] = st
 			by_mat[mat].append_from(mi.mesh, i, xf)
 	for c in n.get_children():
-		_merge_fitted(c, xf, by_mat, flat, has_flat)
+		_merge_fitted(c, xf, by_mat, flat, has_flat, keep)
 
 ## Builds a weapon: returns a Node3D with meta "fore" (left hand), "muzzle"
 ## (z of the muzzle) and child "Mag" (moved during reloads).

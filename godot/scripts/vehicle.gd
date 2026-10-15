@@ -22,7 +22,7 @@ var throttle := 0.0              # -1..1
 var steer_in := 0.0              # -1..1 (right positive)
 var handbrake := false
 var paint := Color("b8402f")
-var kind := "sedan"              # "sedan" | "jeep" | "bike" | "boat"
+var kind := "sedan"              # "sedan" | "jeep" | "pickup" | "bike" | "boat"
 var max_health := MAX_HEALTH
 var max_speed := MAX_SPEED
 var max_force := MAX_FORCE
@@ -56,35 +56,24 @@ func _ready() -> void:
 	contact_monitor = false
 	linear_damp = 0.05
 	angular_damp = 1.2
-	var cs := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(1.8, 0.7, 4.2) if kind == "sedan" else Vector3(1.75, 0.85, 4.05)
-	cs.shape = box
-	cs.position.y = 0.72 if kind == "sedan" else 0.86
-	add_child(cs)
-	var cab := CollisionShape3D.new()
-	var cbox := BoxShape3D.new()
-	cbox.size = Vector3(1.5, 0.45, 2.3) if kind == "sedan" else Vector3(1.7, 0.8, 2.6)
-	cab.shape = cbox
-	cab.position = Vector3(0, 1.25, -0.35) if kind == "sedan" else Vector3(0, 1.7, -0.7)
-	add_child(cab)
+	# Body and cabin boxes: [size, centre] for each, the car facing +Z.
+	var boxes: Array = {
+		"sedan": [[Vector3(1.75, 0.7, 4.4), Vector3(0, 0.62, 0)], [Vector3(1.45, 0.5, 2.1), Vector3(0, 1.2, -0.15)]],
+		"pickup": [[Vector3(1.85, 0.85, 5.1), Vector3(0, 0.85, 0)], [Vector3(1.7, 0.7, 1.9), Vector3(0, 1.62, 0.55)]],
+	}.get(kind, [[Vector3(1.75, 0.85, 4.05), Vector3(0, 0.86, 0)], [Vector3(1.7, 0.8, 2.6), Vector3(0, 1.7, -0.7)]])
+	for b in boxes: _add_box_shape(b[0], b[1])
+	if kind == "pickup": mass = 1500.0
 	_build_model()
-	# Wheel spots: the imported jeep's own wheels, else four at the corners.
-	var spots := []
-	if kind == "jeep":
-		for iw in CarModels.imported("jeep").wheels: spots.append(iw)
-	else:
-		for x in [-0.82, 0.82]:
-			for z in [-1.35, 1.35]: spots.append([null, Vector3(x, 0.5 - 0.18, z)])
-	for spot in spots:
+	var imp := CarModels.imported(kind)
+	for spot in imp.wheels:
 		var c: Vector3 = spot[1]
 		var w := VehicleWheel3D.new()
 		w.position = c + Vector3(0, 0.18, 0)
-		w.wheel_radius = CarModels.imported("jeep").radius if spot[0] else 0.38
+		w.wheel_radius = imp.radius
 		w.wheel_rest_length = 0.18
 		w.suspension_travel = 0.22
 		w.suspension_stiffness = 45.0
-		w.suspension_max_force = 9000.0
+		w.suspension_max_force = 9000.0 * mass / 1150.0
 		w.damping_compression = 0.9
 		w.damping_relaxation = 1.1
 		w.wheel_friction_slip = 2.6
@@ -92,21 +81,9 @@ func _ready() -> void:
 		w.use_as_steering = c.z > 0.0          # front wheels (car faces +Z)
 		w.use_as_traction = true
 		add_child(w)
-		if spot[0]:
-			var im := MeshInstance3D.new()
-			im.mesh = spot[0]
-			w.add_child(im)
-		else:
-			var wm := CarModels.wheel(0.38, 0.26)
-			var tyre := MeshInstance3D.new()
-			tyre.mesh = wm.tyre
-			tyre.material_override = _shared_mat("tyre", Color("1a1a1b"), 0.92)
-			w.add_child(tyre)
-			var rim := MeshInstance3D.new()
-			rim.mesh = wm.rim
-			rim.material_override = _shared_mat("rim", Color("9aa0a6"), 0.3, 0.85)
-			w.add_child(rim)
-			_wheels.append(w)
+		var im := MeshInstance3D.new()
+		im.mesh = spot[0]
+		w.add_child(im)
 
 func _ready_common(m: float) -> void:
 	mass = m
@@ -124,14 +101,6 @@ func _add_box_shape(size: Vector3, pos: Vector3) -> void:
 	cs.shape = box
 	cs.position = pos
 	add_child(cs)
-
-## Meshes from CarModels with one material per part name.
-func _add_parts(parts: Dictionary, mats: Dictionary, parent: Node3D) -> void:
-	for k in parts:
-		var mi := MeshInstance3D.new()
-		mi.mesh = parts[k]
-		mi.material_override = mats[k]
-		parent.add_child(mi)
 
 func _ready_bike() -> void:
 	max_health = 320.0
@@ -188,15 +157,12 @@ func _ready_boat() -> void:
 	center_of_mass = Vector3(0, 0.1, -0.2)
 	linear_damp = 0.0
 	angular_damp = 0.8
-	_add_box_shape(Vector3(1.8, 0.5, 4.4), Vector3(0, 0.38, 0))
-	var hull := _mat(paint, 0.35)
-	hull.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_add_box_shape(Vector3(2.3, 0.6, 5.2), Vector3(0, 0.45, 0))
 	_tail_mat = _mat(Color("8a1010"), 0.25)
-	var white := _shared_mat("boat_white", Color("ece9e2"), 0.5)
-	white.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_add_parts(CarModels.boat(), {"paint": hull, "white": white,
-		"dark": _shared_mat("dark", Color("141516"), 0.6), "seat": _shared_mat("boat_seat", Color("2e5c74"), 0.8),
-		"glass": _shared_mat("glass", Color(0.08, 0.1, 0.12), 0.04, 0.6), "chrome": _shared_mat("chrome", Color("d8dde2"), 0.12, 1.0)}, self)
+	var body := MeshInstance3D.new()
+	body.mesh = CarModels.imported("boat").body
+	add_child(body)
+	_paint_surface(body, "GreenPlate", 0.35)
 	_effect_nodes(Vector3(0, 0.1, -2.6), [-0.4, 0.4], Vector3(0, 0.9, -2.4))
 	for d in _dust:
 		var dm: StandardMaterial3D = d.mesh.material
@@ -224,8 +190,9 @@ func _effect_nodes(dust_at: Vector3, xs: Array, engine_at: Vector3) -> void:
 func seat_xform() -> Transform3D:
 	match kind:
 		"bike": return Transform3D(Basis(Vector3.BACK, lean), Vector3.ZERO) * Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.53, -0.08))
-		"boat": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.35, 0.23, -1.75))
+		"boat": return Transform3D(Basis(Vector3.UP, PI), Vector3(-0.57, 1.45, -0.9))
 		"jeep": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.62, -0.18))
+		"pickup": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.42, 0.5, 0.45))
 	return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.42, -0.18))
 
 func _mat(c: Color, rough := 0.5, metal := 0.0) -> StandardMaterial3D:
@@ -242,14 +209,21 @@ func _shared_mat(key: String, c: Color, rough := 0.5, metal := 0.0) -> StandardM
 	return _mats[key]
 
 func _build_model() -> void:
-	if kind == "jeep":
-		var body := MeshInstance3D.new()
-		body.name = "Body"
-		body.mesh = CarModels.imported("jeep").body
-		add_child(body)
-		_tail_mat = _mat(Color("8a1010"), 0.25)
-	else:
-		_build_proc_body()
+	var body := MeshInstance3D.new()
+	body.name = "Body"
+	body.mesh = CarModels.imported(kind).body
+	add_child(body)
+	_tail_mat = _mat(Color("8a1010"), 0.25)
+	if kind == "sedan":
+		_paint_surface(body, "BaseColorCuzov", 0.22)
+		# Brake lights glow when braking.
+		for i in body.mesh.get_surface_count():
+			var m := body.mesh.surface_get_material(i)
+			if m and m.resource_name == "stopari":
+				_tail_mat.emission_enabled = true
+				_tail_mat.emission = Color("ff2a1a")
+				_tail_mat.emission_energy_multiplier = 0.3
+				body.set_surface_override_material(i, _tail_mat)
 	# Dust from the rear wheels on the move, smoke and fire when badly damaged.
 	for x in [-WHEEL_DUST_X, WHEEL_DUST_X]:
 		var d := _particles(Color(0.62, 0.55, 0.42, 0.55), 1.1, 0.6, 18)
@@ -269,36 +243,16 @@ func _build_model() -> void:
 
 const WHEEL_DUST_X := 0.82
 
-func _build_proc_body() -> void:
-	var data := CarModels.body(kind)
-	var body := MeshInstance3D.new()
-	body.name = "Body"
-	body.mesh = data.mesh
-	# Car paint: glossy clear-coat look.
-	var pm := _mat(paint, 0.22, 0.45)
-	pm.clearcoat_enabled = true
-	pm.clearcoat = 0.6
-	pm.clearcoat_roughness = 0.15
-	var gm := _shared_mat("glass", Color(0.08, 0.1, 0.12), 0.04, 0.6)
-	var by_name := {"paint": pm, "glass": gm, "trim": _shared_mat("trim", Color("161719"), 0.8)}
-	for i in data.surfaces.size():
-		body.set_surface_override_material(i, by_name[data.surfaces[i]])
-	add_child(body)
-	var head := _shared_mat("head", Color("fff6dc"), 0.1)
-	head.emission_enabled = true
-	head.emission = Color("fff3d0")
-	head.emission_energy_multiplier = 1.2
-	_tail_mat = _mat(Color("8a1010"), 0.25)
-	_tail_mat.emission_enabled = true
-	_tail_mat.emission = Color("ff2a1a")
-	_tail_mat.emission_energy_multiplier = 0.3
-	var mats := {"dark": _shared_mat("dark", Color("141516"), 0.6), "chrome": _shared_mat("chrome", Color("d8dde2"), 0.12, 1.0),
-		"white": _shared_mat("plate", Color("e8e8e2"), 0.5), "head": head, "tail": _tail_mat, "glass": gm}
-	for k in data.details:
-		var mi := MeshInstance3D.new()
-		mi.mesh = data.details[k]
-		mi.material_override = mats[k]
-		add_child(mi)
+## Car paint (the vehicle's own colour) on the model's surface with that material.
+func _paint_surface(body: MeshInstance3D, mat_name: String, rough: float) -> void:
+	for i in body.mesh.get_surface_count():
+		var m := body.mesh.surface_get_material(i)
+		if m and m.resource_name == mat_name:
+			var pm := _mat(paint, rough, 0.45)
+			pm.clearcoat_enabled = true
+			pm.clearcoat = 0.6
+			pm.clearcoat_roughness = 0.15
+			body.set_surface_override_material(i, pm)
 
 func _particles(col: Color, life: float, size: float, amount: int) -> CPUParticles3D:
 	var p := CPUParticles3D.new()

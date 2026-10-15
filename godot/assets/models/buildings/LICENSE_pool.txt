@@ -1,0 +1,11 @@
+Model Information:
+* title:	pool
+* source:	https://sketchfab.com/3d-models/pool-1711ea3b6e884ff8acb0ff0d0bded17f
+* author:	Arbin4444 (https://sketchfab.com/digilife4444)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "pool" (https://sketchfab.com/3d-models/pool-1711ea3b6e884ff8acb0ff0d0bded17f) by Arbin4444 (https://sketchfab.com/digilife4444) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

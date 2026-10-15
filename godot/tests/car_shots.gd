@@ -1,5 +1,5 @@
 extends Node
-## Screenshots of both car kinds, driving (driver in the seat, dust) and a
+## Screenshots of every vehicle kind, driving (driver in the seat, dust) and a
 ## damaged car on fire. Run: godot --path godot res://tests/car_shots.tscn -- --out=/dir
 
 var out := "user://"
@@ -35,7 +35,7 @@ func _run() -> void:
 	for b in world.bots: b.set_physics_process(false)
 	var cam := Camera3D.new()
 	world.add_child(cam)
-	for kind in ["sedan", "jeep", "bike", "boat"]:
+	for kind in ["sedan", "jeep", "pickup", "bike", "boat"]:
 		var car: Vehicle = null
 		for v in world.vehicles:
 			if v.kind == kind: car = v; break
@@ -53,7 +53,7 @@ func _run() -> void:
 		await shot("car_%s_back" % kind)
 	# Seated in the jeep and on the bike, seen from the side.
 	p.jump_from_plane()
-	for kind in ["jeep", "bike"]:
+	for kind in ["sedan", "jeep", "pickup", "bike", "boat"]:
 		var v: Vehicle = null
 		for vv in world.vehicles:
 			if vv.kind == kind: v = vv; break

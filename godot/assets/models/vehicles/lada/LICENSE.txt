@@ -1,0 +1,11 @@
+Model Information:
+* title:	LADA 2107
+* source:	https://sketchfab.com/3d-models/lada-2107-31201f80892b404a8e49c272490a664c
+* author:	tiunov.se (https://sketchfab.com/tiunov.se)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "LADA 2107" (https://sketchfab.com/3d-models/lada-2107-31201f80892b404a8e49c272490a664c) by tiunov.se (https://sketchfab.com/tiunov.se) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
