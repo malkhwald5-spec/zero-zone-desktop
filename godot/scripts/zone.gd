@@ -158,7 +158,11 @@ func label() -> String:
 	match state:
 		"wait": return "تصغير المنطقة خلال %d:%02d" % [t / 60, t % 60]
 		"shrink": return "المنطقة عم تصغر %d:%02d" % [t / 60, t % 60]
-		"idle": return "المنطقة الآمنة قريباً"
+		"idle":
+			if world.war:
+				var f := maxi(0, int(War.FINAL_AT - world.war.time))
+				return "المعركة الأخيرة بعد %d:%02d" % [f / 60, f % 60]
+			return "المنطقة الآمنة قريباً"
 	return "المنطقة النهائية"
 
 ## Outside the zone the player is in the disaster: its particles blowing round

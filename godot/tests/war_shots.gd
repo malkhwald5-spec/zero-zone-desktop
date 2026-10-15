@@ -102,4 +102,6 @@ func _run() -> void:
 	await wait(0.6)
 	await shot("war_8_map")
 	print("WAR SHOTS DONE")
+	Game.settings.mode = "solo"     # don't leave later tests (and the lobby) in team war
+	Game.save_data()
 	tree.quit()

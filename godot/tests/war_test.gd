@@ -79,6 +79,19 @@ func _run() -> void:
 	await tree.create_timer(War.RESPAWN_TIME + 1.0).timeout
 	check(p.state == "ground" and w.fort_at(Vector2(p.global_position.x, p.global_position.z)) == p.team, "you come back in your fort")
 	check(p.slots[0] != null, "with a gun again")
+	# Dying at the wheel of the armoured car: the car is free again after.
+	var apc: Vehicle = w.spawn_apc(p.team)
+	await tree.create_timer(1.0).timeout
+	p.global_position = apc.global_position + Vector3(2, 0, 0)
+	p.enter_vehicle(apc)
+	p.health = 10.0
+	p.take_damage(500.0, null)
+	check(apc.driver == null and p.vehicle == null, "dying in the armoured car leaves it empty")
+	await tree.create_timer(War.RESPAWN_TIME + 1.0).timeout
+	check(p.state == "ground" and not p.shape_node.disabled, "and you come back on your feet")
+	p.enter_vehicle(apc)
+	check(p.state == "vehicle", "and can drive it again")
+	p.exit_vehicle()
 	# Bots come back too.
 	var enemy := (p.team + 1) % 4
 	var victim: Bot = null
@@ -111,4 +124,6 @@ func _run() -> void:
 	await tree.create_timer(0.5).timeout
 	check(world.match_over, "last team standing wins")
 	print("WAR TEST ", "OK" if fails == 0 else "FAILED", " (%d failed)" % fails)
+	Game.settings.mode = "solo"     # don't leave later tests (and the lobby) in team war
+	Game.save_data()
 	tree.quit()

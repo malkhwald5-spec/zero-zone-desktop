@@ -337,8 +337,8 @@ func _update_shop_btn() -> void:
 		var key := " (V)" if Game.settings.controls == "kbm" else ""
 		_shop_btn = UiKit.yellow_button("المتجر" + key, toggle_shop, Vector2(170, 52), 22)
 		add_child(_shop_btn)
-		var vs := get_viewport().get_visible_rect().size
-		_shop_btn.position = Vector2(vs.x - 190, vs.y * 0.42)
+		# Under the team list, clear of the touch buttons.
+		_shop_btn.position = Vector2(14, 236)
 	elif not show_it and _shop_btn != null:
 		_shop_btn.queue_free()
 		_shop_btn = null
@@ -1462,7 +1462,7 @@ func _draw_war_teams(c: Control) -> void:
 			c.draw_rect(Rect2(26, y + 24, 120 * k, 7), col if h.hit_t > 0.5 else Color.WHITE)
 			_text(c, Vector2(152, y + 33), "حي %d  •  🚩%d" % [w.alive_in(t), w.points_owned(t)], 11, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_LEFT, null, 100)
 		y += 44.0
-	feed.position.y = y + 6.0
+	feed.position.y = y + (66.0 if _shop_btn else 6.0)
 
 func _fort_icon(c: Control, at: Vector2, f: Dictionary, s: float) -> void:
 	var col: Color = War.TEAMS[f.team].col

@@ -1130,6 +1130,9 @@ func _die(attacker: Node, _head: bool) -> void:
 	revive_target = null
 	health = 0.0
 	model.death_anim = _death_anim(attacker, _head)
+	if vehicle != null:
+		# Shot at the wheel: out of the seat, and the car rolls to a stop.
+		exit_vehicle(true)
 	state = "dead"
 	killer = attacker if attacker is Node3D and attacker != self else null
 	dead_t = 0.0

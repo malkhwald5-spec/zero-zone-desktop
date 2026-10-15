@@ -121,4 +121,6 @@ func _run() -> void:
 	check(w.final and world.zone.state != "idle", "the final battle starts the zone")
 	check(not w.can_respawn(p.team), "nobody comes back after that")
 	print("WAR SHOP TEST ", "OK" if fails == 0 else "FAILED", " (%d failed)" % fails)
+	Game.settings.mode = "solo"     # don't leave later tests (and the lobby) in team war
+	Game.save_data()
 	tree.quit()

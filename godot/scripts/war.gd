@@ -859,6 +859,11 @@ func respawn_player() -> void:
 	player_respawn = -1.0
 	var f: Dictionary = forts[p.team]
 	if world.hud: world.hud.end_spectate_for_respawn()
+	# Died at the wheel: the car is free again, and so is the body.
+	if p.vehicle != null:
+		if is_instance_valid(p.vehicle) and p.vehicle.driver == p: p.vehicle.driver = null
+		p.vehicle = null
+	p.shape_node.disabled = false
 	p.knocked = false
 	p.killer = null
 	p.spectate = null

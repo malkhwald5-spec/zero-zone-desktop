@@ -696,6 +696,7 @@ func _refresh() -> void:
 	labels.pass_bar.value = float(int(Game.wallet.xp) % Game.PASS_XP) / Game.PASS_XP * 100.0
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
 	labels.mode.text = "%s - %s | %s" % ["سريع" if Game.settings.get("length", "classic") == "quick" else "كلاسيكي", Game.MODE_NAMES.get(Game.settings.get("mode", "solo"), "فردي"), d]
+	if Game.settings.get("mode", "solo") == "war": labels.mode.text = "%s | %s" % [Game.MODE_NAMES.war, d]
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()
 	labels.missions_hint.text = ("%d جاهزة!" % ready) if ready > 0 else "متاح الآن"
 	var unread := not bool(Game.wallet.mail_read)
