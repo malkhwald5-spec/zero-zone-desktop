@@ -228,6 +228,16 @@ func _embers() -> void:
 	m.emission_enabled = true
 	m.emission = Color(1.0, 0.5, 0.15)
 	m.emission_energy_multiplier = 3.0
+	# A soft round spark, not a square.
+	var dot := GradientTexture2D.new()
+	dot.fill = GradientTexture2D.FILL_RADIAL
+	dot.fill_from = Vector2(0.5, 0.5)
+	dot.fill_to = Vector2(1.0, 0.5)
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	dot.gradient = g
+	m.albedo_texture = dot
 	q.material = m
 	p.mesh = q
 	var fade := Gradient.new()
