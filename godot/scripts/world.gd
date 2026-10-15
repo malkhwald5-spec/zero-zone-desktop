@@ -5,9 +5,14 @@ extends Node3D
 const BOT_COUNT := 99          # + the player = 100
 const BOT_COUNT_MOBILE := 49   # phones: 50 players (a phone CPU can't run 99 bots)
 
+## Quick match: 50 players and a zone that closes about twice as fast (~10 minutes).
+func quick() -> bool:
+	return Game.settings.get("length", "classic") == "quick"
+
 var island: Island
 var builder: WorldBuilder
 var effects: Effects
+var events: MatchEvents           # mid-match surprises: plane crash, eruption, earthquake
 var birds: Birds
 var player: Player
 var hud: Hud
@@ -94,9 +99,13 @@ func _build() -> void:
 	zone.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # animated in _process
 	add_child(zone)
 	zone.setup(self)
+	events = MatchEvents.new()
+	add_child(events)
+	events.setup(self)
 	hud = Hud.new()
 	hud.world = self
 	add_child(hud)
+	_place_rival()
 	player.died.connect(_on_player_died)
 	loading.set_progress(0.95, "جاري رسم الخريطة")
 	await _capture_map()
@@ -430,12 +439,28 @@ const BOT_NAMES := ["صقر_الليل", "ذيب", "Ghost_KSA", "Shadow99", "ل�
 var team_size := 1
 const TEAM_COLORS := [Color("ffd34d"), Color("ff8a3c"), Color("5fd16a"), Color("58a8ff")]
 
+const PERSONA_TAGS := {"sniper": " 🎯", "rusher": " ⚡", "camper": " 🛡"}
+
+## The bot that killed you last match is back, and comes looking for you.
+func _place_rival() -> void:
+	var rv: Dictionary = Game.profile.get("rival", {})
+	if rv.is_empty(): return
+	for b in bots:
+		if b.buddy or b.team == player.team: continue
+		b.display_name = String(rv.name)
+		b.persona = String(rv.get("persona", ""))
+		b.rival = true
+		b.skill = minf(0.95, b.skill + 0.15)
+		if hud: create_tween().tween_callback(hud.show_banner.bind("☠ %s — اللي قتلك آخر مرة — موجود بهالمباراة وجاي يدوّر عليك!" % b.display_name)).set_delay(10.0)
+		return
+
 func _spawn_bots() -> void:
 	var dir := plane_to - plane_from
 	team_size = Game.team_size()
 	var lead_dest := Vector3.ZERO
 	var lead_jump := 0.5
-	for i in (BOT_COUNT_MOBILE if OS.has_feature("mobile") else BOT_COUNT):
+	var n_bots := BOT_COUNT_MOBILE if OS.has_feature("mobile") or quick() else BOT_COUNT
+	for i in n_bots:
 		var b := Bot.new()
 		b.world = self
 		b.display_name = BOT_NAMES[i % BOT_NAMES.size()]
@@ -449,6 +474,11 @@ func _spawn_bots() -> void:
 			b.team = 1 + (i - (team_size - 1)) / team_size
 			b.slot = (i - (team_size - 1)) % team_size
 		b.skill = clampf({"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15), 0.05, 0.95)
+		# Some play a way of their own (shown after the name in the kill feed).
+		if not b.buddy and b.team != 0:
+			var r := randf()
+			b.persona = "sniper" if r < 0.15 else ("rusher" if r < 0.3 else ("camper" if r < 0.42 else ""))
+			b.display_name += PERSONA_TAGS.get(b.persona, "")
 		# Pick a landing spot: mostly towns (hot drops), some lone houses/fields.
 		var dest := _landing_spot()
 		# Jump where the plane passes closest to that spot.
@@ -833,6 +863,31 @@ func team_alive(team: int) -> bool:
 		if b.team == team and not b.dead: return true
 	return false
 
+var _radio_said := {}
+
+## The match commentator (Levantine Arabic): first blood, players left, the
+## player's streaks and the named fighters falling.
+func _commentate(victim: Node, attacker: Node) -> void:
+	if hud == null: return
+	var left := alive_count()
+	var line := ""
+	if not _radio_said.has("first") and attacker != null and attacker != victim:
+		_radio_said["first"] = true
+		line = "أول دم بالمباراة! %s بلّش الحفلة" % attacker.display_name
+	for n in [75, 50, 25, 10, 5, 3, 2]:
+		if left <= n and not _radio_said.has(n) and line == "":
+			_radio_said[n] = true
+			line = {75: "ضل 75 لاعب — الجزيرة لسا مليانة", 50: "نص اللاعبين راحوا! ضل 50", 25: "ضل 25 — كل حركة إلها حساب",
+				10: "أول عشرة! مين رح يطلع منهم؟", 5: "ضل 5 بس… حبس أنفاس", 3: "ثلاثة ع الجزيرة!", 2: "الجولة الأخيرة: واحد ضد واحد!"}[n]
+	if attacker == player:
+		var k: int = player.kills
+		if k in [3, 5, 10] and not _radio_said.has("k%d" % k):
+			_radio_said["k%d" % k] = true
+			line = {3: "%s عامل ثلاث إقصاءات — انتبهوا منه!", 5: "خمس إقصاءات لـ%s! مين بيوقفه؟", 10: "عشرة! %s صار كابوس الجزيرة"}[k] % player.display_name
+		elif victim is Bot and victim.persona != "":
+			line = "%s وقّع %s — %s" % [player.display_name, victim.display_name, {"sniper": "راح القنّاص", "rusher": "المهاجم ما لحق", "camper": "طلّعه من مخبأه"}[victim.persona]]
+	if line != "": hud.radio(line)
+
 func alive_count() -> int:
 	var n := 1 if player and player.state != "dead" else 0
 	for b in bots:
@@ -845,8 +900,17 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 	if hud: hud.kill_feed(killer, victim.display_name, attacker == player, attacker == null)
 	if attacker == player:
 		Game.stats.kills += 1
+		if victim is Bot and victim.rival:
+			# Revenge: the rival is gone, and pays for it.
+			Game.profile.erase("rival")
+			Game.wallet.gold = int(Game.wallet.gold) + 300
+			if hud: hud.show_banner("🔥 انتقمت من %s! +300 ذهب" % victim.display_name)
+	if victim == player and attacker is Bot:
+		# This bot becomes your rival in the next match.
+		Game.profile.rival = {"name": attacker.display_name, "persona": attacker.persona}
 		player.longest_kill = maxf(player.longest_kill, player.global_position.distance_to(victim.global_position))
 	if attacker == null: zone_deaths += 1
+	_commentate(victim, attacker)
 	# Bled out or team wiped: the kill goes to whoever knocked them down.
 	if victim is Bot and victim.bled and attacker != null and is_instance_valid(attacker) and attacker != victim:
 		if attacker == player: player.kills += 1

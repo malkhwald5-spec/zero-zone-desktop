@@ -66,6 +66,7 @@ var settings := {
 	"invert_y": false,
 	"keys": {},               # action -> physical keycode, only the ones changed
 	"mode": "solo",           # "solo" | "duo" | "squad"
+	"length": "classic",      # "classic" (100 players, full zone) | "quick" (50 players, ~10 minutes)
 	"laptop": false,          # laptop mode: lighter effects, lower render resolution, shorter view
 	"render_scale": 1.0,      # 3D resolution (0.5–1.0), sharpened back up with FSR
 	"show_fps": true,         # frame counter under the minimap

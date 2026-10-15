@@ -69,6 +69,31 @@ func _ready() -> void:
 	if wtext != "":
 		create_tween().tween_callback(show_banner.bind(wtext)).set_delay(6.6)
 
+var _radio: PanelContainer
+
+## «راديو الصفر»: a short line from the match commentator, sliding in under
+## the compass for a few seconds.
+func radio(text: String) -> void:
+	if _radio: _radio.queue_free()
+	_radio = PanelContainer.new()
+	_radio.add_theme_stylebox_override("panel", UiKit.style(Color(0.05, 0.05, 0.06, 0.78), 6, Color(1, 0.83, 0.3, 0.6), 1, 8))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 8)
+	_radio.add_child(hb)
+	hb.add_child(UiKit.label("📻 راديو الصفر", 14, Color("ffd34d"), bold, 2))
+	hb.add_child(UiKit.label(text, 16, Color.WHITE, bold, 2))
+	add_child(_radio)
+	_radio.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_radio.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_radio.position.y = 52
+	_radio.modulate.a = 0.0
+	var r := _radio
+	var tw := r.create_tween()
+	tw.tween_property(r, "modulate:a", 1.0, 0.25)
+	tw.tween_interval(4.5)
+	tw.tween_property(r, "modulate:a", 0.0, 0.6)
+	tw.tween_callback(r.queue_free)
+
 func show_banner(text: String) -> void:
 	banner.text = text
 	banner.modulate.a = 1.0
@@ -655,9 +680,11 @@ func _draw_hud() -> void:
 		var col := Color("ffd34d") if left <= 10 else Color.WHITE
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "الطيارة بتقلع بعد %d ثانية" % left, 28, col, HORIZONTAL_ALIGNMENT_CENTER, bold)
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21 + 30), "جزيرة الانتظار — جرّب الأسلحة، ما حدا بيتأذى هون", 16, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, bold)
-	if p.state == "ground" and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
-		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.1, 0.3, 1.0, 0.13))
-		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت خارج المنطقة الآمنة!", 22, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, bold)
+	if p.state in ["ground", "vehicle"] and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
+		# Caught in the disaster outside the zone: its colour over the screen.
+		var dz: Array = Zone.DISASTERS[world.zone.disaster_at(p.global_position)]
+		c.draw_rect(Rect2(Vector2.ZERO, sz), dz[1])
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت بـ%s — ارجع للمنطقة الآمنة!" % dz[0], 22, Color(dz[1], 1.0).lightened(0.4), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
 	if p.state == "dead":

@@ -936,6 +936,7 @@ func _model_buildings() -> void:
 		if t.military:
 			want = ["bld_warehouse"]
 		elif t.get("kind", "town") == "town":
+			_minaret(t)
 			want = ["bld_house", "bld_shed", "bld_abandoned"]
 			if rng.randf() < 0.4: want.append("bld_abandoned")
 			if float(t.r) >= 100.0: want.append("bld_tenement" if rng.randf() < 0.5 else "bld_tower")
@@ -953,6 +954,16 @@ func _model_buildings() -> void:
 				_structure(kind, c, half, {"rot": rot, "half": half})
 				_model_loot(kind, c, half)
 				break
+
+## A minaret near the middle of a town, standing over the roofs.
+func _minaret(t: Dictionary) -> void:
+	for attempt in 40:
+		var p: Vector2 = t.pos + Vector2(rng.randf_range(8.0, float(t.r) * 0.45), 0).rotated(rng.randf() * TAU)
+		var half := Vector2(2.4, 2.4)
+		if not _land_around(p, 4.0) or _overlaps(p, half, 3.0) or near_road(p, 5.0): continue
+		flatten(p, half, 6.0, maxf(1.6, height_at(p.x, p.y)))
+		_structure("minaret", p, half)
+		return
 
 ## Loot on the floors of a model building you can walk into ("ray": the
 ## world finds the floor under it).

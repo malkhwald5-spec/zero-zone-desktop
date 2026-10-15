@@ -1143,6 +1143,53 @@ func _structures() -> void:
 				_mesh_cyl(node, Vector3(0, 27.4, 0), 0.3, 2.2, 1.2, red)
 				_mesh_cyl(node, Vector3(0, 24.1, 0), 2.8, 2.8, 0.3, dark)                   # gallery
 				_cyl_shape(body, node.position + Vector3(0, 13.0, 0), 3.2, 28.0)
+			"minaret":
+				# A town minaret: plaster shaft on a square base, a carved
+				# balcony, a slimmer upper shaft and a green dome with a gold
+				# crescent; lit at the balcony.
+				var plaster := _static_wall("plaster", 3.0, 0.6, 0.9)
+				plaster.set_shader_parameter("tint", Color("efe6d4"))
+				var stone2 := _static_wall("stone", 2.0, 0.4, 0.9)
+				var green := StandardMaterial3D.new()
+				green.albedo_color = Color("2f7a55")
+				green.roughness = 0.35
+				green.metallic = 0.3
+				var gold := StandardMaterial3D.new()
+				gold.albedo_color = Color("d9a53a")
+				gold.metallic = 0.9
+				gold.roughness = 0.25
+				_mesh_box(node, Vector3(0, 2.0, 0), Vector3(4.4, 4.0, 4.4), stone2)
+				_mesh_cyl(node, Vector3(0, 11.0, 0), 1.45, 1.7, 14.0, plaster)
+				_mesh_cyl(node, Vector3(0, 18.3, 0), 2.4, 1.6, 0.8, stone2)             # balcony
+				_mesh_cyl(node, Vector3(0, 19.1, 0), 2.35, 2.35, 0.8, plaster)          # balcony rail
+				_mesh_cyl(node, Vector3(0, 22.0, 0), 1.0, 1.1, 5.0, plaster)
+				_mesh_cyl(node, Vector3(0, 24.6, 0), 1.25, 1.25, 0.3, stone2)
+				var dome := MeshInstance3D.new()
+				var dm := SphereMesh.new()
+				dm.radius = 1.15
+				dm.height = 2.6
+				dome.mesh = dm
+				dome.material_override = green
+				dome.position = Vector3(0, 25.4, 0)
+				node.add_child(dome)
+				_mesh_cyl(node, Vector3(0, 27.2, 0), 0.05, 0.08, 1.4, gold)
+				var cres := MeshInstance3D.new()
+				var tm := TorusMesh.new()
+				tm.inner_radius = 0.22
+				tm.outer_radius = 0.3
+				cres.mesh = tm
+				cres.material_override = gold
+				cres.position = Vector3(0, 28.1, 0)
+				cres.rotation = Vector3(PI * 0.5, 0, 0)
+				node.add_child(cres)
+				var lamp2 := OmniLight3D.new()
+				lamp2.light_color = Color("ffe0a0")
+				lamp2.light_energy = 1.5
+				lamp2.omni_range = 9.0
+				lamp2.position = Vector3(0, 19.5, 0)
+				node.add_child(lamp2)
+				_shape(body, node.position + Vector3(0, 2.0, 0), Vector3(4.4, 4.0, 4.4))
+				_cyl_shape(body, node.position + Vector3(0, 14.0, 0), 1.7, 20.0)
 			"canopy":
 				var dir: Vector2 = st.get("dir", Vector2(1, 0))
 				node.rotation.y = -atan2(dir.y, dir.x)

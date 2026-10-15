@@ -13,6 +13,10 @@ var display_name := "خصم"
 var health := 100.0
 var dead := false
 var skill := 0.5
+## How it plays: "" ordinary, "sniper" (sees far, wants rifles, keeps back),
+## "rusher" (pushes in, rarely hides), "camper" (holds cover, never flanks).
+var persona := ""
+var rival := false            # killed you last match: comes looking for you
 var kills := 0
 var model: HumanModel
 var shape: CollisionShape3D
@@ -403,6 +407,13 @@ func _think() -> void:
 		return
 	if mode == "alert" and global_position.distance_to(goal) > 3.0:
 		return
+	# Your rival comes looking for you once armed (it knows roughly where you are).
+	if rival and armed() and not world.is_gone(world.player) and world.player.on_ground():
+		var pp: Vector3 = world.player.global_position
+		if global_position.distance_to(pp) < 500.0 and (mode != "alert" or global_position.distance_to(goal) < 3.0):
+			mode = "alert"
+			_go(pp + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25)))
+			return
 	if _wants_loot():
 		if loot_item and (not is_instance_valid(loot_item) or not world.pickups.has(loot_item) or global_position.distance_to(loot_item.global_position) > 90.0):
 			loot_item = null
@@ -445,7 +456,7 @@ func _think() -> void:
 			_go(p)
 
 func _wants_loot() -> bool:
-	return not armed() or reserve < 30 or TIER.get(weapon_id, 0) < 3 or gear.vest < 3 or gear.helmet < 3 or meds < 3
+	return not armed() or reserve < 30 or _tier(weapon_id) < 3 or gear.vest < 3 or gear.helmet < 3 or meds < 3
 
 func _useful(it: Node3D) -> bool:
 	if buddy and world.player.state != "dead" and it.global_position.distance_to(world.player.global_position) > 40.0: return false
@@ -456,7 +467,7 @@ func _useful(it: Node3D) -> bool:
 		return false
 	if data.kind == "weapon":
 		if not TIER.has(data.id): return false
-		return not armed() or TIER.get(data.id, 0) > TIER.get(weapon_id, 0)
+		return not armed() or _tier(data.id) > _tier(weapon_id)
 	if data.kind == "ammo":
 		return armed() and Game.WEAPONS[weapon_id].ammo == data.type and reserve < 90
 	if data.kind == "gear":
@@ -475,10 +486,16 @@ func _enemy_armed(e: Node) -> bool:
 func _is_dead(n: Node) -> bool:
 	return ("dead" in n and n.dead) or ("state" in n and n.state == "dead")
 
+## How much it wants a gun: snipers rank the long rifles one step higher.
+func _tier(id: String) -> int:
+	var t: int = TIER.get(id, 0)
+	if persona == "sniper" and id in ["kar98", "awm", "sks", "mini14"]: t += 1
+	return t
+
 ## Nearest enemy (player or bot) that is in view and not behind cover.
 func _look_for_enemy() -> Node3D:
 	if blind_t > 0.0 or knocked: return null
-	var view := (70.0 + skill * 50.0) * (0.75 if world.weather == "rain" else 1.0)
+	var view: float = (70.0 + skill * 50.0) * (0.75 if world.weather == "rain" else 1.0) * float({"sniper": 1.5, "camper": 1.1, "rusher": 0.9}.get(persona, 1.0))
 	var facing := Vector3(-sin(yaw), 0, -cos(yaw))
 	var best: Node3D = null
 	var bd := view
@@ -543,7 +560,7 @@ func _tactics(can_see: bool) -> bool:
 		return true
 	# Hit and hurting, out of bullets, or badly hurt: get behind something.
 	var need := (hurt_t < 0.8 and health < 70.0) or (mag <= 0 and reserve > 0 and d < 70.0) or (health < 40.0 and hurt_t < 3.0)
-	if need and randf() < 0.55 + skill * 0.4:
+	if need and randf() < 0.55 + skill * 0.4 + float({"camper": 0.3, "rusher": -0.45}.get(persona, 0.0)):
 		var spot: Vector3 = world.find_cover(global_position, tpos, 28.0)
 		if spot != Vector3.INF:
 			mode = "cover"
@@ -552,7 +569,8 @@ func _tactics(can_see: bool) -> bool:
 			_go(spot)
 			return true
 	# The enemy went behind cover: come round the side.
-	if unseen_t > 3.0 and d < 80.0 and randf() < 0.3 + skill * 0.5:
+	var flank_after: float = {"rusher": 1.2, "camper": 999.0}.get(persona, 3.0)
+	if unseen_t > flank_after and d < 80.0 and randf() < 0.3 + skill * 0.5 + (0.3 if persona == "rusher" else 0.0):
 		var to := tpos - global_position
 		to.y = 0.0
 		var side := Vector3(-to.z, 0, to.x).normalized() * (1.0 if randf() < 0.5 else -1.0)

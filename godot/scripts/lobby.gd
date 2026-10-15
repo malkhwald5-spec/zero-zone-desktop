@@ -695,7 +695,7 @@ func _refresh() -> void:
 	labels.pass_level.text = " %d ›" % Game.pass_level()
 	labels.pass_bar.value = float(int(Game.wallet.xp) % Game.PASS_XP) / Game.PASS_XP * 100.0
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
-	labels.mode.text = "كلاسيكي - %s | %s" % [Game.MODE_NAMES.get(Game.settings.get("mode", "solo"), "فردي"), d]
+	labels.mode.text = "%s - %s | %s" % ["سريع" if Game.settings.get("length", "classic") == "quick" else "كلاسيكي", Game.MODE_NAMES.get(Game.settings.get("mode", "solo"), "فردي"), d]
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()
 	labels.missions_hint.text = ("%d جاهزة!" % ready) if ready > 0 else "متاح الآن"
 	var unread := not bool(Game.wallet.mail_read)
@@ -1643,6 +1643,7 @@ func _page_mode(body: VBoxContainer) -> void:
 	v.add_child(UiKit.label("كلاسيكي — جزيرة الصفر (8×8)", 20, Color.WHITE, UiKit.bold(), 0))
 	v.add_child(UiKit.label("منظور الشخص الثالث • 100 لاعب", 14, Color(1, 1, 1, 0.75), null, 0))
 	body.add_child(c)
+	body.add_child(_row("طول المباراة", _seg(["classic", "quick"], ["كلاسيكي (100 لاعب، 25 دقيقة)", "سريع (50 لاعب، 10 دقايق)"], "length", "mode")))
 	body.add_child(_row("الفريق", _seg(["solo", "duo", "squad"], ["فردي", "ثنائي (زميل واحد)", "فرقة (3 زملاء)"], "mode", "mode")))
 	body.add_child(UiKit.label("بالثنائي والفرقة: زملاؤك من الكمبيوتر بينطّوا معك ويلحقوك، واللي بينصاب بينسقط على الأرض وزميله بيرفعه (F مطوّل).", 14, Color(1, 1, 1, 0.7), null, 0))
 	body.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
