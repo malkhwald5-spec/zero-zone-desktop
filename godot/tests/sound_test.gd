@@ -14,6 +14,7 @@ func check(ok: bool, what: String) -> void:
 func _ready() -> void:
 	Game.settings.controls = "kbm"
 	Game.settings.sound = true
+	Game.settings.weather = "clear"      # rain quiets the birds; this checks the plain loop
 	_run.call_deferred()
 
 func _run() -> void:
