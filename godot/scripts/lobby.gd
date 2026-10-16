@@ -38,6 +38,61 @@ func _ready() -> void:
 		_show_reward(Game.last_reward)
 		Game.last_reward = {}
 	if Game.is_integrated_gpu(): _gpu_warning()
+	if Game.login_due(): _login_gift.call_deferred()
+
+## The daily log-in gift: seven days in a row, today's lit, one button to take it.
+func _login_gift() -> void:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(dim)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.04, 0.06, 0.1, 0.97), 16, ACCENT, 2, 22))
+	dim.add_child(pc)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	pc.add_child(v)
+	var head := UiKit.label("🎁 هدية الدخول اليومية", 28, ACCENT, UiKit.bold(), 3)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(head)
+	var sub := UiKit.label("ادخل كل يوم ورا بعض لتوصل لهدية اليوم السابع الكبيرة", 15, Color(1, 1, 1, 0.75), null, 0)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(sub)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	v.add_child(row)
+	var today := Game.login_next()
+	for i in Game.LOGIN_GIFTS.size():
+		var g: Array = Game.LOGIN_GIFTS[i]
+		var d := i + 1
+		var done := d < today
+		var now := d == today
+		var big := d == 7
+		var tile := PanelContainer.new()
+		tile.custom_minimum_size = Vector2(96, 120) if not big else Vector2(120, 120)
+		tile.add_theme_stylebox_override("panel", UiKit.style(Color(1, 0.7, 0.13, 0.25) if now else (Color(1, 1, 1, 0.04) if done else Color(1, 1, 1, 0.08)), 10, ACCENT if now else Color(1, 1, 1, 0.12), 2 if now else 1, 8))
+		var tv := VBoxContainer.new()
+		tv.alignment = BoxContainer.ALIGNMENT_CENTER
+		tile.add_child(tv)
+		for t2 in [["اليوم %d" % d, 13, Color(1, 1, 1, 0.7)], [("✓" if done else ("🎁" if big else "🪙")), 30, Color("7dff8a") if done else Color.WHITE],
+				["%d ذهب" % int(g[0]), 15, ACCENT], [("+%d ZC" % int(g[1])) if int(g[1]) > 0 else "", 12, CYAN]]:
+			var l := UiKit.label(t2[0], t2[1], t2[2], UiKit.bold(), 2)
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			tv.add_child(l)
+		row.add_child(tile)
+	var take := UiKit.yellow_button("استلم هدية اليوم", func():
+		var got := Game.claim_login()
+		dim.queue_free()
+		_toast("🎁 +%d ذهب%s" % [int(got[0]), ("  +%d ZC" % int(got[1])) if int(got[1]) > 0 else ""])
+		_refresh(), Vector2(320, 56), 24)
+	take.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(take)
+	pc.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pc.grow_vertical = Control.GROW_DIRECTION_BOTH
+	pc.scale = Vector2(0.9, 0.9)
+	pc.pivot_offset = pc.size * 0.5
+	pc.create_tween().tween_property(pc, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## The game is running on the built-in graphics chip (very slow): say how to
 ## move it onto the real graphics card.
@@ -1049,8 +1104,21 @@ func _claim(id: String, gold: int, zc := 0) -> void:
 	_refresh()
 
 func _missions() -> Array:
+	Game.roll_periods()
 	var top10 := int(Game.stats.get("top10", 0))
+	var day: Dictionary = Game.stats.day
+	var wk: Dictionary = Game.stats.week
+	var d := "d_" + Game.today() + "_"
+	var w := "wk_" + Game.this_week() + "_"
 	return [
+		# Today's (new ones every day) and this week's.
+		{"id": d + "play", "text": "اليوم: العب مباراتين", "cur": day.games, "goal": 2, "gold": 200, "icon": "calendar"},
+		{"id": d + "kill", "text": "اليوم: اقضِ على 5 خصوم", "cur": day.kills, "goal": 5, "gold": 250, "icon": "calendar"},
+		{"id": d + "top10", "text": "اليوم: خلّص بين أول 10", "cur": day.top10, "goal": 1, "gold": 300, "icon": "calendar"},
+		{"id": w + "play", "text": "الأسبوع: العب 10 مباريات", "cur": wk.games, "goal": 10, "gold": 800, "icon": "trophy"},
+		{"id": w + "kill", "text": "الأسبوع: اقضِ على 30 خصم", "cur": wk.kills, "goal": 30, "gold": 1000, "icon": "trophy"},
+		{"id": w + "war", "text": "الأسبوع: العب حرب الفرق 3 مرات", "cur": wk.war, "goal": 3, "gold": 900, "icon": "trophy"},
+		{"id": w + "win", "text": "الأسبوع: افز بمباراتين", "cur": wk.wins, "goal": 2, "gold": 1500, "icon": "trophy"},
 		{"id": "m_play1", "text": "العب مباراة واحدة", "cur": Game.stats.games, "goal": 1, "gold": 100, "icon": "globe"},
 		{"id": "m_play5", "text": "العب 5 مباريات", "cur": Game.stats.games, "goal": 5, "gold": 250, "icon": "globe"},
 		{"id": "m_play20", "text": "العب 20 مباراة", "cur": Game.stats.games, "goal": 20, "gold": 800, "icon": "globe"},

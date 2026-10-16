@@ -2,6 +2,24 @@ class_name Icons
 ## Small vector icons drawn with lines and polygons (no emoji fonts needed).
 ## draw(ci, name, centre, radius, colour) on any CanvasItem's draw callback.
 
+## Picture of a gun (side on, rendered from its model by
+## tests/bake_weapon_icons.tscn), or null when there is none.
+static var _weapons := {}
+static func weapon(id: String) -> Texture2D:
+	if not _weapons.has(id):
+		var p := "res://assets/textures/ui/weapons/%s.png" % id
+		_weapons[id] = load(p) if ResourceLoader.exists(p) else null
+	return _weapons[id]
+
+## Draws a gun picture fitted inside r (keeping its shape), tinted.
+static func draw_weapon(ci: CanvasItem, id: String, r: Rect2, col := Color.WHITE) -> bool:
+	var tex := weapon(id)
+	if tex == null: return false
+	var k := minf(r.size.x / tex.get_width(), r.size.y / tex.get_height())
+	var sz := Vector2(tex.get_width(), tex.get_height()) * k
+	ci.draw_texture_rect(tex, Rect2(r.get_center() - sz * 0.5, sz), false, col)
+	return true
+
 static func _poly(ci: CanvasItem, pts: Array, c: Vector2, r: float, col: Color) -> void:
 	var p := PackedVector2Array()
 	for v in pts: p.append(c + v * r)

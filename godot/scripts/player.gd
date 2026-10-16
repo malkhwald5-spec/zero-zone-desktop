@@ -67,6 +67,7 @@ var ammo := {"9mm": 0, "556": 0, "762": 0, "12g": 0, "300": 0, "bolt": 0}
 var fire_cd := 0.0
 var reload_t := 0.0
 var recoil_kick := 0.0
+var _recoil_debt := 0.0           # how far the sight has climbed in the current burst (radians)
 
 # Gear and meds
 var gear := {"vest": 0, "vest_dur": 0.0, "helmet": 0, "helmet_dur": 0.0, "pack": 0}
@@ -152,6 +153,8 @@ func add_look(dx: float, dy: float) -> void:
 		k *= float(Game.settings.get(key, 1.0 / sqrt(maxf(1.0, z))))
 	if _assist_on: k *= 0.6        # aim assist: the view drags a little over an enemy
 	_look_t = 0.0
+	# Pulling down against the climb uses it up (no settling past where you aimed).
+	if dy > 0.0: _recoil_debt = maxf(0.0, _recoil_debt - dy * k)
 	yaw -= dx * k
 	if Game.settings.get("invert_y", false): dy = -dy
 	pitch = clampf(pitch - dy * k, -1.35, 1.0)
@@ -732,6 +735,13 @@ func _ground(delta: float) -> void:
 		velocity.y = 0.0
 	fire_cd = maxf(0.0, fire_cd - delta)
 	recoil_kick = move_toward(recoil_kick, 0.0, delta * 6.0)
+	# After a burst the sight settles back down (not all the way) by itself.
+	if not firing and fire_cd <= 0.0 and _recoil_debt > 0.0:
+		var back := minf(_recoil_debt, (_recoil_debt * 7.0 + 0.02) * delta)
+		pitch -= back
+		_recoil_debt -= back
+	elif firing:
+		_recoil_debt = minf(_recoil_debt, 0.35)
 	if reload_t > 0.0:
 		reload_t -= delta
 		if reload_t <= 0.0:
@@ -766,12 +776,37 @@ func _ground(delta: float) -> void:
 	if hard_land_t > 0.0:
 		hard_land_t -= delta
 		speed *= 0.0 if hard_land_t > 0.5 else 0.4
+	# Backwards and sideways are slower than forwards (as in the real shooters).
+	var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
+	if wish.length() > 0.01 and not sprint:
+		var along := wish.normalized().dot(fwd)
+		speed *= lerpf(0.78, 1.0, clampf(along * 0.5 + 0.5, 0.0, 1.0)) if along < 0.3 else 1.0
+	# Up a steep slope you slow down, down it a little faster.
+	if is_on_floor() and wish.length() > 0.01:
+		var n := get_floor_normal()
+		var up := -Vector3(n.x, 0, n.z).dot(wish.normalized())
+		speed *= clampf(1.0 - up * 0.9, 0.7, 1.08)
 	var target := wish * speed
-	var accel := 40.0 if is_on_floor() else 8.0
-	velocity.x = move_toward(velocity.x, target.x, accel * delta)
-	velocity.z = move_toward(velocity.z, target.z, accel * delta)
+	# Smooth, quick to start and quicker to stop; a little drift in the air.
+	var hv := Vector2(velocity.x, velocity.z)
+	var tv := Vector2(target.x, target.z)
+	var k := (14.0 if tv.length() > hv.length() else 18.0) if is_on_floor() else 2.5
+	hv = hv.lerp(tv, 1.0 - exp(-k * delta))
+	velocity.x = hv.x
+	velocity.z = hv.y
 	_update_peek(delta)
+	# Jump a moment after running off an edge, or pressed just before landing.
+	if is_on_floor(): _coyote = 0.15
+	else: _coyote -= delta
+	if jump_queued: _jump_buf = 0.15
+	_jump_buf -= delta
+	if _jump_buf > 0.0 and _coyote > 0.0 and not is_on_floor() and stance == "stand" and velocity.y <= 0.0:
+		velocity.y = 5.4
+		_coyote = 0.0
+		_jump_buf = 0.0
 	if is_on_floor():
+		if _jump_buf > 0.0 and not jump_queued: jump_queued = true
+		_jump_buf = 0.0
 		if jump_queued:
 			if stance != "stand":
 				set_stance(stance)
@@ -975,7 +1010,10 @@ func _try_fire() -> void:
 	for i in pellets:
 		_fire_ray(w, deg_to_rad(spread_deg))
 	recoil_kick += w.recoil
-	pitch = clampf(pitch + deg_to_rad(w.recoil) * 0.5, -1.35, 1.0)
+	var climb := deg_to_rad(w.recoil) * 0.5
+	pitch = clampf(pitch + climb, -1.35, 1.0)
+	_recoil_debt += climb * 0.6       # most of the climb settles back when you stop
+	shake = maxf(shake, 0.04 + float(w.recoil) * 0.015)
 	yaw += deg_to_rad(randf_range(-w.recoil, w.recoil)) * 0.15
 	model.recoil = 1.0
 	var quiet: bool = w.get("suppressed", false) or w.get("silent", false)
@@ -1200,6 +1238,8 @@ func _update_camera(delta: float) -> void:
 	spring.position.x = lerpf(spring.position.x, shoulder, minf(1.0, delta * 12.0))
 	if spring.position.x > shoulder: spring.position.x = shoulder
 	var fov := 78.0 if zoom <= 1.0 else 70.0 / zoom      # scopes keep their magnification
+	if is_sprinting and state == "ground" and zoom <= 1.0:
+		fov += 5.0 * clampf(Vector2(velocity.x, velocity.z).length() / 7.0, 0.0, 1.0)     # speed
 	if state == "fall":
 		fov += clampf((air_speed - 120.0) / 115.0, 0.0, 1.0) * 10.0      # speed rush
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
@@ -1208,6 +1248,8 @@ func _update_camera(delta: float) -> void:
 	model.visible = not scoped() and state != "plane" and not (state == "vehicle" and vehicle and vehicle.kind == "apc")
 
 var _cam_offset := Vector3(0, 1.6, 0)
+var _coyote := 0.0                # seconds left to jump after running off an edge
+var _jump_buf := 0.0              # a jump pressed just before landing
 var _body_yaw := 0.0            # which way the body faces (lags the camera when standing still)
 var _turn_dir := 0
 var _turn_start := 0.0

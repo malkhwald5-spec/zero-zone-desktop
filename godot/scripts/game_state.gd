@@ -203,9 +203,11 @@ const LOLA := 10            # WARDROBE index of the Lola character (the default 
 var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA]}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0,
 	"rp": 1000, "top10": 0, "dmg": 0, "heads": 0, "longest": 0, "best_kills": 0, "time": 0,
-	"modes": {}, "history": []}
+	"modes": {}, "history": [],
+	"day": {}, "week": {}}          # this day's / week's counts (daily and weekly missions)
 ## Lobby economy: gold earned in matches, season-pass XP, claimed mail/rewards.
-var wallet := {"gold": 0, "zc": 0, "xp": 0, "claimed": [], "mail_read": false}
+var wallet := {"gold": 0, "zc": 0, "xp": 0, "claimed": [], "mail_read": false,
+	"login_date": "", "login_day": 0}     # daily log-in gift: last day claimed, place in the 7-day row
 ## Key art rendered once at start-up (used by the loading screens).
 var key_art: Texture2D
 ## Last match summary shown in the lobby.
@@ -282,6 +284,7 @@ func load_data() -> void:
 	# JSON numbers come back as floats; career counters are whole numbers.
 	for k in stats.keys():
 		if typeof(stats[k]) == TYPE_FLOAT: stats[k] = int(stats[k])
+	roll_periods()
 	# v4: laptop mode arrived; laptop graphics chips start with it on.
 	if int(data.get("save_version", 1)) < 4 and is_laptop_gpu():
 		settings.laptop = true
@@ -378,7 +381,58 @@ func rank_delta(rank: int, teams: int, kills: int, won: bool, rp: int) -> int:
 
 ## Stores a finished match in the career: rank points, totals per mode and the match history.
 ## m: {"rank", "teams", "kills", "won", "dmg", "heads", "longest", "time", "mode"}
+# ---------- Daily and weekly ----------
+## Gifts for logging in on consecutive days (the 7th is the big one).
+const LOGIN_GIFTS := [[100, 0], [150, 0], [200, 0], [250, 10], [300, 0], [400, 20], [800, 60]]
+
+func today() -> String:
+	return Time.get_date_string_from_system()
+
+## Week number (counted from 1970, weeks starting on Monday).
+func this_week() -> String:
+	var days := int(Time.get_unix_time_from_system() / 86400.0)
+	return "w%d" % ((days + 3) / 7)
+
+## Starts fresh counts when a new day / week has begun (and forgets the
+## claims of the ones gone by).
+func roll_periods() -> void:
+	if typeof(stats.get("day")) != TYPE_DICTIONARY or stats.day.get("date", "") != today():
+		stats.day = {"date": today(), "games": 0, "kills": 0, "wins": 0, "top10": 0, "war": 0}
+		wallet.claimed = wallet.claimed.filter(func(c): return not String(c).begins_with("d_") or String(c).begins_with("d_" + today()))
+	if typeof(stats.get("week")) != TYPE_DICTIONARY or stats.week.get("week", "") != this_week():
+		stats.week = {"week": this_week(), "games": 0, "kills": 0, "wins": 0, "top10": 0, "war": 0}
+		wallet.claimed = wallet.claimed.filter(func(c): return not String(c).begins_with("wk_") or String(c).begins_with("wk_" + this_week()))
+
+func login_due() -> bool:
+	return String(wallet.get("login_date", "")) != today()
+
+## Today's gift: the next in the row (back to day 1 after a missed day or the 7th).
+func login_next() -> int:
+	var last := String(wallet.get("login_date", ""))
+	var day := int(wallet.get("login_day", 0))
+	var yesterday := Time.get_date_string_from_unix_time(Time.get_unix_time_from_system() - 86400.0)
+	if last != yesterday or day >= LOGIN_GIFTS.size(): return 1
+	return day + 1
+
+func claim_login() -> Array:
+	if not login_due(): return [0, 0]
+	var d := login_next()
+	var g: Array = LOGIN_GIFTS[d - 1]
+	wallet.gold = int(wallet.gold) + int(g[0])
+	wallet.zc = int(wallet.zc) + int(g[1])
+	wallet.login_date = today()
+	wallet.login_day = d
+	save_data()
+	return g
+
 func record_match(m: Dictionary) -> Dictionary:
+	roll_periods()
+	for per in [stats.day, stats.week]:
+		per.games = int(per.games) + 1
+		per.kills = int(per.kills) + int(m.kills)
+		per.wins = int(per.wins) + (1 if m.won else 0)
+		per.top10 = int(per.top10) + (1 if int(m.rank) <= 10 else 0)
+		per.war = int(per.war) + (1 if m.mode == "war" else 0)
 	var rp0 := int(stats.rp)
 	var delta := rank_delta(int(m.rank), int(m.teams), int(m.kills), bool(m.won), rp0)
 	stats.rp = maxi(1000, rp0 + delta)
@@ -428,6 +482,10 @@ func apply_fps() -> void:
 	Engine.max_physics_steps_per_frame = 3
 	if DisplayServer.get_name() == "headless":
 		return    # tests run as fast as they can
+	# Phones, laptop mode and the light presets: the game logic (physics, the
+	# bots) runs 30 times a second instead of 60 — half the CPU; the picture
+	# stays smooth (physics interpolation draws in-between frames).
+	Engine.physics_ticks_per_second = 30 if (OS.has_feature("mobile") or laptop() or quality_level() <= 1) else 60
 	Engine.max_fps = int(settings.get("fps", 60))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 

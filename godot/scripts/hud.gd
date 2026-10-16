@@ -56,7 +56,7 @@ func _ready() -> void:
 	touch.visible = Game.settings.controls == "touch"
 
 	var p: Player = world.player
-	p.hit_confirmed.connect(func(head, _killed, _pos): hit_t = 0.22; hit_head = head)
+	p.hit_confirmed.connect(_on_hit)
 	p.damaged.connect(func(dir): dmg_dirs.append({"dir": dir, "t": 1.2}))
 	p.message.connect(show_banner)
 	if world.war:
@@ -96,6 +96,47 @@ func radio(text: String) -> void:
 	tw.tween_interval(4.5)
 	tw.tween_property(r, "modulate:a", 0.0, 0.6)
 	tw.tween_callback(r.queue_free)
+
+var _got: PanelContainer
+
+## Picked up or bought a gun: its picture and name, big, for a moment.
+func weapon_toast(id: String) -> void:
+	if _got: _got.queue_free()
+	_got = PanelContainer.new()
+	_got.add_theme_stylebox_override("panel", UiKit.style(Color(0.03, 0.05, 0.08, 0.78), 10, Color(1, 0.83, 0.3, 0.7), 1, 10))
+	_got.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 14)
+	_got.add_child(hb)
+	var tex := Icons.weapon(id)
+	if tex:
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.custom_minimum_size = Vector2(190, 80)
+		hb.add_child(tr)
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_child(v)
+	var wd: Dictionary = Game.WEAPONS[id]
+	v.add_child(UiKit.label(String(wd.name), 26, Color("ffd34d"), bold, 3))
+	v.add_child(UiKit.label("ضرر %d • مخزن %d" % [int(wd.dmg), int(wd.mag)] if not wd.get("melee", false) else "سلاح أبيض", 14, Color.WHITE, null, 2))
+	add_child(_got)
+	_got.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_got.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_got.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_got.position.y -= 150.0
+	var g := _got
+	g.modulate.a = 0.0
+	g.scale = Vector2(0.9, 0.9)
+	g.pivot_offset = Vector2(200, 50)
+	var tw := g.create_tween()
+	tw.tween_property(g, "modulate:a", 1.0, 0.15)
+	tw.parallel().tween_property(g, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.6)
+	tw.tween_property(g, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(g.queue_free)
 
 func show_banner(text: String) -> void:
 	banner.text = text
@@ -227,6 +268,8 @@ func flash(amount: float, secs: float) -> void:
 
 func _process(delta: float) -> void:
 	hit_t = maxf(0.0, hit_t - delta)
+	kill_t = maxf(0.0, kill_t - delta)
+	_streak_t = maxf(0.0, _streak_t - delta)
 	if flash_t > 0.0:
 		flash_t = maxf(0.0, flash_t - delta)
 		var vol := AudioServer.get_bus_volume_db(0)
@@ -734,6 +777,7 @@ func _draw_hud() -> void:
 		var col := Color("ffd34d") if left <= 10 else Color.WHITE
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "الطيارة بتقلع بعد %d ثانية" % left, 28, col, HORIZONTAL_ALIGNMENT_CENTER, bold)
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21 + 30), "جزيرة الانتظار — جرّب الأسلحة، ما حدا بيتأذى هون", 16, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, bold)
+	_draw_dmg_numbers(c)
 	if world.war: _draw_war(c, sz, p)
 	if p.state in ["ground", "vehicle"] and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
 		# Caught in the disaster outside the zone: its colour over the screen.
@@ -906,7 +950,8 @@ func _draw_bottom(c: Control, sz: Vector2, p: Player) -> void:
 			_text(c, Vector2(rr.get_center().x, rr.position.y + 38), str(i + 1), 18, Color(1, 1, 1, 0.3), HORIZONTAL_ALIGNMENT_CENTER, bold, rr.size.x)
 			continue
 		var wd: Dictionary = Game.WEAPONS[s.id]
-		_gun_icon(c, Rect2(rr.position + Vector2(8, 6), Vector2(rr.size.x - 16, 30)), wd.cls, Color.WHITE if active else Color(1, 1, 1, 0.75))
+		if not Icons.draw_weapon(c, s.id, Rect2(rr.position + Vector2(6, 3), Vector2(rr.size.x - 12, 38)), Color.WHITE if active else Color(1, 1, 1, 0.7)):
+			_gun_icon(c, Rect2(rr.position + Vector2(8, 6), Vector2(rr.size.x - 16, 30)), wd.cls, Color.WHITE if active else Color(1, 1, 1, 0.75))
 		var ammo_txt := "سلاح أبيض" if wd.get("melee", false) else "%d/%d" % [s.mag, p.ammo[wd.ammo]]
 		_text(c, Vector2(rr.position.x + 6, rr.end.y - 7), ammo_txt, 14, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, bold, rr.size.x)
 		_text(c, Vector2(rr.end.x - 6, rr.end.y - 7), wd.name, 11, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, null, rr.size.x)
@@ -1042,6 +1087,111 @@ func _hit_marks(c: Control, ctr: Vector2) -> void:
 		var hc := Color("ff4040") if hit_head else Color.WHITE
 		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			c.draw_line(ctr + d * 7.0, ctr + d * 15.0, hc, 2.5)
+	if kill_t > 0.0:
+		# A kill: a big red cross that grows out from the crosshair.
+		var k := 1.0 - kill_t / 0.6
+		var r := 12.0 + k * 10.0
+		var col := Color(1, 0.2, 0.15, clampf(kill_t / 0.3, 0.0, 1.0))
+		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+			c.draw_line(ctr + d * (r * 0.4), ctr + d * r, col, 4.0)
+
+# ---------- Hit feedback: damage numbers, hit ticks, kills and streaks ----------
+var kill_t := 0.0
+var _dmg_nums: Array = []        # {pos: Vector3, text, col, t}
+var _streak := 0
+var _streak_t := 0.0
+var _tick_snd: AudioStreamWAV
+var _kill_snd: AudioStreamWAV
+
+func _on_hit(head: bool, killed: bool, pos: Vector3) -> void:
+	hit_t = 0.22
+	hit_head = head
+	var w: Dictionary = world.player.weapon()
+	var dmg := int(float(w.get("dmg", 20)) * (2.0 if head else 1.0))
+	_dmg_nums.append({"pos": pos + Vector3(randf_range(-0.3, 0.3), 0.3, randf_range(-0.3, 0.3)), "text": str(dmg), "col": Color("ffd34d") if head else Color.WHITE, "t": 0.8})
+	if _dmg_nums.size() > 12: _dmg_nums.pop_front()
+	_beep(true if killed else false, head)
+	if killed:
+		kill_t = 0.6
+		_streak = _streak + 1 if _streak_t > 0.0 else 1
+		_streak_t = 10.0
+		var names := {2: "إقصاء مزدوج!", 3: "ثلاثي!", 4: "رباعي!", 5: "لا يوقف!"}
+		var txt: String = names.get(mini(_streak, 5), "") if _streak >= 2 else ""
+		_kill_card(txt)
+
+## A short synthesised sound: a soft tick for a hit (higher for the head),
+## a bright double chime for a kill.
+func _beep(kill: bool, head: bool) -> void:
+	if not Game.settings.sound: return
+	if _tick_snd == null:
+		_tick_snd = _tone([[1800.0, 0.035]], 0.5)
+		_kill_snd = _tone([[1320.0, 0.07], [1980.0, 0.12]], 0.6)
+	var p := AudioStreamPlayer.new()
+	p.stream = _kill_snd if kill else _tick_snd
+	p.volume_db = -6.0 if kill else -14.0
+	p.pitch_scale = 1.25 if head and not kill else 1.0
+	add_child(p)
+	p.play()
+	p.finished.connect(p.queue_free)
+
+func _tone(notes: Array, vol: float) -> AudioStreamWAV:
+	var rate := 22050
+	var data := PackedByteArray()
+	for nt in notes:
+		var n := int(rate * float(nt[1]))
+		var start := data.size()
+		data.resize(start + n * 2)
+		for i in n:
+			var t := float(i) / rate
+			var env := minf(1.0, t * 400.0) * exp(-t * 30.0)
+			data.encode_s16(start + i * 2, int(sin(t * TAU * float(nt[0])) * env * vol * 32767.0))
+	var st := AudioStreamWAV.new()
+	st.format = AudioStreamWAV.FORMAT_16_BITS
+	st.mix_rate = rate
+	st.data = data
+	return st
+
+var _kill_box: Control
+
+## Middle of the screen under the crosshair: a skull, "إقصاء" and the streak.
+func _kill_card(streak_text: String) -> void:
+	if _kill_box: _kill_box.queue_free()
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l1 := UiKit.label("☠ إقصاء", 26, Color("ff5a4a"), bold, 5)
+	l1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(l1)
+	if streak_text != "":
+		var l2 := UiKit.label(streak_text, 22, Color("ffd34d"), bold, 5)
+		l2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(l2)
+	add_child(v)
+	v.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	v.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	v.grow_vertical = Control.GROW_DIRECTION_BOTH
+	v.position.y -= 110.0
+	v.pivot_offset = v.size * 0.5
+	v.scale = Vector2(1.5, 1.5)
+	_kill_box = v
+	var tw := v.create_tween()
+	tw.tween_property(v, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.1)
+	tw.tween_property(v, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(v.queue_free)
+
+func _draw_dmg_numbers(c: Control) -> void:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null: return
+	var dt := get_process_delta_time()
+	for d in _dmg_nums:
+		d.t -= dt
+		d.pos.y += dt * 1.2
+		if cam.is_position_behind(d.pos): continue
+		var sp := cam.unproject_position(d.pos)
+		var a := clampf(d.t / 0.3, 0.0, 1.0)
+		_text(c, sp, d.text, 22 if d.col != Color.WHITE else 18, Color(d.col, a), HORIZONTAL_ALIGNMENT_CENTER, bold, 80)
+	_dmg_nums = _dmg_nums.filter(func(d): return d.t > 0.0)
 
 func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
 	if p.heal_id != "":

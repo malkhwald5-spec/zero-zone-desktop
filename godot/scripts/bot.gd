@@ -95,6 +95,7 @@ func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 1 | 2 | 4
 	floor_max_angle = deg_to_rad(50)
+	max_slides = 3
 	model = HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25),
 		HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()])
 	add_child(model)
@@ -271,9 +272,14 @@ func _land() -> void:
 	think_t = randf_range(0.0, 0.3)
 
 var _door_t := randf() * 0.2
+var _cheap := false           # far or out of sight: moved without collisions
 
 func _ground(delta: float) -> void:
-	var d_player := global_position.distance_to(world.view_position())
+	var vp: Vector3 = world.view_position()
+	var d_player := global_position.distance_to(vp)
+	# In front of the camera (or right next to it): what you can actually see.
+	var cam_f: Vector3 = world.cam_forward()
+	var on_screen := d_player < 12.0 or (global_position - vp).dot(cam_f) > d_player * 0.35
 	far = d_player > 280.0 * Game.view_k()
 	model.visible = d_player < 650.0 * Game.view_k()
 	fire_cd = maxf(0.0, fire_cd - delta)
@@ -306,11 +312,14 @@ func _ground(delta: float) -> void:
 	if think_t <= 0.0:
 		think_t = randf_range(0.8, 1.3) if far else randf_range(0.2, 0.35)
 		_think()
-	# Away from the player and not fighting: move every other frame in double
-	# steps, every fourth far away (100 players cost a lot of physics otherwise).
-	if d_player > 120.0 and target == null:
+	# Away from the camera: move every other frame in double steps, every
+	# fourth far away or out of view (100 players cost a lot of physics
+	# otherwise). Up close and in view, and anyone in a fight near you, every frame.
+	var smooth := d_player < 45.0 or (on_screen and d_player < 130.0) or (target != null and d_player < 90.0)
+	_cheap = not smooth and d_player > 60.0
+	if not smooth:
 		_far_dt += delta
-		var every := 4 if d_player > 400.0 else 2
+		var every := 4 if d_player > 400.0 or not on_screen else 2
 		if (_frame + get_instance_id()) % every == 0:
 			_move(_far_dt)
 			_far_dt = 0.0
@@ -324,6 +333,7 @@ func _ground(delta: float) -> void:
 	model.rotation.y = lerp_angle(model.rotation.y, yaw, minf(1.0, delta * 14.0))
 	# Animation level of detail: every frame up close, less often further away.
 	var every := 1 if d_player < 35.0 else (2 if d_player < 90.0 else (3 if d_player < 180.0 else 5))
+	if not on_screen: every = 8           # behind the camera: only its shadow shows
 	_pose_dt += delta
 	if _frame % every == 0 and model.visible:
 		var sp := Vector2(velocity.x, velocity.z).length()
@@ -340,7 +350,7 @@ func _ground(delta: float) -> void:
 		var low := (mode == "cover" and global_position.distance_to(goal) < 1.8) or mode == "heal" or revive_mate != null
 		model.downed = knocked
 		model.reviving = revive_mate != null and is_instance_valid(revive_mate) and global_position.distance_to(revive_mate.global_position) < 2.2
-		model.foot_ik = model.visible and is_on_floor() and global_position.distance_squared_to(world.view_position()) < 3600.0
+		model.foot_ik = on_screen and is_on_floor() and d_player < 30.0
 		model.set_pose("prone" if knocked else ("crouch" if low else "stand"), Vector2(velocity.x, velocity.z).length(), armed() and not knocked, _pose_dt, world.time)
 		_pose_dt = 0.0
 
@@ -744,9 +754,19 @@ func _move(delta: float) -> void:
 	else:
 		velocity.y -= GRAVITY * delta
 	var before := global_position
+	# Far off or out of sight and outdoors: just walk over the ground, no
+	# collision test (the most expensive part of a bot by far).
+	var open_ground: bool = _cheap and not world.island._overlaps(Vector2(before.x, before.z), Vector2(0.5, 0.5), 1.5)
+	if open_ground:
+		var np := global_position + Vector3(velocity.x, 0, velocity.z) * delta
+		if not world.is_deep(np):
+			global_position = Vector3(np.x, world.ground_height(np), np.z)
+		velocity.y = 0.0
 	# move_and_slide() always steps one physics frame; scale for longer steps.
 	var k := delta / maxf(get_physics_process_delta_time(), 0.0001)
-	if k > 1.01:
+	if open_ground:
+		pass
+	elif k > 1.01:
 		velocity *= k
 		move_and_slide()
 		velocity /= k

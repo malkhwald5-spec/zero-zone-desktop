@@ -1,0 +1,4 @@
+[gd_scene format=3]
+[ext_resource type="Script" path="res://tests/bake_weapon_icons.gd" id="1"]
+[node name="BakeIcons" type="Node"]
+script = ExtResource("1")

@@ -292,8 +292,9 @@ func _add_pickup(data: Dictionary, pos: Vector3) -> Node3D:
 	n.set_meta("data", data)
 	# The real thing lying there: the gun itself, a box of rounds, a first-aid kit...
 	var mi := MeshInstance3D.new()
-	mi.mesh = LootModels.mesh(data)
+	mi.mesh = _loot_mesh(data)
 	mi.position.y = 0.004
+	if data.kind == "weapon": mi.scale = Vector3.ONE * 1.25      # a little bigger than life: easy to see
 	# Small things only up close; no shadows (hundreds of extra draws otherwise).
 	mi.visibility_range_end = 120.0 if data.kind in ["weapon", "gear"] else 70.0
 	mi.visibility_range_end_margin = 10.0
@@ -308,6 +309,104 @@ func _add_pickup(data: Dictionary, pos: Vector3) -> Node3D:
 	if not _grid.has(c): _grid[c] = []
 	_grid[c].append(n)
 	return n
+
+## How good a pickup is, as a colour (alpha 0: no glow): white common,
+## blue good, purple great, gold the rare crate guns.
+func _loot_glow(data: Dictionary) -> Color:
+	match data.kind:
+		"weapon":
+			if Game.WEAPONS[data.id].get("crate", false): return Color(1.0, 0.75, 0.2, 0.9)
+			var tier: int = Bot.TIER.get(data.id, 1)
+			return Color(0.35, 0.7, 1.0, 0.8) if tier >= 3 else Color(1, 1, 1, 0.55)
+		"gear":
+			return [Color(0, 0, 0, 0), Color(1, 1, 1, 0.45), Color(0.35, 0.7, 1.0, 0.7), Color(0.75, 0.45, 1.0, 0.85)][clampi(int(data.lvl), 0, 3)]
+		"attach":
+			return Color(0.35, 0.7, 1.0, 0.5)
+	return Color(0, 0, 0, 0)
+
+var _halo_mats := {}
+var _loot_meshes := {}
+
+## The loot's mesh, with (for guns and armour) a soft glow on the floor under
+## it in the colour of how good it is, so it stands out from a distance as in
+## the big shooters. One shared mesh per kind of item (no extra nodes).
+func _loot_mesh(data: Dictionary) -> Mesh:
+	var base := LootModels.mesh(data)
+	var glow := _loot_glow(data)
+	if glow.a <= 0.0 or not (base is ArrayMesh): return base
+	var key := LootModels._key(data)
+	if _loot_meshes.has(key): return _loot_meshes[key]
+	var m: ArrayMesh = (base as ArrayMesh).duplicate()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(1.5, 1.5)
+	var arr := pm.get_mesh_arrays()
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	for k in verts.size(): verts[k].y = 0.025
+	arr[Mesh.ARRAY_VERTEX] = verts
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	m.surface_set_material(m.get_surface_count() - 1, _halo_mat(glow))
+	_loot_meshes[key] = m
+	return m
+
+func _halo_mat(col: Color) -> StandardMaterial3D:
+	var key := col.to_html()
+	if not _halo_mats.has(key):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.albedo_color = col
+		var dot := GradientTexture2D.new()
+		dot.fill = GradientTexture2D.FILL_RADIAL
+		dot.fill_from = Vector2(0.5, 0.5)
+		dot.fill_to = Vector2(1.0, 0.5)
+		var g := Gradient.new()
+		g.set_color(0, Color(1, 1, 1, 0.55))
+		g.set_color(1, Color(1, 1, 1, 0))
+		dot.gradient = g
+		m.albedo_texture = dot
+		_halo_mats[key] = m
+	return _halo_mats[key]
+
+## Names floating over the loot right round you (a few labels, reused).
+var _loot_labels: Array = []
+var _loot_lab_t := 0.0
+
+func _update_loot_labels(delta: float) -> void:
+	_loot_lab_t -= delta
+	if _loot_lab_t > 0.0: return
+	_loot_lab_t = 0.15
+	if _loot_labels.is_empty():
+		for k in 6:
+			var lb := Label3D.new()
+			lb.font = load("res://assets/fonts/Cairo.ttf")
+			lb.font_size = 56
+			lb.pixel_size = 0.0045
+			lb.outline_size = 14
+			lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			lb.no_depth_test = true
+			lb.visible = false
+			add_child(lb)
+			_loot_labels.append(lb)
+	var near := []
+	if player.state == "ground":
+		for it in pickups_near(player.global_position, 7.0):
+			if is_instance_valid(it) and not it.has_meta("crate"): near.append(it)
+		var pp := player.global_position
+		near.sort_custom(func(a, b): return a.global_position.distance_squared_to(pp) < b.global_position.distance_squared_to(pp))
+	for k in _loot_labels.size():
+		var lb: Label3D = _loot_labels[k]
+		if k >= near.size():
+			lb.visible = false
+			continue
+		var it: Node3D = near[k]
+		var data: Dictionary = it.get_meta("data")
+		var col := _loot_glow(data)
+		lb.text = pickup_name(data)
+		lb.modulate = Color(col.r, col.g, col.b, 1.0) if col.a > 0.0 else Color(0.92, 0.92, 0.92)
+		lb.global_position = it.global_position + Vector3(0, 0.45, 0)
+		lb.visible = true
 
 ## Pickups within r metres of p (r up to CELL).
 func pickups_near(p: Vector3, r: float) -> Array:
@@ -335,6 +434,7 @@ func pickup(who: Player, it: Node3D, quiet := false) -> void:
 	match data.kind:
 		"weapon":
 			who.give_weapon(data.id, data.mag, data.get("att", {}))
+			if hud and who == player: hud.weapon_toast(data.id)
 		"attach":
 			if not who.add_attachment(data.id): return
 		"ammo":
@@ -432,7 +532,7 @@ func death_crate(owner_name: String, pos: Vector3, items: Array) -> Node3D:
 	crates.append(box)
 	for d in items:
 		var it := _add_pickup(d, at + Vector3(0, 0.55, 0))
-		it.get_child(0).visible = false     # inside the box
+		for ch in it.get_children(): ch.visible = false     # inside the box
 		it.set_meta("crate", box)
 	return box
 
@@ -782,6 +882,18 @@ func view_position() -> Vector3:
 		return player.spectate.global_position
 	return player.global_position if player else Vector3.ZERO
 
+## Which way the camera looks (flat), worked out once per physics frame.
+func cam_forward() -> Vector3:
+	var f := Engine.get_physics_frames()
+	if f != _camf_frame:
+		_camf_frame = f
+		var cam := get_viewport().get_camera_3d()
+		_camf = -cam.global_basis.z if cam else Vector3.FORWARD
+	return _camf
+
+var _camf := Vector3.FORWARD
+var _camf_frame := -1
+
 ## Built once per physics frame: with 100 players every bot asks for it.
 func actors() -> Array:
 	var f := Engine.get_physics_frames()
@@ -1062,6 +1174,7 @@ func _process(delta: float) -> void:
 			if Vector2(ap.x, ap.z).distance_to(island.crater) > 1700.0: continue
 			if a.on_ground() and island.on_lava(Vector2(ap.x, ap.z)):
 				a.take_damage(9.0, null)
+	_update_loot_labels(delta)
 	# Auto-pickup (settings): ammo for guns the player carries, meds and
 	# grenades up to the chosen amounts, attachments that fit a free slot.
 	if player.state == "ground" and Game.settings.get("auto_pick", true):
@@ -1250,6 +1363,7 @@ func _perf_governor(delta: float) -> void:
 	else:
 		return
 	Game.apply_quality(builder.env, builder.sun)
+	Game.apply_fps()
 	Game.save_data()
 	player.message.emit("خففنا الرسوميات لحالها عشان اللعب يصير أسلس (%s)" % step)
 	_gov_wait = 3.0

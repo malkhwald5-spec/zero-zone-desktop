@@ -97,11 +97,19 @@ func _clear(list: VBoxContainer) -> void:
 		list.remove_child(c)
 		c.queue_free()
 
-func _row(list: VBoxContainer, text: String, sub: String, buttons: Array, highlight := false) -> HBoxContainer:
+func _row(list: VBoxContainer, text: String, sub: String, buttons: Array, highlight := false, pic: Texture2D = null) -> HBoxContainer:
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", UiKit.style(Color(1, 0.83, 0.3, 0.16) if highlight else Color(0, 0, 0, 0.35), 5, GOLD if highlight else Color(0, 0, 0, 0), 1, 8))
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 6)
+	if pic:
+		var tr := TextureRect.new()
+		tr.texture = pic
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.custom_minimum_size = Vector2(96, 40)
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(tr)
 	var tv := VBoxContainer.new()
 	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tv.add_theme_constant_override("separation", -4)
@@ -152,12 +160,12 @@ func _rebuild() -> void:
 		near.add_child(head)
 		for it in list:
 			var d: Dictionary = it.get_meta("data")
-			_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it); p.pickup_anim(), true]])
+			_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it); p.pickup_anim(), true]], false, Icons.weapon(d.id) if d.kind == "weapon" else null)
 	if not boxes.is_empty() and not loose.is_empty():
 		near.add_child(UiKit.label("على الأرض", 15, DIM, UiKit.bold(), 0))
 	for it in loose:
 		var d: Dictionary = it.get_meta("data")
-		_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it); p.pickup_anim(), true]])
+		_row(near, world.pickup_name(d), _kind_name(d), [["التقاط", func(): world.pickup(p, it); p.pickup_anim(), true]], false, Icons.weapon(d.id) if d.kind == "weapon" else null)
 	# 2) In the bag.
 	var bag: VBoxContainer = _cols[1]
 	_clear(bag)
@@ -193,7 +201,7 @@ func _rebuild() -> void:
 		var buttons := []
 		if p.active != i: buttons.append(["بالإيد", func(): p.switch_slot(i)])
 		buttons.append(["رمي", func(): p.drop_slot(i)])
-		_row(eq, wd.name + ("  ◀" if p.active == i else ""), ("%s • سلاح أبيض، وعلى ظهرك بتصدّ الرصاص" % slot_title) if wd.get("melee", false) else "%s • %d/%d" % [slot_title, s.mag, p.ammo[wd.ammo]], buttons, p.active == i)
+		_row(eq, wd.name + ("  ◀" if p.active == i else ""), ("%s • سلاح أبيض، وعلى ظهرك بتصدّ الرصاص" % slot_title) if wd.get("melee", false) else "%s • %d/%d" % [slot_title, s.mag, p.ammo[wd.ammo]], buttons, p.active == i, Icons.weapon(s.id))
 		var grid := HBoxContainer.new()
 		grid.add_theme_constant_override("separation", 5)
 		for slot_name in Items.ATTACH_SLOTS:

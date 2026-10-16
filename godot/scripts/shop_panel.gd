@@ -91,7 +91,7 @@ func _fill() -> void:
 			_info.text = "السلاح بييجي مع ذخيرته. اللي بإيدك بينحط عالأرض إذا ما في محل."
 			for g in GUNS:
 				var w: Dictionary = Game.WEAPONS[g[0]]
-				_card(String(w.name), "%s • ضرر %d" % [_cls_name(String(w.cls)), int(w.dmg)], int(g[1]), int(g[2]), lvl, _buy_gun.bind(String(g[0])))
+				_card(String(w.name), "%s • ضرر %d" % [_cls_name(String(w.cls)), int(w.dmg)], int(g[1]), int(g[2]), lvl, _buy_gun.bind(String(g[0])), false, Icons.weapon(String(g[0])))
 		"gear":
 			_info.text = "دروع، علاج وقنابل."
 			for g in GEAR:
@@ -125,11 +125,11 @@ func _cls_name(c: String) -> String:
 
 ## One thing to buy: name, a line about it, price; greyed out when it needs
 ## a higher fort level, too dear, or full.
-func _card(title: String, sub: String, price: int, need: int, lvl: int, cb: Callable, full := false) -> void:
+func _card(title: String, sub: String, price: int, need: int, lvl: int, cb: Callable, full := false, pic: Texture2D = null) -> void:
 	var locked := need > lvl
 	var dear := war.money < price
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(260, 92)
+	b.custom_minimum_size = Vector2(260, 92 if pic == null else 150)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var col := Color(1, 1, 1, 0.07) if not (locked or full) else Color(1, 1, 1, 0.03)
 	b.add_theme_stylebox_override("normal", UiKit.style(col, 8, Color(1, 0.83, 0.3, 0.25) if not (locked or dear or full) else Color(0, 0, 0, 0), 1))
@@ -143,6 +143,15 @@ func _card(title: String, sub: String, price: int, need: int, lvl: int, cb: Call
 	v.offset_top = 8
 	v.offset_right = -12
 	b.add_child(v)
+	if pic:
+		var tr := TextureRect.new()
+		tr.texture = pic
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.custom_minimum_size = Vector2(0, 62)
+		tr.modulate = Color(1, 1, 1, 0.45) if locked else Color.WHITE
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(tr)
 	v.add_child(UiKit.label(title, 18, Color.WHITE if not locked else Color(1, 1, 1, 0.4), UiKit.bold(), 2))
 	if sub != "": v.add_child(UiKit.label(sub, 13, Color(1, 1, 1, 0.6), null, 2))
 	var tag := "$%d" % price
@@ -169,7 +178,7 @@ func _buy_gun(price: int, id: String) -> void:
 	var w: Dictionary = Game.WEAPONS[id]
 	p.give_weapon(id, int(w.mag))
 	p.ammo[w.ammo] = int(p.ammo[w.ammo]) + (20 if w.ammo == "300" else (40 if w.ammo == "12g" else 120))
-	p.message.emit("اشتريت %s" % w.name)
+	world.hud.weapon_toast(id)
 	_refill()
 
 func _buy_gear(price: int, id: String) -> void:
