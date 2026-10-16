@@ -336,7 +336,20 @@ func seat_xform() -> Transform3D:
 		"jeep": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.62, -0.18))
 		"pickup": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.42, 0.5, 0.45))
 		"apc": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, 1.9, -0.3))
-	return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.42, -0.18))
+	return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.32, -0.18))
+
+## Getting in, `k` 0..1 through it (vehicle space): from beside the door,
+## facing the car, sliding across onto the seat in the second half (the
+## boarding clip turns the body round and sits it down).
+func board_xform(k: float) -> Transform3D:
+	var seat := seat_xform()
+	var door := seat.origin + Vector3(signf(seat.origin.x) * 0.8, 0.0, 0.0)
+	var gw: Vector3 = global_transform * door
+	door.y = (global_transform.affine_inverse() * Vector3(gw.x, world.ground_height(gw), gw.z)).y
+	# The clip sits itself down from standing: the feet stay on the ground.
+	var at := door.lerp(seat.origin, smoothstep(0.68, 1.0, k))
+	at.y = door.y
+	return Transform3D(Basis(Vector3.UP, PI * 0.5 * signf(seat.origin.x)), at)
 
 func _mat(c: Color, rough := 0.5, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -535,6 +548,7 @@ var _park_t := randf() * 0.5
 ## Parked far from the camera with nobody in it: frozen in place (no wheel
 ## physics at all). Woken again when the camera comes within 120 m.
 func _update_parking() -> void:
+	if driver is Bot: return      # a bot at the wheel freezes it itself far off (see Bot._drive)
 	var far := driver == null and world != null and world.player != null \
 		and global_position.distance_to(world.view_position()) > 120.0
 	if far and not freeze and linear_velocity.length() < 0.6 and angular_velocity.length() < 0.3 and _resting():
@@ -688,7 +702,10 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 		if attacker != null and "team" in attacker and attacker.team == team and team >= 0: return false
 		amount *= 0.35       # armour
 	health -= amount
-	if health <= 0.0:
+	if driver is Bot and attacker != null and attacker != driver:
+		# Shooting up a car hits whoever is at the wheel too.
+		driver.take_damage(amount * 0.4, attacker, false)
+	if health <= 0.0 and not dead:
 		dead = true
 		engine_force = 0.0
 		brake = 20.0

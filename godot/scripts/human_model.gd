@@ -734,11 +734,52 @@ func _turn_step() -> void:
 		turn_yaw = PI / 2.0 * turn_dir
 		turn_dir = 0
 
-## Direction of travel relative to facing, in eight sectors.
+const DIRS8 := ["f", "fr", "r", "br", "b", "bl", "l", "fl"]
+var _dir_k := 0
+
+## Direction of travel relative to facing, in eight sectors. A little
+## stickiness at the borders so a stick held between two directions does
+## not flick between their clips.
 func _dir8() -> String:
-	if move_local.length() < 0.05: return "f"
-	var k := wrapi(int(round(atan2(move_local.x, move_local.y) / (PI / 4.0))), 0, 8)
-	return ["f", "fr", "r", "br", "b", "bl", "l", "fl"][k]
+	if move_local.length() < 0.05: return DIRS8[_dir_k]
+	var a := atan2(move_local.x, move_local.y)
+	if absf(wrapf(a - _dir_k * PI / 4.0, -PI, PI)) > PI / 8.0 + 0.14:
+		_dir_k = wrapi(int(round(a / (PI / 4.0))), 0, 8)
+	return DIRS8[_dir_k]
+
+## Walk / run / crouch-walk cycles: switching between them keeps the step.
+static func _is_cycle(n: String) -> bool:
+	for pre in ["mx/walk_", "mx/run_", "mx/sprint_", "mx/crouch_", "mx/pwalk_", "mx/prun_", "mx/pstrafe_", "mx/u_walk", "mx/u_run", "mx/u_back", "mx/u_sprint"]:
+		if n.begins_with(pre): return true
+	return false
+
+## Where in a cycle the left foot is furthest ahead (0..1), measured once per
+## clip from its thigh rotations and kept on the clip.
+func _cycle_phase(a: Animation) -> float:
+	if a.has_meta("phase0"): return float(a.get_meta("phase0"))
+	var ph := 0.0
+	var trk := {}
+	for side in ["Left", "Right"]:
+		if not _bone.has(side + "UpLeg") or not _bone.has(side + "Leg"): continue
+		var bn := sk.get_bone_name(_bone[side + "UpLeg"])
+		for tr in a.get_track_count():
+			if a.track_get_type(tr) == Animation.TYPE_ROTATION_3D and String(a.track_get_path(tr)).ends_with(":" + bn):
+				trk[side] = tr
+	if trk.size() == 2:
+		# Forward, in the hips' space: the model faces -Z.
+		var hips_gb: Basis = sk.get_bone_global_rest(_hips).basis
+		var fwd: Vector3 = (hips_gb.inverse() * (_sk_to_model().basis.inverse() * Vector3(0, 0, -1))).normalized()
+		var kl: Vector3 = sk.get_bone_rest(_bone["LeftLeg"]).origin
+		var kr: Vector3 = sk.get_bone_rest(_bone["RightLeg"]).origin
+		var best := -INF
+		for i in 32:
+			var t := a.length * i / 32.0
+			var d := (a.rotation_track_interpolate(trk["Left"], t) * kl - a.rotation_track_interpolate(trk["Right"], t) * kr).dot(fwd)
+			if d > best:
+				best = d
+				ph = i / 32.0
+	a.set_meta("phase0", ph)
+	return ph
 
 ## Locomotion clip with its playback speed matched to the real ground speed.
 func _play_moving(name: String, speed: float, max_scale := 2.2) -> void:
@@ -763,9 +804,17 @@ const FALLBACK := {"Idle": "mx/idle", "Walk": "mx/walk_f", "Run": "mx/run_f"}
 func _play(name: String, speed_scale: float) -> void:
 	if not ap.has_animation(name) and FALLBACK.has(name): name = FALLBACK[name]
 	if _anim != name:
+		var from := _anim
+		var at := ap.current_animation_position if _is_cycle(from) and ap.current_animation != "" else 0.0
 		# Cross-fade time runs at the clip's speed: keep it ~0.2 s of real time.
 		ap.play(name, clampf(0.2 * absf(speed_scale), 0.0, 0.4))
 		_anim = name
+		if _is_cycle(from) and _is_cycle(name) and ap.has_animation(from):
+			# Same foot forward in the new cycle as in the old one.
+			var a0: Animation = ap.get_animation(from)
+			var a1: Animation = ap.get_animation(name)
+			var u := fposmod(at / maxf(a0.length, 0.01) - _cycle_phase(a0) + _cycle_phase(a1), 1.0)
+			ap.seek(u * a1.length, true)
 	ap.speed_scale = speed_scale
 
 ## pose: "stand" | "crouch" | "prone" | "fall" | "chute" | "dead"
@@ -963,12 +1012,14 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var sw := sin(t * 1.7) * 0.05
 			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
 			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
+	_lean_into_moves(pose, speed, delta)
 	if pose in ["stand", "crouch"] and not swimming:
 		_plant_feet(delta)
 	else:
 		_hip_drop = 0.0
 	if absf(peek) > 0.01 and pose in ["stand", "crouch"]:
 		body.position.x += peek * PEEK_SHIFT     # weight onto the outer foot
+		_peek_feet(pose)
 		_lean_spine()
 	if flinch > 0.0 and pose in ["stand", "crouch", "prone"]:
 		_flinch_spine()
@@ -1120,6 +1171,9 @@ func _place_gun(pose: String, delta: float) -> void:
 		var hip := Vector3(0, 0.95 + body.position.y, 0)
 		var rb := Basis(Vector3.BACK, -peek * PEEK_ROLL)
 		target = Transform3D(rb * target.basis, hip + rb * (target.origin - hip) + Vector3(peek * PEEK_SHIFT, 0, 0))
+	if absf(_turn_lean) > 0.002 or absf(_go_lean) > 0.002:
+		# The gun leans with the body (it turns about the feet).
+		target = Transform3D(Basis.from_euler(Vector3(_go_lean, 0.0, _turn_lean)), Vector3.ZERO) * target
 	target.origin += target.basis * Vector3(0, 0.01, 0.06) * recoil
 	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.07)
 	var k2 := minf(1.0, delta * 14.0)
@@ -1154,8 +1208,61 @@ func _flinch_spine() -> void:
 		var q := Quaternion((inv * right).normalized(), -amt * k) * Quaternion((inv * fwd).normalized(), _flinch_side * amt * 0.6 * k)
 		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
 
+var _yaw0 := INF
+var _speed0 := 0.0
+var _turn_lean := 0.0
+var _go_lean := 0.0
+
+## Running round a bend the body leans into it; setting off it tips forward
+## for a step, pulling up it rocks back. From the model's own turn rate and
+## change of speed, so it works the same for the player and the bots.
+func _lean_into_moves(pose: String, speed: float, delta: float) -> void:
+	if delta <= 0.0 or not is_inside_tree(): return
+	var yaw := atan2(global_basis.z.x, global_basis.z.z)
+	var rate := 0.0
+	if _yaw0 != INF: rate = wrapf(yaw - _yaw0, -PI, PI) / delta
+	_yaw0 = yaw
+	var acc := (speed - _speed0) / delta
+	_speed0 = speed
+	var on := pose == "stand" and not swimming and _action_t <= 0.0
+	var want_turn := clampf(rate * speed * 0.012, -0.13, 0.13) if on and speed > 2.0 else 0.0
+	var want_go := clampf(-acc * 0.012, -0.09, 0.07) if on and absf(acc) > 1.5 else 0.0
+	_turn_lean = lerpf(_turn_lean, want_turn, clampf(delta * 6.0, 0.0, 1.0))
+	_go_lean = lerpf(_go_lean, want_go, clampf(delta * (8.0 if absf(want_go) > absf(_go_lean) else 3.0), 0.0, 1.0))
+	if absf(_turn_lean) < 0.002 and absf(_go_lean) < 0.002: return
+	body.rotation.z += _turn_lean
+	body.rotation.x += _go_lean
+
 const PEEK_ROLL := 0.36      # radians the upper body tilts when leaning
 const PEEK_SHIFT := 0.22     # metres the body shifts sideways
+
+## Leaning out: the hips go over, the inner foot mostly stays where it stood
+## and the outer one steps out wider (standing still; walking keeps the clip).
+func _peek_feet(pose: String) -> void:
+	var still := clampf(1.0 - (_speed - 0.3) / 1.2, 0.0, 1.0)
+	if still <= 0.0: return
+	var to_model := _sk_to_model()
+	var shift := peek * PEEK_SHIFT * still
+	for i in 2:
+		var side: String = ["Left", "Right"][i]
+		var sd := -1.0 if i == 0 else 1.0
+		var fp: Vector3 = to_model * sk.get_bone_global_pose(_bone[side + "Foot"]).origin
+		var knee: Vector3 = to_model * sk.get_bone_global_pose(_bone[side + "Leg"]).origin
+		var hip: Vector3 = to_model * sk.get_bone_global_pose(_bone[side + "UpLeg"]).origin
+		var out := sd * signf(peek) > 0.0
+		var step := (0.13 if pose == "stand" else 0.08) * absf(peek) * still * sd if out else 0.0
+		var pole := knee - (hip + fp) * 0.5
+		if pole.length() < 0.01: pole = Vector3(0, 0, -1)
+		# The knee also points out a little over the outer foot.
+		_leg(side, fp + Vector3(step - shift * 0.6, 0, 0), (pole.normalized() + Vector3(sd * 0.3 if out else 0.0, 0, 0)).normalized())
+	# Eyes stay closer to level: neck and head take back part of the tilt.
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var axis_sk := (to_sk.basis * Vector3.BACK).normalized()
+	for bn in ["Neck", "Head"]:
+		if not _bone.has(bn): continue
+		var b: int = _bone[bn]
+		var inv := sk.get_bone_global_pose(b).basis.inverse()
+		sk.set_bone_pose_rotation(b, sk.get_bone_pose_rotation(b) * Quaternion((inv * axis_sk).normalized(), peek * PEEK_ROLL * 0.22))
 
 ## Lean sideways from the hips (Q / E), split over the three spine bones.
 func _lean_spine() -> void:

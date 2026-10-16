@@ -109,7 +109,7 @@ func _ready() -> void:
 
 ## Things the HUD and player code query.
 func on_ground() -> bool:
-	return state == "ground"
+	return state == "ground" or state == "vehicle"
 
 func armed() -> bool:
 	return weapon_id != ""
@@ -172,6 +172,7 @@ func bleed_out() -> void:
 	_die(knocked_by)
 
 func _die(attacker: Node) -> void:
+	if state == "vehicle": exit_vehicle(true)
 	knocked = false
 	dead = true
 	state = "dead"
@@ -205,6 +206,8 @@ func _physics_process(delta: float) -> void:
 			_air(delta)
 		"ground":
 			_ground(delta)
+		"vehicle":
+			_drive(delta)
 		"dead":
 			if not is_on_floor():
 				velocity.y -= GRAVITY * delta
@@ -431,7 +434,11 @@ func _think() -> void:
 			health = minf(100.0, health + 45.0)
 			heal_t = 0.0
 		return
+	if mode == "to_car" and _walk_to_car():
+		return
 	if must_move or outside_now:
+		if mode == "zone" and _want_car():
+			return
 		if mode != "zone" or global_position.distance_to(goal) < 3.0:
 			mode = "zone"
 			var c := zone.next_center + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * zone.next_radius * 0.5
@@ -897,3 +904,215 @@ func _shoot(e: Node3D) -> void:
 	world.notify_shot(global_position, self)
 	if mag == 0 and reserve > 0:
 		reload_t = w.reload
+
+# ---------------------------------------------------------------- driving
+const MAX_DRIVERS := 8
+const BOARD_TIME := 0.9
+var vehicle: Vehicle = null
+var car: Vehicle = null        # the car it is walking to
+var _ride_goal := Vector3.ZERO
+var _drive_t := 0.0
+var _board_t := -1.0
+var _check_t := 0.0
+var _back_t := 0.0
+var _slow_t := 0.0
+var _drive_stuck := 0
+var _cheap_drive := false
+
+## A long way to go to the safe zone and a free car close by: go and take it.
+func _want_car() -> bool:
+	if world.war or not armed() or buddy or target != null or knocked: return false
+	if global_position.distance_to(goal) < 320.0: return false
+	if world.bot_drivers() >= MAX_DRIVERS: return false
+	var v: Vehicle = world.nearest_vehicle(global_position, 45.0)
+	if v == null or v.kind in ["boat", "apc"] or world.is_deep(v.global_position): return false
+	car = v
+	_ride_goal = goal
+	mode = "to_car"
+	_go(v.global_position)
+	return true
+
+## On the way to the car; true while still going (or just got in).
+func _walk_to_car() -> bool:
+	if car == null or not is_instance_valid(car) or car.dead or car.driver != null or target != null:
+		car = null
+		mode = "zone"
+		return false
+	var d := global_position.distance_to(car.global_position)
+	if d < 3.2:
+		_enter(car)
+		return true
+	if goal.distance_to(car.global_position) > 2.0: _go(car.global_position)
+	return true
+
+func _enter(v: Vehicle) -> void:
+	car = null
+	vehicle = v
+	v.driver = self
+	v.freeze = false
+	state = "vehicle"
+	mode = "drive"
+	goal = _ride_goal
+	path = []
+	shape.disabled = true
+	velocity = Vector3.ZERO
+	_drive_t = 0.0
+	_check_t = 0.0
+	_back_t = 0.0
+	_slow_t = 0.0
+	_drive_stuck = 0
+	_cheap_drive = false
+	_board_t = 0.0 if v.kind != "bike" else -1.0
+	if _board_t >= 0.0: model.play_action("car_enter", BOARD_TIME, 1.0, 3.6)
+
+## Out of the car on the driver's side (or anywhere dry nearby).
+func exit_vehicle(force := false) -> void:
+	var v := vehicle
+	vehicle = null
+	if v and is_instance_valid(v):
+		if v.driver == self: v.driver = null
+		v.throttle = 0.0
+		v.steer_in = 0.0
+		v.handbrake = false
+		if v.freeze and not force:
+			# Driven "on paper" far away: put it down properly where it stopped.
+			v.freeze = false
+			v.linear_velocity = Vector3.ZERO
+		var seat := v.seat_xform()
+		var out: Vector3 = v.global_transform * (seat.origin + Vector3(signf(seat.origin.x) * 1.6, 0, 0))
+		if world.is_deep(out): out = world.safe_landing(out)
+		global_position = Vector3(out.x, world.ground_height(out) + 0.2, out.z)
+		reset_physics_interpolation()
+	if state == "vehicle": state = "ground"
+	shape.disabled = false
+	velocity = Vector3.ZERO
+	_board_t = -1.0
+	model.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3.ZERO)
+	mode = "zone"
+	think_t = 0.0
+
+func _drive(delta: float) -> void:
+	var v := vehicle
+	if v == null or not is_instance_valid(v) or v.dead:
+		exit_vehicle(true)
+		return
+	_drive_t += delta
+	hurt_t += delta
+	fire_cd = maxf(0.0, fire_cd - delta)
+	var vp: Vector3 = world.view_position()
+	var d_view := v.global_position.distance_to(vp)
+	model.visible = d_view < 650.0 * Game.view_k()
+	far = d_view > 280.0 * Game.view_k()
+	# Far from anyone watching: no wheel physics, the car is moved along "on
+	# paper" (like the bots walking far off). Close by: really driven.
+	var cheap := d_view > 260.0
+	if cheap != _cheap_drive:
+		_cheap_drive = cheap
+		v.freeze = cheap
+		if not cheap:
+			v.linear_velocity = v.global_basis.z * 12.0
+			v.reset_physics_interpolation()
+	var to := goal - v.global_position
+	to.y = 0.0
+	# Time to get out: there, shot at, someone close, or it has gone wrong.
+	_check_t -= delta
+	if _check_t <= 0.0:
+		_check_t = 0.5
+		var seen := _look_for_enemy() if not cheap else null
+		if to.length() < 55.0 or hurt_t < 0.6 or (seen and global_position.distance_to(seen.global_position) < 70.0) \
+				or _drive_t > 160.0 or _drive_stuck >= 4:
+			if seen: target = seen
+			exit_vehicle()
+			return
+	if cheap: _drive_far(v, to, delta)
+	else: _drive_near(v, to, delta)
+	global_position = v.global_position + Vector3(0, 0.6, 0)
+	velocity = v.linear_velocity if not cheap else v.global_basis.z * 14.0
+	yaw = atan2(-v.global_basis.z.x, -v.global_basis.z.z)
+	if model.visible:
+		var seat := v.seat_xform()
+		if _board_t >= 0.0:
+			_board_t += delta
+			seat = v.board_xform(_board_t / BOARD_TIME)
+			if _board_t >= BOARD_TIME: _board_t = -1.0
+		model.global_transform = v.global_transform * seat
+		model.ride = v.kind
+		model.steer = v.steer_in
+		model.aiming = false
+		model.reload_p = -1.0
+		model.foot_ik = false
+		model.peek = 0.0
+		model.set_pose("drive", 0.0, armed(), delta, world.time)
+
+## Driven for real: steer at the goal, look ahead for walls, trees and water,
+## back up and try again when stuck.
+func _drive_near(v: Vehicle, to: Vector3, delta: float) -> void:
+	var fwd := v.global_basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var ang := fwd.signed_angle_to(to.normalized(), Vector3.UP)    # + = goal to the left
+	var sp := v.speed()
+	if _back_t > 0.0:
+		# Reversing out of it, wheels turned the other way.
+		_back_t -= delta
+		v.throttle = -1.0
+		v.steer_in = clampf(ang * 2.0, -1.0, 1.0)
+		v.handbrake = false
+		return
+	var space := get_world_3d().direct_space_state
+	var from := v.global_position + Vector3(0, 0.7, 0) + fwd * 2.4
+	var look := clampf(absf(sp) * 0.9, 8.0, 22.0)
+	var block := [0.0, 0.0, 0.0]          # left, ahead, right: how close (1 = right there)
+	for i in 3:
+		var dir := fwd.rotated(Vector3.UP, [0.45, 0.0, -0.45][i])
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * look, 1)
+		q.exclude = [v.get_rid()]
+		var hit := space.intersect_ray(q)
+		if hit: block[i] = 1.0 - from.distance_to(hit.position) / look
+		var wet: Vector3 = from + dir * look * 0.7
+		if world.is_deep(wet): block[i] = maxf(block[i], 0.6)
+	var steer := clampf(-ang * 2.2, -1.0, 1.0)
+	if block[1] > 0.0 or block[0] > 0.5 or block[2] > 0.5:
+		# Something ahead: turn to the clearer side.
+		steer = clampf(steer + (block[0] - block[2]) * 2.0 + (0.8 if block[0] > block[2] else -0.8) * block[1], -1.0, 1.0)
+	var throttle := 1.0
+	if absf(ang) > 1.2: throttle = 0.6
+	if sp > 24.0: throttle = 0.1           # bots keep to about 85 km/h
+	if block[1] > 0.4 or (absf(ang) > 0.5 and sp > 16.0): throttle = 0.0 if sp > 6.0 else 0.5
+	v.throttle = throttle
+	v.steer_in = steer
+	v.handbrake = false
+	# Not getting anywhere: back up a little.
+	if absf(sp) < 1.2 and _drive_t > 2.5:
+		_slow_t += delta
+		if _slow_t > 1.8:
+			_slow_t = 0.0
+			_back_t = 1.4
+			_drive_stuck += 1
+	else:
+		_slow_t = 0.0
+
+## Far off: the car glides over the ground at a steady speed, turning
+## towards the goal round buildings and water. Nobody can see it.
+func _drive_far(v: Vehicle, to: Vector3, delta: float) -> void:
+	var fwd := v.global_basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var want := to.normalized()
+	var turn := clampf(fwd.signed_angle_to(want, Vector3.UP), -0.9 * delta, 0.9 * delta)
+	var dir := fwd.rotated(Vector3.UP, turn)
+	var step := 14.0 * delta
+	var ok := false
+	for a in [0.0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6]:
+		var d := dir.rotated(Vector3.UP, a)
+		var np: Vector3 = v.global_position + d * maxf(step, 3.0)
+		if world.is_deep(np) or world.island._overlaps(Vector2(np.x, np.z), Vector2(1.2, 1.2), 0.5): continue
+		dir = d
+		ok = true
+		break
+	if not ok:
+		_drive_stuck += 1
+		return
+	var p: Vector3 = v.global_position + dir * step
+	var h: float = world.ground_height(p) + (0.6 if v.kind == "bike" else 0.9)
+	v.global_transform = Transform3D(Basis.looking_at(-dir, Vector3.UP), Vector3(p.x, h, p.z))

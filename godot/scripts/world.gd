@@ -1454,6 +1454,13 @@ func _spawn_boats() -> void:
 		add_child(v)
 		vehicles.append(v)
 
+## Bots at the wheel right now.
+func bot_drivers() -> int:
+	var n := 0
+	for b in bots:
+		if b.state == "vehicle": n += 1
+	return n
+
 func nearest_vehicle(p: Vector3, r: float) -> Vehicle:
 	var best: Vehicle = null
 	var bd := r

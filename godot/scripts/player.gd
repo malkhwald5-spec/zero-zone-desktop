@@ -1362,7 +1362,12 @@ func _update_model(delta: float) -> void:
 		_body_yaw = ry
 	if state == "vehicle" and vehicle:
 		# On the driver's seat, facing the front (+Z).
-		model.global_transform = vehicle.global_transform * vehicle.seat_xform()
+		var seat := vehicle.seat_xform()
+		if _board_t >= 0.0:
+			_board_t += delta
+			seat = vehicle.board_xform(_board_t / BOARD_TIME)
+			if _board_t >= BOARD_TIME: _board_t = -1.0
+		model.global_transform = vehicle.global_transform * seat
 		model.ride = vehicle.kind
 		model.steer = vehicle.steer_in
 	elif state == "chute":
@@ -1594,6 +1599,9 @@ func release_throw() -> void:
 	else: model.play_action("toss", 1.1)
 
 # ---------- Vehicles ----------
+const BOARD_TIME := 0.9
+var _board_t := -1.0
+
 func enter_vehicle(v: Vehicle) -> void:
 	if v.dead or v.driver != null or knocked: return
 	vehicle = v
@@ -1606,6 +1614,9 @@ func enter_vehicle(v: Vehicle) -> void:
 	aiming = false
 	throw_ready = false
 	cancel_heal()
+	# Into a car: open the door, turn and sit down (the Mixamo boarding clip).
+	_board_t = 0.0 if v.kind not in ["bike", "boat", "apc"] else -1.0
+	if _board_t >= 0.0: model.play_action("car_enter", BOARD_TIME, 1.0, 3.6)
 	if v.kind == "apc": message.emit("WASD للقيادة • زر الإطلاق للرشاش اللي عالسقف • F للنزول")
 	else: message.emit("WASD للقيادة • Space فرامل • F للنزول")
 
@@ -1614,6 +1625,7 @@ func enter_vehicle(v: Vehicle) -> void:
 ## nearest dry spot.
 func exit_vehicle(force := false) -> void:
 	if vehicle == null: return
+	_board_t = -1.0
 	var v := vehicle
 	if v.kind == "boat":
 		var spot := _boat_exit_spot(v, force)
