@@ -1357,8 +1357,8 @@ func _perf_governor(delta: float) -> void:
 	elif not Game.laptop():
 		Game.settings.laptop = true
 		step = "وضع اللابتوب"
-	elif Game.render_scale() > 0.8:
-		Game.settings.render_scale = maxf(0.8, Game.render_scale() - 0.1)
+	elif Game.render_scale() > (0.5 if Game.phone() else 0.8):
+		Game.settings.render_scale = maxf(0.5 if Game.phone() else 0.8, Game.render_scale() - 0.1)
 		step = "دقة الرسم %d%%" % roundi(Game.render_scale() * 100.0)
 	else:
 		return

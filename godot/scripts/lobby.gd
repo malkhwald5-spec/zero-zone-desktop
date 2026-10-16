@@ -349,7 +349,7 @@ func _stage() -> void:
 	spot.light_energy = 5.0
 	spot.spot_range = 12.0
 	spot.spot_angle = 30.0
-	spot.shadow_enabled = true
+	spot.shadow_enabled = not Game.phone()
 	add_child(spot)
 	spot.look_at_from_position(Vector3(1.5, 5.5, 4.2), Vector3(0, 0.8, -0.6))
 	for r in [[Vector3(-2.2, 2.2, -2.4), Color("ff8a3c"), 3.0], [Vector3(2.6, 2.4, -2.6), Color("3f8dff"), 3.0]]:

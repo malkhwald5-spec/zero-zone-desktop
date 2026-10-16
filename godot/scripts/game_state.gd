@@ -227,6 +227,7 @@ func _auto_quality() -> void:
 		settings.controls = "touch"
 		settings.quality = "low"
 		settings.laptop = true
+		settings.render_scale = 0.6      # phone screens are very sharp: 60% of it is plenty
 		return
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
 	if not (gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe")):
@@ -250,14 +251,18 @@ func is_laptop_gpu() -> bool:
 ## The 3D resolution. Every preset draws at full screen resolution unless the
 ## player lowers it (never below 70%: under that the picture turns to mush).
 func render_scale() -> float:
-	return clampf(float(settings.get("render_scale", 1.0)), 0.7, 1.0)
+	return clampf(float(settings.get("render_scale", 1.0)), 0.5 if phone() else 0.7, 1.0)
+
+## Running on a phone or tablet (Android / iOS).
+func phone() -> bool:
+	return OS.has_feature("mobile")
 
 func laptop() -> bool:
 	return bool(settings.get("laptop", false))
 
 ## View distances (grass, detailed trees, far bots) shrink in laptop mode.
 func view_k() -> float:
-	return 0.7 if laptop() else 1.0
+	return 0.55 if phone() else (0.7 if laptop() else 1.0)
 
 func load_data() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -296,6 +301,11 @@ func load_data() -> void:
 	# v6: low resolution came from the old auto-performance and presets; start sharp again.
 	if int(data.get("save_version", 1)) < 6:
 		settings.render_scale = 1.0
+	# v7: phones draw the 3D at 60% of their (very sharp) screens and the light preset.
+	if int(data.get("save_version", 1)) < 7 and phone():
+		settings.render_scale = 0.6
+		if quality_level() > 1: settings.quality = "low"
+		settings.laptop = true
 	if typeof(settings.get("keys")) != TYPE_DICTIONARY: settings.keys = {}
 	for k in settings.keys.keys():
 		settings.keys[k] = int(settings.keys[k])
@@ -305,7 +315,7 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"save_version": 6, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 7, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
@@ -515,6 +525,10 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 		sun.shadow_blur = 1.0 if lv < 4 else 1.4
 		sun.light_angular_distance = 0.5 if lv == 4 and not lap else 0.0
 	var vp := get_viewport()
+	if phone():
+		_apply_phone(env, sun, vp, lv)
+		apply_fps()
+		return
 	# Edges are smoothed with MSAA (keeps textures sharp) rather than FXAA,
 	# which smears the whole picture; temporal AA from HDR up for the shimmer
 	# of leaves and wires, with sharpening on top (below).
@@ -539,6 +553,37 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 	RenderingServer.directional_shadow_atlas_set_size(mini([2048, 2048, 4096, 4096, 8192][lv], 2048 if lap else 8192), true)
 	apply_fps()
 
+## Phones: the same look made cheap. Fewer pixels (scaled up plainly), no
+## edge smoothing or sharpening passes, no glow on the light presets, small
+## shadow maps (none on the lightest), simpler far meshes.
+func _apply_phone(env: Environment, sun: DirectionalLight3D, vp: Viewport, lv: int) -> void:
+	if env:
+		env.ssao_enabled = false
+		env.ssil_enabled = false
+		env.ssr_enabled = false
+		env.sdfgi_enabled = false
+		env.volumetric_fog_enabled = false
+		env.glow_enabled = lv >= 2
+		if not env.has_meta("base_brightness"): env.set_meta("base_brightness", env.adjustment_brightness if env.adjustment_enabled else 1.0)
+		env.adjustment_enabled = true
+		env.adjustment_brightness = float(env.get_meta("base_brightness")) * clampf(float(settings.get("brightness", 1.0)), 0.7, 1.4)
+	if sun:
+		sun.shadow_enabled = lv >= 1
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL if lv <= 1 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		sun.directional_shadow_max_distance = [40.0, 45.0, 80.0, 110.0, 150.0][lv]
+		sun.shadow_blur = 1.0
+		sun.light_angular_distance = 0.0
+	vp.msaa_3d = Viewport.MSAA_2X if lv >= 3 else Viewport.MSAA_DISABLED
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	vp.use_taa = false
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = render_scale()
+	vp.texture_mipmap_bias = 0.0
+	vp.mesh_lod_threshold = 2.0 if lv <= 1 else 1.5
+	_sharpen(0.0)
+	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_HARD)
+	RenderingServer.directional_shadow_atlas_set_size(1024 if lv <= 1 else 2048, true)
+
 var _sharp_mat: ShaderMaterial
 
 ## Contrast-adaptive sharpening over the 3D picture (under every menu and HUD).
@@ -552,6 +597,9 @@ func _sharpen(amount: float) -> void:
 		_sharp_mat = ShaderMaterial.new()
 		_sharp_mat.shader = load("res://shaders/sharpen.gdshader")
 		rect.material = _sharp_mat
+		_sharp_mat.set_meta("rect", rect)
 		layer.add_child(rect)
 		add_child(layer)
 	_sharp_mat.set_shader_parameter("amount", amount)
+	# Nothing to sharpen: the full-screen pass is skipped entirely.
+	(_sharp_mat.get_meta("rect") as CanvasItem).visible = amount > 0.0

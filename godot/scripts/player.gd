@@ -137,7 +137,7 @@ func _ready() -> void:
 	cam_pivot.add_child(spring)
 	camera = Camera3D.new()
 	camera.fov = 78.0
-	camera.far = 4000.0 if not Game.laptop() else 2600.0
+	camera.far = 1800.0 if Game.phone() else (4000.0 if not Game.laptop() else 2600.0)
 	camera.current = true
 	spring.add_child(camera)
 	sens = float(Game.settings.sensitivity)
@@ -1270,7 +1270,7 @@ func _process(delta: float) -> void:
 	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
 	cam_rig.rotation = Vector3(0, yaw, 0)
 	# High up (plane, freefall, parachute) the whole island is in view.
-	var far := (4000.0 if not Game.laptop() else 2600.0) * (2.5 if head.y > 120.0 else 1.0)
+	var far := (1800.0 if Game.phone() else (4000.0 if not Game.laptop() else 2600.0)) * (2.5 if head.y > 120.0 else 1.0)
 	if camera.far != far: camera.far = far
 	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
 	_update_sway(delta)
