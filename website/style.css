@@ -156,3 +156,19 @@ footer .contact { opacity: .65; font-size: .9rem; }
   .nav .lang { margin-inline-start: auto; }
   .moon { width: 60px; height: 60px; box-shadow: inset -15px 0 0 0 var(--gold); }
 }
+
+/* video placeholder */
+.video { position: relative; max-width: 900px; margin: 44px auto 0; aspect-ratio: 16/9; display: grid; place-items: center; border-radius: var(--radius); border: 2px dashed var(--gold);
+  background: repeating-linear-gradient(45deg, rgba(217,164,65,.12) 0 12px, transparent 12px 24px), linear-gradient(135deg, var(--night-2), var(--terracotta)); }
+.video button { width: 84px; height: 84px; border-radius: 50%; border: 3px solid var(--gold); background: rgba(42,24,16,.7); color: var(--gold); font-size: 2rem; cursor: pointer; }
+.video em { position: absolute; bottom: 14px; color: var(--sand-2); font-style: normal; font-size: .9rem; }
+
+/* install steps */
+.steps { margin-top: 30px; background: #fbf3e2; border: 1px solid rgba(184,83,46,.25); border-radius: var(--radius); padding: 28px 30px; }
+.steps h3 { font-size: 1.7rem; color: var(--teal); }
+.steps ol { margin-top: 10px; padding-inline-start: 24px; display: grid; gap: 6px; }
+
+/* controls */
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 40px; }
+.keys div { display: flex; align-items: center; gap: 14px; background: #fbf3e2; border-radius: var(--radius); padding: 12px 16px; border: 1px solid rgba(184,83,46,.25); }
+kbd { min-width: 64px; text-align: center; font: 700 .9rem 'Cairo', monospace; background: var(--night); color: var(--gold); border-radius: 8px; padding: 4px 10px; direction: ltr; }
