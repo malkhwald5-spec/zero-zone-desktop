@@ -435,6 +435,7 @@ func set_stance(s: String) -> void:
 
 const SLIDE_TIME := 0.75
 var _slide_t := 0.0
+var _bolt_due := false
 var _slide_dir := Vector3.ZERO
 var _punch_n := 0
 
@@ -453,6 +454,8 @@ func switch_slot(i: int) -> void:
 	if i < 0 or i > 2 or slots[i] == null or active == i: return
 	active = i
 	reload_t = 0.0
+	_bolt_due = false
+	_inspect_t = -1.0
 	fire_cd = maxf(fire_cd, 0.6)
 	if stance != "prone" and vehicle == null: model.draw_weapon()
 	model.set_weapon(slots[i].id)
@@ -1060,6 +1063,7 @@ func _try_fire() -> void:
 	shake = maxf(shake, 0.04 + float(w.recoil) * 0.015)
 	yaw += deg_to_rad(randf_range(-w.recoil, w.recoil)) * 0.15
 	model.recoil = 1.0
+	_bolt_due = w.cls == "sr"       # the bolt is worked after this shot
 	var quiet: bool = w.get("suppressed", false) or w.get("silent", false)
 	if not quiet: world.effects.muzzle_flash(model.muzzle_position())
 	world.sound_shot(w.cls, global_position, true, quiet, slots[active].id)
@@ -1438,7 +1442,9 @@ func _update_model(delta: float) -> void:
 			model.global_transform = Transform3D(Basis(Vector3.UP, atan2(ob.z.x, ob.z.z)), global_position)
 			_body_yaw = model.rotation.y
 	else:
-		_unboard_t = -1.0
+		if _unboard_t >= 0.0:
+			_unboard_t = -1.0
+			model.stop_action()
 		model.transform = Transform3D(Basis(Vector3.UP, ry), Vector3.ZERO)
 	model.dive = dive
 	model.vel_y = velocity.y
@@ -1472,7 +1478,8 @@ func _update_model(delta: float) -> void:
 	model.bandaging = heal_id in ["bandage", "firstaid", "medkit"]
 	model.sliding = clampf(_slide_t / SLIDE_TIME * 1.6, 0.0, 1.0) if _slide_t > 0.0 else 0.0
 	var wi := weapon()
-	model.bolt_p = clampf(1.0 - fire_cd / float(wi.rate), 0.0, 1.0) if not wi.is_empty() and wi.cls == "sr" and fire_cd > 0.05 and reload_t <= 0.0 and not aiming else -1.0
+	model.bolt_p = clampf(1.0 - fire_cd / float(wi.rate), 0.0, 1.0) if _bolt_due and not wi.is_empty() and wi.cls == "sr" and fire_cd > 0.05 and reload_t <= 0.0 and not aiming else -1.0
+	if fire_cd <= 0.05: _bolt_due = false
 	_update_inspect(delta)
 	_update_emote()
 	model.foot_ik = is_on_floor() and state == "ground" and not model.swimming
@@ -1628,6 +1635,7 @@ func _update_inspect(delta: float) -> void:
 	if _still_t > 14.0 and _inspect_t < 0.0 and not weapon().is_empty() and _emote_t <= 0.0:
 		_still_t = 0.0
 		_inspect_t = 0.0
+	if weapon().is_empty(): _inspect_t = -1.0
 	if _inspect_t >= 0.0:
 		_inspect_t += delta / 2.6
 		if not still or _inspect_t >= 1.0: _inspect_t = -1.0
@@ -1741,6 +1749,9 @@ var _unboard_v: Vehicle = null
 
 func enter_vehicle(v: Vehicle) -> void:
 	if v.dead or v.driver != null or knocked: return
+	if _unboard_t >= 0.0:
+		_unboard_t = -1.0
+		model.stop_action()
 	vehicle = v
 	v.driver = self
 	v.freeze = false
@@ -1763,6 +1774,7 @@ func enter_vehicle(v: Vehicle) -> void:
 func exit_vehicle(force := false) -> void:
 	if vehicle == null: return
 	_board_t = -1.0
+	_unboard_t = -1.0
 	var v := vehicle
 	if v.kind == "boat":
 		var spot := _boat_exit_spot(v, force)

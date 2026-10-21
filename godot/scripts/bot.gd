@@ -173,6 +173,11 @@ func bleed_out() -> void:
 
 func _die(attacker: Node) -> void:
 	if state == "vehicle": exit_vehicle(true)
+	# Mid action (out of a car, a throw): the death animation takes over.
+	if _unboard_t >= 0.0:
+		_unboard_t = -1.0
+		model.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3.ZERO)
+	model.stop_action()
 	knocked = false
 	dead = true
 	state = "dead"
