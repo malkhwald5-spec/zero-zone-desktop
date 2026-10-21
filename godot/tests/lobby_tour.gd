@@ -27,7 +27,19 @@ func _run() -> void:
 	var tree := get_tree()
 	reparent(tree.root)
 	tree.current_scene = null
-	tree.change_scene_to_file("res://scenes/lobby.tscn")
+	Game.wallet.login_date = Game.today()     # no daily-gift popup over the pictures
+	if OS.get_cmdline_user_args().has("--splash"):
+		# From the very start: the studio splash and its loading screen.
+		tree.change_scene_to_file("res://scenes/splash.tscn")
+		for k in [1.5, 3.5, 6.0]:
+			await wait(k - (0.0 if k == 1.5 else [1.5, 3.5, 6.0][[1.5, 3.5, 6.0].find(k) - 1]))
+			await shot("tour_splash_%d" % int(k * 10))
+		for i in 160:
+			if tree.current_scene and tree.current_scene.scene_file_path == "res://scenes/lobby.tscn": break
+			if i == 20: await shot("tour_splash_loading")
+			await wait(0.25)
+	else:
+		tree.change_scene_to_file("res://scenes/lobby.tscn")
 	await wait(3.0)
 	await shot("tour_main")
 	var lobby = tree.current_scene
