@@ -88,6 +88,10 @@ func _run() -> void:
 		p.touch_move = Vector2.ZERO
 		await wait(0.25)
 		if p.is_on_floor() and absf(p.global_position.z - face_z) < 0.8: break
+	# Feet on the ground first (a vault needs a footing).
+	for k in 40:
+		if p.is_on_floor(): break
+		await wait(0.05)
 	p.action("jump", true)
 	await wait(0.2)
 	check("vault started", p.vault_t >= 0.0, "vault_t=%.2f" % p.vault_t)
