@@ -7,7 +7,7 @@ extends Node3D
 
 const RADIUS := 44.0          # the flat grassy top (m)
 const TOP := 1.5              # its height above the sea
-const WAIT := 60.0            # seconds before the plane leaves
+const WAIT := 30.0            # seconds before the plane leaves (or "ready")
 const WALKERS := 26           # other players milling about
 const GUNS := ["m416", "akm", "ump", "scar", "vector", "uzi", "s1897", "kar98", "p92", "beryl", "mini14", "sks"]
 

@@ -28,6 +28,9 @@ func _run() -> void:
 	reparent(tree.root)
 	tree.current_scene = null
 	Game.wallet.login_date = Game.today()     # no daily-gift popup over the pictures
+	if OS.get_cmdline_user_args().has("--first"):
+		Game.profile.name = ""
+		Game.wallet.intro_done = false
 	if OS.get_cmdline_user_args().has("--splash"):
 		# From the very start: the studio splash and its loading screen.
 		tree.change_scene_to_file("res://scenes/splash.tscn")
@@ -41,8 +44,19 @@ func _run() -> void:
 	else:
 		tree.change_scene_to_file("res://scenes/lobby.tscn")
 	await wait(3.0)
-	await shot("tour_main")
 	var lobby = tree.current_scene
+	if OS.get_cmdline_user_args().has("--first"):
+		await wait(0.5)
+		await shot("tour_first_run")
+	await shot("tour_main")
+	lobby._more_menu()
+	await wait(0.4)
+	await shot("tour_more")
+	lobby._more_menu()
+	lobby._mode_picker()
+	await wait(0.4)
+	await shot("tour_mode_picker")
+	lobby._mode_picker()
 	for page in ["inventory", "cards", "workshop", "season", "missions", "mail", "clan", "shop", "crate", "events", "settings", "mode", "help"]:
 		lobby._open(page)
 		await wait(0.8)
@@ -54,7 +68,9 @@ func _run() -> void:
 		return
 	var t0 := Time.get_ticks_msec()
 	lobby._start()
-	await wait(1.5)
+	await wait(1.0)
+	await shot("tour_matchmaking")
+	await wait(2.6)
 	await shot("tour_loading")
 	var world = null
 	for i in 1200:

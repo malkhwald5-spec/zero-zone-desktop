@@ -358,6 +358,22 @@ func _build() -> void:
 	ver.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	ver.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	ver.position += Vector2(-28, -42)
+	var hint := UiKit.label("اضغط بأي مكان للتخطي", 13, Color(1, 1, 1, 0.45), null, 0)
+	add_child(hint)
+	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hint.position.y -= 20
+
+var _skip := false
+
+## A tap (or a key) skips the studio intro and its loading screen.
+func _unhandled_input(event: InputEvent) -> void:
+	var press: bool = (event is InputEventScreenTouch and event.pressed) or (event is InputEventMouseButton and event.pressed) \
+		or (event is InputEventKey and event.pressed and not event.echo)
+	if press and _started and not _skip:
+		_skip = true
+		get_viewport().set_input_as_handled()
 
 func _process(delta: float) -> void:
 	if not _started:
@@ -365,6 +381,7 @@ func _process(delta: float) -> void:
 		stage.queue_redraw()
 		return
 	t += delta
+	if _skip and t < T_READY + 2.8: t = T_READY + 2.8
 	_timeline_events()
 	_shake = maxf(_shake - delta * 2.5, 0.0)
 	stage.queue_redraw()
@@ -372,7 +389,7 @@ func _process(delta: float) -> void:
 	# The key art normally takes a frame or two; never hang on it.
 	if not _art_done and t > T_READY + 9.0: _art_done = true
 	if not _art_done: target = minf(target, 0.95)
-	progress = move_toward(progress, target, delta * 0.8)
+	progress = move_toward(progress, target, delta * (4.0 if _skip else 0.8))
 	for s in STEPS:
 		if progress >= s[0]: status = s[1]
 	if progress > 0.3 and toast == "":
@@ -423,7 +440,7 @@ func _to_loading() -> void:
 	var ls := LoadingScreen.new()
 	add_child(ls)
 	var tw := create_tween()
-	tw.tween_method(func(v): ls.set_progress(v), 0.0, 1.0, 2.2)
+	tw.tween_method(func(v): ls.set_progress(v), 0.0, 1.0, 0.5 if _skip else 2.2)
 	await tw.finished
-	await get_tree().create_timer(0.3).timeout
+	await get_tree().create_timer(0.1 if _skip else 0.3).timeout
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")

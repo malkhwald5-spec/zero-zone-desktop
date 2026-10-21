@@ -277,12 +277,13 @@ func _process(delta: float) -> void:
 	for d in dmg_dirs: d.t -= delta
 	dmg_dirs = dmg_dirs.filter(func(d): return d.t > 0.0)
 	# On the spawn island the countdown sits where messages go: messages drop below it.
-	banner.position.y = (get_viewport().get_visible_rect().size.y * 0.21 + 64.0) if world.spawn != null else 120.0
+	banner.position.y = (get_viewport().get_visible_rect().size.y * 0.21 + 112.0) if world.spawn != null else 120.0
 	if _banner_t > 0.0:
 		_banner_t -= delta
 		banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
 	banner.visible = not map_open and not bag_open and shop == null
 	if world.war: _update_shop_btn()
+	_update_ready_btn()
 	draw_layer.queue_redraw()
 
 func _input(event: InputEvent) -> void:
@@ -347,6 +348,23 @@ func toggle_cursor() -> void:
 
 var inventory: InventoryPanel
 var shop: ShopPanel
+var _ready_btn: Button
+
+## On the spawn island: "ready" sends the plane off at once.
+func _update_ready_btn() -> void:
+	var show_it: bool = world.spawn != null and world.ready_done and world.spawn.left > 3.0 and not map_open and not bag_open
+	if show_it and _ready_btn == null:
+		_ready_btn = UiKit.yellow_button("جاهز ✓  يلا نطلع", func():
+			if world.spawn: world.spawn.left = minf(world.spawn.left, 3.0), Vector2(240, 50), 22)
+		add_child(_ready_btn)
+	if _ready_btn:
+		if not show_it:
+			_ready_btn.queue_free()
+			_ready_btn = null
+		else:
+			var sz := get_viewport().get_visible_rect().size
+			_ready_btn.position = Vector2(sz.x * 0.5 - 120, sz.y * 0.21 + 52)
+
 var _shop_btn: Button
 
 ## Team war: the fort's shop (only inside your own fort, alive).

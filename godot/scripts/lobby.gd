@@ -40,7 +40,60 @@ func _ready() -> void:
 		_show_reward(Game.last_reward)
 		Game.last_reward = {}
 	if Game.is_integrated_gpu(): _gpu_warning()
-	if Game.login_due(): _login_gift.call_deferred()
+	if Game.phone():
+		# Phones: everything a little bigger (small screen, thumbs).
+		get_tree().root.content_scale_factor = 1.15
+	if String(Game.profile.name) == "" and not bool(Game.wallet.get("intro_done", false)): _first_run.call_deferred()
+	elif Game.login_due(): _login_gift.call_deferred()
+
+func _exit_tree() -> void:
+	get_tree().root.content_scale_factor = 1.0
+
+## The very first time: your name, then an offer of the controls guide.
+func _first_run() -> void:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.7)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(dim)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.04, 0.06, 0.1, 0.97), 16, ACCENT, 2, 26))
+	dim.add_child(pc)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	pc.add_child(v)
+	v.add_child(UiKit.label("أهلاً بمنطقة الصفر! 👋", 30, ACCENT, UiKit.bold(), 0))
+	v.add_child(UiKit.label("شو بدك يكون اسمك باللعبة؟", 18, Color.WHITE, null, 0))
+	var le := LineEdit.new()
+	le.placeholder_text = "اكتب اسمك"
+	le.max_length = 16
+	le.custom_minimum_size = Vector2(360, 48)
+	le.add_theme_font_size_override("font_size", 20)
+	v.add_child(le)
+	var go := UiKit.yellow_button("يلا", func():
+		var nm := le.text.strip_edges()
+		Game.profile.name = nm if nm != "" else "لاعب%d" % randi_range(100, 999)
+		Game.wallet.intro_done = true
+		Game.save_data()
+		for c in v.get_children(): c.queue_free()
+		v.add_child(UiKit.label("أهلاً %s! بدك نشرحلك الأزرار بسرعة؟" % Game.profile.name, 22, Color.WHITE, UiKit.bold(), 0))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		v.add_child(row)
+		row.add_child(_small_btn("آه، اشرحلي", func():
+			dim.queue_free()
+			_refresh()
+			_open("help")))
+		row.add_child(_small_btn("لا، بعرف", func():
+			dim.queue_free()
+			_refresh()
+			if Game.login_due(): _login_gift(), true, false)), Vector2(200, 52), 24)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(go)
+	pc.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pc.grow_vertical = Control.GROW_DIRECTION_BOTH
+	le.grab_focus.call_deferred()
 
 ## The daily log-in gift: seven days in a row, today's lit, one button to take it.
 func _login_gift() -> void:
@@ -102,7 +155,13 @@ var _exit_box: Control
 
 ## Phone back button: close the open page, else ask before leaving the game.
 func go_back() -> void:
-	if _exit_box:
+	if _picker:
+		_picker.queue_free()
+		_picker = null
+	elif _more_box:
+		_more_box.queue_free()
+		_more_box = null
+	elif _exit_box:
 		_exit_box.queue_free()
 		_exit_box = null
 	elif panel:
@@ -686,15 +745,42 @@ func _rail() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
 	pc.add_child(v)
-	var items := [["المخزون", "inventory", "shirt"], ["ورشة العمل", "workshop", "wrench"], ["المهام", "missions", "tasks"],
-		["الموسم", "season", "trophy"], ["البطاقات", "cards", "card"], ["العشيرة", "clan", "clan"], ["البريد", "mail", "mail"]]
+	# The four you use most; the rest behind "more" (fewer, bigger buttons on a phone).
+	var items := [["المخزون", "inventory", "shirt"], ["المهام", "missions", "tasks"], ["الموسم", "season", "trophy"], ["المتجر", "shop", "coin"]]
 	for it in items:
 		var key: String = it[1]
-		var b := _icon_button(it[2], it[0], func(): _open(key), Vector2(78, 62), true, Color(0, 0, 0, 0.0), Color.WHITE, 10)
+		var b := _icon_button(it[2], it[0], func(): _open(key), Vector2(84, 68), true, Color(0, 0, 0, 0.0), Color.WHITE, 10)
 		v.add_child(b)
 		labels["bar_" + key] = b.get_meta("label")
-		if key == "missions": labels.missions_dot = _tag(b, "", Color("e53935"), Vector2(52, 4))
-		if key == "mail": labels.mail_dot = _tag(b, "1", Color("e53935"), Vector2(52, 4))
+		if key == "missions": labels.missions_dot = _tag(b, "", Color("e53935"), Vector2(56, 4))
+	var more := _icon_button("plus", "المزيد", _more_menu, Vector2(84, 68), true, Color(0, 0, 0, 0.0), Color.WHITE, 10)
+	v.add_child(more)
+	labels.more_btn = more
+	labels.mail_dot = _tag(more, "1", Color("e53935"), Vector2(56, 4))
+
+var _more_box: Control
+
+## "More": the pages used less often, in a small menu beside the rail.
+func _more_menu() -> void:
+	if _more_box:
+		_more_box.queue_free()
+		_more_box = null
+		return
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.03, 0.05, 0.08, 0.92), 14, ACCENT, 1, 8))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	pc.add_child(v)
+	for it in [["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"], ["العشيرة", "clan", "clan"],
+			["البريد", "mail", "mail"], ["الفعاليات", "events", "trophy"], ["طريقة اللعب", "help", "tasks"]]:
+		var key: String = it[1]
+		var b := _icon_button(it[2], it[0], func():
+			_more_box.queue_free()
+			_more_box = null
+			_open(key), Vector2(230, 46), false, Color(1, 1, 1, 0.04), Color.WHITE, 10)
+		v.add_child(b)
+	_anchor(pc, Control.PRESET_TOP_LEFT, Vector2(112, 98))
+	_more_box = pc
 
 ## Top right: money (gold, ZC) with + buttons, settings, full screen.
 func _top_right() -> void:
@@ -704,7 +790,7 @@ func _top_right() -> void:
 	var g := _icon_button("coin", "", func(): _open("shop"), Vector2(128, 38), false, GLASS, Color.WHITE, 19)
 	labels.gold = g.get_meta("label")
 	row.add_child(g)
-	var z := _icon_button("gem", "", func(): _open("season"), Vector2(118, 38), false, GLASS, Color.WHITE, 19)
+	var z := _icon_button("gem", "", func(): _open("crate"), Vector2(118, 38), false, GLASS, Color.WHITE, 19)
 	labels.zc = z.get_meta("label")
 	row.add_child(z)
 	row.add_child(_icon_button("plus", "", func(): _open("shop"), Vector2(38, 38), false, ACCENT, UiKit.INK, 19))
@@ -933,7 +1019,7 @@ func _play_box() -> void:
 	mode.add_theme_stylebox_override("normal", st)
 	mode.add_theme_stylebox_override("hover", UiKit.style(Color(0.08, 0.1, 0.14, 0.8), 12, ACCENT, 1, 0))
 	mode.add_theme_stylebox_override("pressed", st)
-	mode.pressed.connect(func(): _open("mode"))
+	mode.pressed.connect(_mode_picker)
 	UiKit._springy(mode)
 	box.add_child(mode)
 	var thumb := _pic(mode, null, Vector2(118, 84))
@@ -994,6 +1080,52 @@ func _play_box() -> void:
 				var x: float = 160.0 + s * (112.0 + k * 14.0)
 				start.draw_polyline(PackedVector2Array([Vector2(x - s * 6, 34), Vector2(x + s * 2, 46), Vector2(x - s * 6, 58)]), Color(0.1, 0.06, 0.0, 0.55 - k * 0.2), 3.0))
 	labels.start = start
+
+var _picker: Control
+
+## Tapping the mode card: the modes and match length right there, above it
+## (the full page is one more tap away).
+func _mode_picker() -> void:
+	if _picker:
+		_picker.queue_free()
+		_picker = null
+		return
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.03, 0.05, 0.08, 0.95), 14, ACCENT, 1, 12))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	pc.add_child(v)
+	v.add_child(UiKit.label("اختار الوضع", 18, ACCENT, UiKit.bold(), 0))
+	var cur: String = Game.settings.get("mode", "solo")
+	for m in MODES:
+		var id: String = m[0]
+		var on := id == cur
+		var b := UiKit.button(("✓  " if on else "") + String(m[1]), func():
+			Game.settings.mode = id
+			Game.save_data()
+			_picker.queue_free()
+			_picker = null
+			_refresh(), Vector2(320, 48), UiKit.style(Color(1, 0.7, 0.1, 0.25) if on else Color(1, 1, 1, 0.06), 8, ACCENT if on else Color(0, 0, 0, 0), 1, 8), 18)
+		v.add_child(b)
+	if cur != "war":
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 8)
+		for L in [["classic", "كلاسيكي 25 د"], ["quick", "سريع 10 د"]]:
+			var lid: String = L[0]
+			var lon: bool = Game.settings.get("length", "classic") == lid
+			hb.add_child(UiKit.button(L[1], func():
+				Game.settings.length = lid
+				Game.save_data()
+				_picker.queue_free()
+				_picker = null
+				_refresh(), Vector2(156, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if lon else Color(1, 1, 1, 0.06), 8, ACCENT if lon else Color(0, 0, 0, 0), 1, 6), 15))
+		v.add_child(hb)
+	v.add_child(UiKit.button("كل الخيارات (الصعوبة…) ›", func():
+		_picker.queue_free()
+		_picker = null
+		_open("mode"), Vector2(320, 36), UiKit.style(Color(0, 0, 0, 0), 6), 14, ACCENT))
+	_anchor(pc, Control.PRESET_BOTTOM_RIGHT, Vector2(-16, -204))
+	_picker = pc
 
 ## Name plates over the line-up (or "+" to bring teammates where a place is free).
 func _lineup_plates() -> void:
@@ -1110,6 +1242,50 @@ func _refresh() -> void:
 func _start() -> void:
 	if _starting: return
 	_starting = true
+	if _picker:
+		_picker.queue_free()
+		_picker = null
+	# Finding the match: the players filling up, as in the online games
+	# (two seconds; it can be cancelled).
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(dim)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.03, 0.05, 0.08, 0.95), 16, ACCENT, 2, 22))
+	dim.add_child(pc)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	pc.add_child(v)
+	v.add_child(UiKit.label("جاري البحث عن لاعبين…", 26, Color.WHITE, UiKit.bold(), 0))
+	var war: bool = Game.settings.get("mode", "solo") == "war"
+	var total := 100 if war or Game.settings.get("length", "classic") != "quick" else 50
+	var count := UiKit.label("1 / %d" % total, 34, ACCENT, UiKit.bold(), 0)
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(count)
+	var bar := _bar(0.0, ACCENT)
+	bar.custom_minimum_size = Vector2(360, 10)
+	v.add_child(bar)
+	var cancelled := [false]
+	var cancel := _small_btn("إلغاء", func():
+		cancelled[0] = true
+		_starting = false
+		dim.queue_free(), true, false)
+	cancel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(cancel)
+	pc.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pc.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var steps := 22
+	for i in steps:
+		await get_tree().create_timer(0.09).timeout
+		if cancelled[0] or not is_inside_tree(): return
+		var n := mini(total, 1 + int(float(total - 1) * ease(float(i + 1) / steps, 0.6)))
+		count.text = "%d / %d" % [n, total]
+		bar.value = float(n) / total * 100.0
+	count.text = "تم! ✓"
+	await get_tree().create_timer(0.35).timeout
+	if cancelled[0] or not is_inside_tree(): return
 	Game.spawn_island = true
 	# A quick fade to black, then the match loads behind its loading screen.
 	var fade := ColorRect.new()
@@ -1722,6 +1898,28 @@ func _page_crate(body: VBoxContainer) -> void:
 	v.add_child(open_b)
 	hb.add_child(v)
 	body.add_child(c)
+	# The diamonds (ZC, from the season pass and the daily gifts) buy the
+	# better box: an outfit you don't have, for certain.
+	var c2 := _box_panel(Color(0.15, 0.35, 0.6, 0.3))
+	var hb2 := HBoxContainer.new()
+	hb2.add_theme_constant_override("separation", 20)
+	c2.add_child(hb2)
+	var gem := Control.new()
+	gem.custom_minimum_size = Vector2(120, 100)
+	gem.draw.connect(func():
+		gem.draw_circle(Vector2(60, 50), 48, Color(0.3, 0.7, 1.0, 0.18))
+		Icons.draw(gem, "gem", Vector2(60, 50), 30, Color("7fd8ff")))
+	hb2.add_child(gem)
+	var v2 := VBoxContainer.new()
+	v2.add_theme_constant_override("separation", 8)
+	v2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v2.add_child(UiKit.label("صندوق الماس — 💎 %d" % GEM_CRATE, 22, Color.WHITE, UiKit.bold(), 0))
+	v2.add_child(UiKit.label("ملابس ما عندك مضمونة 100% (إذا عندك كلهم: 🪙 400). الماس بتجمعه من الموسم وهدية الدخول اليومية.", 15, Color(1, 1, 1, 0.8), null, 0))
+	var gb := UiKit.yellow_button("افتح بالماس", _open_gem_crate, Vector2(260, 52), 22)
+	gb.disabled = int(Game.wallet.zc) < GEM_CRATE
+	v2.add_child(gb)
+	hb2.add_child(v2)
+	body.add_child(c2)
 	var missing := []
 	for i in Game.WARDROBE.size():
 		if not Game.owns(i): missing.append(i)
@@ -1734,6 +1932,28 @@ func _page_crate(body: VBoxContainer) -> void:
 	grid.add_theme_constant_override("h_separation", 12)
 	body.add_child(grid)
 	for i in missing: grid.add_child(_outfit_card(i))
+
+const GEM_CRATE := 40
+
+func _open_gem_crate() -> void:
+	if int(Game.wallet.zc) < GEM_CRATE: return
+	Game.wallet.zc = int(Game.wallet.zc) - GEM_CRATE
+	var missing := []
+	for i in Game.WARDROBE.size():
+		if not Game.owns(i): missing.append(i)
+	if missing.is_empty():
+		Game.wallet.gold = int(Game.wallet.gold) + 400
+		Game.coin_sound()
+		Game.save_data()
+		_open("crate")
+		_reveal("طلعلك 🪙 400", null)
+		return
+	var i: int = missing[randi() % missing.size()]
+	Game.profile.owned.append(i)
+	Game.coin_sound()
+	Game.save_data()
+	_open("crate")
+	_reveal("🎉 طلعلك: %s" % Game.WARDROBE[i][0], load("res://assets/textures/ui/outfits/outfit_%d.png" % i))
 
 func _open_crate() -> void:
 	if int(Game.wallet.gold) < 150: return
