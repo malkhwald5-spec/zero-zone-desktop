@@ -57,8 +57,27 @@ func _run() -> void:
 	p.equip("pack", 3, 0.0)
 	for k in p.ammo: p.ammo[k] = 200
 	var dummy: Bot = world.bots[0]
+	var n := 0
 	for id in NEW:
-		# A target 7 m ahead (1.5 m for the pan), standing still.
+		# A target 7 m ahead (1.5 m for the pan), standing still. Each gun
+		# gets a fresh spot: a target killed by the last one leaves its
+		# death crate standing where it fell, in the line of fire.
+		n += 1
+		# On flat open ground (the map is new every run: hills block the shot).
+		var spot := Vector3(c.x + n * 4.0, 0, c.y)
+		for k in 400:
+			var q := c + Vector2(randf_range(-300, 300), randf_range(-300, 300))
+			var h0q: float = world.island.height_at(q.x, q.y)
+			var flat: bool = h0q > 2.0 and world.building_at(q, 10.0) < 0
+			for d in [2.0, 4.0, 7.0, 9.0]:
+				if absf(world.island.height_at(q.x, q.y - d) - h0q) > 0.35: flat = false
+			if flat:
+				spot = Vector3(q.x, 0, q.y)
+				break
+		p.global_position = Vector3(spot.x, world.ground_height(spot) + 0.6, spot.z)
+		p.velocity = Vector3.ZERO
+		p.reset_physics_interpolation()
+		await wait(0.3)
 		p.yaw = 0.0
 		p.pitch = 0.0
 		var fwd := Vector3(0, 0, -1)

@@ -17,6 +17,7 @@ func _ready() -> void:
 	_run.call_deferred()
 
 func _run() -> void:
+	Game.wallet.login_date = Game.today()     # no daily-gift popup over the pictures
 	var tree := get_tree()
 	reparent(tree.root)
 	tree.current_scene = null

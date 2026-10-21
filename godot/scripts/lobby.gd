@@ -453,8 +453,9 @@ func _spawn_soldier() -> void:
 	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character(), Game.outfit_dyed())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
-	soldier.set_weapon("")
-	soldier.set_back_weapon("m416")
+	# Ready for the match: rifle in hand, carried low (the emotes put it away).
+	soldier.set_weapon("m416")
+	soldier.set_back_weapon("kar98")
 	soldier.rotation.y = PI - 0.15
 	holder.add_child(soldier)
 	_idle_t = 0.0
@@ -476,8 +477,7 @@ func _spawn_mates() -> void:
 		var who: String = ["bundeswehr", "albu", "survivor"][i % 3]
 		var m := HumanModel.new(Color.from_hsv(0.3 + i * 0.2, 0.3, 0.4), Color("c84f3a"), Color.from_hsv(0.1, 0.2, 0.25), who)
 		m.set_gear(1 + i % 2, 1, 1)
-		m.set_weapon("")
-		m.set_back_weapon(guns[i])
+		m.set_weapon(guns[i])
 		add_child(m)
 		m.position = SLOTS[i + 1]
 		m.rotation.y = PI + (0.25 if SLOTS[i + 1].x > 0.0 else -0.25)
@@ -523,11 +523,11 @@ func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
 	_idle_director(delta)
-	soldier.set_pose("stand", 0.0, false, delta, t)
+	soldier.set_pose("stand", 0.0, true, delta, t)
 	for i in mates.size():
 		var m: HumanModel = mates[i]
 		m.look_yaw = sin(t * 0.3 + i * 1.7) * 0.5
-		m.set_pose("stand", 0.0, false, delta, t + i * 1.3)
+		m.set_pose("stand", 0.0, true, delta, t + i * 1.3)
 	for p in _props: p.rotate_object_local(Vector3.BACK, delta * 6.0)
 	if _runway_mat: _runway_mat.emission_energy_multiplier = 2.5 + 2.0 * maxf(0.0, sin(t * 2.4))
 	if panel == null:

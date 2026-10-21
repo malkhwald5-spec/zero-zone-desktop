@@ -912,8 +912,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	elif pose == "stand" and speed > 0.3 and pistol:
 		var pset := "prun_" if speed > 3.2 else "pwalk_"
 		_play_moving("mx/" + (("pstrafe_" + dir) if dir in ["l", "r"] else pset + dir), speed)
-	elif pose == "stand" and speed > 0.3 and not armed and ap.has_animation("mx/u_walk"):
-		# Empty hands: the unarmed locomotion set.
+	elif pose == "stand" and speed > 0.3 and (not armed or not aiming) and ap.has_animation("mx/u_walk"):
+		# Upright walking and running (the rifle set is a crouched, creeping
+		# one): the legs and body from the plain locomotion set; with a rifle
+		# the hands are put on the gun afterwards (_hold_gun), carried low.
+		# Aiming down the sight keeps the rifle set below.
 		var clip := "u_walk"
 		if dir in ["b", "bl", "br"]: clip = "u_back"
 		elif dir == "l": clip = "u_run_l" if speed > 3.2 else "u_walk_l"
@@ -963,7 +966,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	elif pose == "stand" and speed < 0.3 and idle_clip != "" and ap.has_animation("mx/" + idle_clip):
 		_play("mx/" + idle_clip, 1.0)
 	elif pose == "stand" and armed:
-		_play("mx/idle", 1.0)
+		# Standing about: upright, rifle low (the pack's idle is a wide combat crouch).
+		_play("mx/rifle_idle" if ap.has_animation("mx/rifle_idle") else "mx/idle", 1.0)
 	elif pose == "stand" and ap.has_animation("mx/u_idle"):
 		_play("mx/u_idle", 1.0)
 	elif pose == "drive" and ride != "bike" and ap.has_animation("mx/drive"):
@@ -1060,6 +1064,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_flinch_spine()
 		flinch = maxf(0.0, flinch - delta * 3.5)
 	if armed and gun.visible:
+		if pose == "stand" and speed < 0.3 and not aiming and recoil < 0.05: _breathe(t)
 		_place_gun(pose, delta)
 		_bend_spine(pose)
 		_hold_gun()
@@ -1068,6 +1073,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		# The unarmed clips swing their own arms; the rifle ones need fixing up.
 		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink" and not _anim.begins_with("mx/u_"):
 			_relaxed_arms(speed)
+		elif _anim == "mx/u_idle" and pose == "stand":
+			# Standing about with empty hands: arms a little bent and off the
+			# body (not hanging stiff), breathing, weight easing side to side.
+			_relaxed_arms(0.0)
+			_breathe(t)
 	if bandaging and _anim == "mx/kneel": _bandage_hands(t)
 	_place_can()
 	if absf(look_yaw) > 0.01 or absf(look_pitch) > 0.01: _look_head()
@@ -1183,8 +1193,9 @@ func _place_gun(pose: String, delta: float) -> void:
 	else:
 		# Ready: muzzle a little down and inwards; lower and across the body
 		# when running (low ready).
-		pos = Vector3(0.12, 1.32, -0.22) if not pistol else Vector3(0.12, 1.15, -0.28)
-		rot = Vector3(-0.22, 0.2, 0.06) if not pistol else Vector3(-0.6, 0.2, 0)
+		# Low ready, as in the mobile shooters: stock under the arm, muzzle well down.
+		pos = Vector3(0.12, 1.27, -0.24) if not pistol else Vector3(0.12, 1.15, -0.28)
+		rot = Vector3(-0.42, 0.22, 0.06) if not pistol else Vector3(-0.6, 0.2, 0)
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
 			pos = pos.lerp(Vector3(0.13, 1.14, -0.24), low)
@@ -1319,6 +1330,22 @@ func _bandage_hands(t: float) -> void:
 	var a := t * 7.0
 	_arm("Right", held + Vector3(0.1 + cos(a) * 0.05, sin(a) * 0.06, cos(a) * 0.04), Vector3(1, -1, 0.3))
 
+## Alive while standing still: the chest rises and falls, the weight eases
+## from one foot to the other.
+func _breathe(t: float) -> void:
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var right := (to_sk.basis * Vector3.RIGHT).normalized()
+	var fwd := (to_sk.basis * Vector3.BACK).normalized()
+	var b := sin(t * 1.7) * 0.022
+	var sway := sin(t * 0.45) * 0.03
+	for bn in ["Spine1", "Spine2"]:
+		if not _bone.has(bn): continue
+		var i: int = _bone[bn]
+		var inv := sk.get_bone_global_pose(i).basis.inverse()
+		var q := Quaternion((inv * right).normalized(), -b) * Quaternion((inv * fwd).normalized(), sway * 0.5)
+		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
+	body.position.x += sway * 0.6
+
 ## Stops a one-shot action early (an emote cut short by moving).
 func stop_action() -> void:
 	_action_t = 0.0
@@ -1357,7 +1384,7 @@ func _bend_spine(pose: String) -> void:
 	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
 	var twist := -0.3 if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
-	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload"): twist = 0.0   # already bladed
+	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload") or _anim == "mx/rifle_idle": twist = 0.0   # already bladed
 	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
 		if not _bone.has(bn): continue
 		var i: int = _bone[bn]
