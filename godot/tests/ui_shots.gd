@@ -36,12 +36,15 @@ func _run() -> void:
 	await wait(0.6)
 	await shot("ui_page")
 	lobby._close_panel()
-	for i in 2:
+	for i in 3:
 		var ls := LoadingScreen.new()
+		if i == 1:
+			ls.title = Island.MAP_NAME
+			ls.subtitle = "باتل رويال • 100 لاعب"
 		tree.root.add_child(ls)
 		ls.art.texture = load(LoadingScreen.ART[i])
 		ls.set_progress(0.6, "جاري بناء الخريطة")
-		await wait(1.0)
+		await wait(1.4)
 		await shot("ui_loading_%d" % i)
 		ls.queue_free()
 	print("UI SHOTS done")

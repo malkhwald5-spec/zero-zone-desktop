@@ -52,6 +52,9 @@ var spawn: SpawnIsland = null     # the waiting island before the plane (null on
 
 func _ready() -> void:
 	loading = LoadingScreen.new()
+	var quick: bool = Game.settings.get("length", "classic") == "quick"
+	loading.title = "حرب الفرق" if war_mode() else Island.MAP_NAME
+	loading.subtitle = "4 فرق × 25 لاعب" if war_mode() else ("باتل رويال • %s" % ("50 لاعب" if quick else "100 لاعب"))
 	add_child(loading)
 	loading.set_progress(0.03, "جاري توليد الجزيرة")
 	await _frame()
