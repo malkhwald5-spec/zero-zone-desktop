@@ -45,6 +45,7 @@ var move_input := Vector2.ZERO    # x = right, y = forward
 var touch_move := Vector2.ZERO
 var sprinting := false
 var firing := false
+var _shoulder_t := 0.0          # gun kept at the shoulder for a moment after a shot
 var jump_queued := false
 var air_speed := 0.0              # km/h shown on the HUD
 var dive := 0.0                   # smoothed 0..1 head-down amount while skydiving
@@ -1063,6 +1064,7 @@ func _try_fire() -> void:
 	shake = maxf(shake, 0.04 + float(w.recoil) * 0.015)
 	yaw += deg_to_rad(randf_range(-w.recoil, w.recoil)) * 0.15
 	model.recoil = 1.0
+	_shoulder_t = 0.7
 	_bolt_due = w.cls == "sr"       # the bolt is worked after this shot
 	var quiet: bool = w.get("suppressed", false) or w.get("silent", false)
 	if not quiet: world.effects.muzzle_flash(model.muzzle_position())
@@ -1394,10 +1396,12 @@ func _update_model(delta: float) -> void:
 	if state == "fall" and move_input.length() > 0.1 and move_input.y < 0.0:
 		target_yaw = yaw    # backing up: keep facing forward
 	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (4.0 if state == "fall" else 12.0)))
-	# Standing still and turning the camera: the body stays put until the look
-	# is well round, then steps round 90° on the spot.
+	# Standing still empty-handed and turning the camera: the body stays put
+	# until the look is well round, then steps round 90° on the spot. With a
+	# gun in hand the body always turns with the camera (the gun points where
+	# you look, as in the mobile shooters).
 	var still := state == "ground" and stance == "stand" and Vector2(velocity.x, velocity.z).length() < 0.3 \
-		and not aiming and not firing and reload_t <= 0.0 and not swimming() and not knocked and revive_target == null
+		and active < 0 and not aiming and not firing and reload_t <= 0.0 and not swimming() and not knocked and revive_target == null
 	if still:
 		if _turn_dir == 0:
 			var diff := wrapf(yaw - _body_yaw, -PI, PI)
@@ -1448,7 +1452,10 @@ func _update_model(delta: float) -> void:
 		model.transform = Transform3D(Basis(Vector3.UP, ry), Vector3.ZERO)
 	model.dive = dive
 	model.vel_y = velocity.y
-	model.aiming = aiming and state == "ground"
+	# Firing from the hip: the gun comes up to the shoulder and stays there
+	# between shots (not bobbing down to the hip after each one).
+	_shoulder_t = maxf(_shoulder_t - delta, 0.0)
+	model.aiming = (aiming or _shoulder_t > 0.0) and state == "ground"
 	model.sprinting = is_sprinting and state == "ground"
 	model.aim_pitch = pitch + 0.1
 	var w := weapon()
@@ -1563,10 +1570,10 @@ func best_boost() -> String:
 	if heals.pills > 0 and boost < 85.0: return "pills"
 	return ""
 
-## Bending down to take something off the ground (standing, not on the move).
+## Reaching down to take something off the ground.
 func pickup_anim() -> void:
-	if state == "ground" and stance == "stand" and not knocked and Vector2(velocity.x, velocity.z).length() < 1.0:
-		model.play_action("pickup", 0.9)
+	if state == "ground" and stance in ["stand", "crouch"] and not knocked and model.pickup_t < 0.0:
+		model.pick_up()
 
 func use_heal(id: String) -> void:
 	if knocked: return

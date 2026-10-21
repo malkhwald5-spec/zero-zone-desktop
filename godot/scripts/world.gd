@@ -185,7 +185,7 @@ func _make_plane() -> void:
 ## Four-engine military transport (Lockheed AC-130 model by helijah, CC-BY)
 ## with its four propellers spun every frame. Faces -Z.
 func _plane_model() -> Node3D:
-	var plane: Node3D = (load("res://assets/models/air/plane.glb") as PackedScene).instantiate()
+	var plane: Node3D = PlaneModel.make()
 	var props := []
 	for k in 4:
 		var p := plane.find_child("prop%d" % k, true, false)

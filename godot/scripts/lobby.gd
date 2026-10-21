@@ -352,7 +352,7 @@ const CAM_LOOK := Vector3(1.2, 1.08, -0.6)
 ## The transport plane parked behind the squad, side on, its four propellers
 ## turning slowly (the same plane the match starts in).
 func _plane() -> void:
-	var plane: Node3D = (load("res://assets/models/air/plane.glb") as PackedScene).instantiate()
+	var plane: Node3D = PlaneModel.make()
 	add_child(plane)
 	plane.position = Vector3(-9.0, 0.0, -34.0)
 	plane.rotation.y = -1.1

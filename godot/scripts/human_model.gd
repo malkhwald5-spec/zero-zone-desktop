@@ -42,6 +42,9 @@ var sliding := 0.0            # 0..1: sliding on the hip after a sprint (crouch 
 var inspect_t := -1.0         # 0..1 through looking the gun over (-1 = not)
 var bolt_p := -1.0            # 0..1 through working the bolt after a shot (bolt-action rifles)
 var idle_clip := ""           # standing still: this clip instead of the usual idle (lobby)
+var pickup_t := -1.0          # 0..1 through reaching down for something on the ground (-1 = not)
+const PICKUP_TIME := 0.6
+var _run_set := false         # in the run clips (not walk): kept until well below the switch speed
 var look_yaw := 0.0           # head turned left (+) / right (-) from the body, radians
 var look_pitch := 0.0         # head tilted up (+) / down (-)
 var turn_dir := 0             # turning on the spot: 1 left, -1 right (0 = not turning)
@@ -910,24 +913,25 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		if speed > 0.3: _play_moving("mx/swim", speed, 2.6)
 		else: _play("mx/swim_tread", 1.0)
 	elif pose == "stand" and speed > 0.3 and pistol:
-		var pset := "prun_" if speed > 3.2 else "pwalk_"
+		var pset := "prun_" if _runs(speed) else "pwalk_"
 		_play_moving("mx/" + (("pstrafe_" + dir) if dir in ["l", "r"] else pset + dir), speed)
 	elif pose == "stand" and speed > 0.3 and (not armed or not aiming) and ap.has_animation("mx/u_walk"):
 		# Upright walking and running (the rifle set is a crouched, creeping
 		# one): the legs and body from the plain locomotion set; with a rifle
 		# the hands are put on the gun afterwards (_hold_gun), carried low.
 		# Aiming down the sight keeps the rifle set below.
+		var run := _runs(speed)
 		var clip := "u_walk"
 		if dir in ["b", "bl", "br"]: clip = "u_back"
-		elif dir == "l": clip = "u_run_l" if speed > 3.2 else "u_walk_l"
-		elif dir == "r": clip = "u_run_r" if speed > 3.2 else "u_walk_r"
+		elif dir == "l": clip = "u_run_l" if run else "u_walk_l"
+		elif dir == "r": clip = "u_run_r" if run else "u_walk_r"
 		elif sprinting: clip = "u_sprint"
-		elif speed > 3.2: clip = "u_run"
+		elif run: clip = "u_run"
 		_play_moving("mx/" + clip, speed)
 	elif pose == "stand" and speed > 0.3:
 		var set := "walk_"
 		if sprinting and dir in ["f", "fl", "fr"]: set = "sprint_"
-		elif speed > 3.2: set = "run_"
+		elif _runs(speed): set = "run_"
 		_play_moving("mx/" + set + dir, speed)
 	elif pose == "crouch" and speed > 0.3:
 		_play_moving("mx/crouch_" + dir, speed)
@@ -954,6 +958,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		if reload_p >= 0.0: _play("mx/prone_reload", 6.4 / 2.4)
 		elif aiming or recoil > 0.3: _play("mx/prone_fire", 1.0 if recoil > 0.3 else 0.06)
 		else: _play("mx/prone_idle", 1.0)
+	elif pose == "stand" and pickup_t >= 0.0 and speed < 0.3 and reload_p < 0.0 and ap.has_animation("mx/idle_crouch"):
+		# Taking something off the ground: a quick dip at the knees (the hand reaches below).
+		_play("mx/idle_crouch", 1.0)
 	elif pose == "stand" and armed and reload_p >= 0.0:
 		_play("mx/reload", 1.4)
 	elif pose == "stand" and pistol and aiming and _cls == "pistol" and ap.has_animation("mx/pfire"):
@@ -984,6 +991,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
 	_gun_drop = 0.0
+	if pickup_t >= 0.0:
+		pickup_t += delta / PICKUP_TIME
+		if pickup_t >= 1.0 or pose not in ["stand", "crouch"]: pickup_t = -1.0
 	canopy.visible = pose == "chute"
 	if canopy.visible:
 		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
@@ -996,6 +1006,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	match pose:
 		"crouch":
 			_gun_drop = -0.42        # the animations crouch the body
+		"stand" when _anim == "mx/idle_crouch":
+			_gun_drop = -0.42        # dipping to pick something up
 		"prone":
 			if not (_anim.begins_with("mx/prone") or _anim == "mx/crawl"):
 				# Crawling: the walk cycle turned face down.
@@ -1079,12 +1091,34 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			# weight easing side to side.
 			if _anim == "mx/u_idle": _relaxed_arms(0.0)
 			_breathe(t)
+	if pickup_t >= 0.0 and pose in ["stand", "crouch"]: _reach_down()
 	if bandaging and _anim == "mx/kneel": _bandage_hands(t)
 	_place_can()
 	if absf(look_yaw) > 0.01 or absf(look_pitch) > 0.01: _look_head()
 	if _wave > 0.0:
 		_wave -= delta
 		_arm("Right", Vector3(0.45, 1.95 + sin(t * 10.0) * 0.06, -0.1 + sin(t * 10.0) * 0.12), Vector3(1, 0, 0))
+
+## Walk or run clips for this ground speed, with a gap between the two
+## switch points so a stick held near the edge does not flick between them.
+func _runs(speed: float) -> bool:
+	if speed > 3.5: _run_set = true
+	elif speed < 2.9: _run_set = false
+	return _run_set
+
+## Starts reaching down for something on the ground (loot).
+func pick_up() -> void:
+	pickup_t = 0.0
+
+## The right hand goes down to the ground in front and comes back up (the
+## gun stays in the left hand meanwhile); on the move the knees stay straight.
+func _reach_down() -> void:
+	var k := sin(clampf(pickup_t, 0.0, 1.0) * PI)
+	var low := _anim == "mx/idle_crouch"
+	var hand := Vector3(0.24, 0.12 if low else 0.75, -0.42 if low else -0.25)
+	var to_model := _sk_to_model()
+	var now: Vector3 = to_model * sk.get_bone_global_pose(_bone["RightHand"]).origin
+	_arm("Right", now.lerp(hand + Vector3(0, body.position.y, 0), k), Vector3(1, -0.3, 0.6))
 
 ## No gun: the stock animations all hold a rifle (chest turned, hunched,
 ## hands up), so the upper body is straightened and the arms swing freely,
@@ -1195,12 +1229,14 @@ func _place_gun(pose: String, delta: float) -> void:
 		# Ready: muzzle a little down and inwards; lower and across the body
 		# when running (low ready).
 		# Low ready, as in the mobile shooters: stock under the arm, muzzle well down.
-		pos = Vector3(0.12, 1.27, -0.24) if not pistol else Vector3(0.12, 1.15, -0.28)
-		rot = Vector3(-0.42, 0.22, 0.06) if not pistol else Vector3(-0.6, 0.2, 0)
+		# The rifle across the body: stock by the right ribs, muzzle down and
+		# to the left, canted a little, so it shows past the left side from behind.
+		pos = Vector3(0.15, 1.21, -0.2) if not pistol else Vector3(0.12, 1.15, -0.28)
+		rot = Vector3(-0.36, 0.58, 0.22) if not pistol else Vector3(-0.6, 0.2, 0)
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
-			pos = pos.lerp(Vector3(0.13, 1.14, -0.24), low)
-			rot = rot.lerp(Vector3(-0.75, 0.5, 0.3), low)
+			pos = pos.lerp(Vector3(0.15, 1.17, -0.2), low)
+			rot = rot.lerp(Vector3(-0.48, 0.7, 0.32), low)
 		pitch_with_aim = low < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
 		# Looking the gun over: brought up in front, turned to one side, then the other.
