@@ -967,9 +967,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/" + idle_clip, 1.0)
 	elif pose == "stand" and armed:
 		# Standing about: upright, rifle low (the pack's idle is a wide combat crouch).
-		_play("mx/rifle_idle" if ap.has_animation("mx/rifle_idle") else "mx/idle", 1.0)
+		_play("mx/" + _idle_variant(t, ["rifle_idle", "rifle_idle", "look_around"], "idle"), 1.0)
 	elif pose == "stand" and ap.has_animation("mx/u_idle"):
-		_play("mx/u_idle", 1.0)
+		_play("mx/" + _idle_variant(t, ["u_idle", "happy_idle", "look_around"], "u_idle"), 1.0)
 	elif pose == "drive" and ride != "bike" and ap.has_animation("mx/drive"):
 		# Seated at the wheel (Mixamo driving clip); the hands follow the wheel below.
 		_play("mx/drive", 1.0)
@@ -1073,10 +1073,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		# The unarmed clips swing their own arms; the rifle ones need fixing up.
 		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink" and not _anim.begins_with("mx/u_"):
 			_relaxed_arms(speed)
-		elif _anim == "mx/u_idle" and pose == "stand":
+		elif _anim in ["mx/u_idle", "mx/happy_idle"] and pose == "stand":
 			# Standing about with empty hands: arms a little bent and off the
-			# body (not hanging stiff), breathing, weight easing side to side.
-			_relaxed_arms(0.0)
+			# body (not hanging stiff; the happy idle moves its own), breathing,
+			# weight easing side to side.
+			if _anim == "mx/u_idle": _relaxed_arms(0.0)
 			_breathe(t)
 	if bandaging and _anim == "mx/kneel": _bandage_hands(t)
 	_place_can()
@@ -1346,6 +1347,14 @@ func _breathe(t: float) -> void:
 		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
 	body.position.x += sway * 0.6
 
+var _idle_seed := randf() * 40.0
+
+## Standing about: a different idle every ten seconds or so (each person on
+## their own clock), so nobody stands frozen in the same loop.
+func _idle_variant(t: float, clips: Array, fallback: String) -> String:
+	var c: String = clips[int((t + _idle_seed) / 10.0) % clips.size()]
+	return c if ap.has_animation("mx/" + c) else fallback
+
 ## Stops a one-shot action early (an emote cut short by moving).
 func stop_action() -> void:
 	_action_t = 0.0
@@ -1384,7 +1393,7 @@ func _bend_spine(pose: String) -> void:
 	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
 	var twist := -0.3 if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
-	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload") or _anim == "mx/rifle_idle": twist = 0.0   # already bladed
+	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload") or _anim in ["mx/rifle_idle", "mx/look_around"]: twist = 0.0   # already bladed / turning by itself
 	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
 		if not _bone.has(bn): continue
 		var i: int = _bone[bn]

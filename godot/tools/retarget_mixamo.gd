@@ -50,7 +50,9 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"car_exit": "exiting_car", "wall_climb": "sprint_to_wall_climb", "punch": "punching_bag", "drink2": "drinking_1",
 	"inspect": "inspecting", "swim_tread2": "treading_water_1", "swim_edge": "swimming_to_edge",
 	"salute": "salute", "dance_hiphop": "hip_hop_dancing", "dance_break": "breakdance_freeze_var_4",
-	"rifle_idle": "rifle_idle", "victory": "victory_idle"}
+	"rifle_idle": "rifle_idle", "victory": "victory_idle",
+	# Standing about: looking round, an easy relaxed idle.
+	"look_around": "look_around", "happy_idle": "happy_idle"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
@@ -122,7 +124,14 @@ func _init() -> void:
 		var fw_s := _forward(ssk, Quaternion.IDENTITY, 1.0)
 		var fw_t := _forward(tsk, C, t_scale)
 		var Q := Quaternion(fw_s, fw_t) if fw_s.dot(fw_t) > -0.99 else Quaternion(Vector3.UP, PI)
-		var hips_s := ssk.find_bone("mixamorig_Hips")
+		# Some downloads number the rig ("mixamorig12:Hips"): match by plain name.
+		var sbones := {}
+		for j in ssk.get_bone_count():
+			var nm := ssk.get_bone_name(j)
+			var k := nm.find("_")
+			if nm.begins_with("mixamorig") and k > 0: nm = "mixamorig_" + nm.substr(k + 1)
+			sbones[nm] = j
+		var hips_s: int = sbones.get("mixamorig_Hips", -1)
 		var s_h := ssk.get_bone_rest(hips_s).origin.y
 		# Some rigs have an extra root joint above the hips: work on the hips bone.
 		var t_hips := tsk.find_bone("mixamorig_Hips")
@@ -138,7 +147,7 @@ func _init() -> void:
 		for i in tsk.get_bone_count():
 			var bn := tsk.get_bone_name(i)
 			if mirror: bn = bn.replace("Left", "#").replace("Right", "Left").replace("#", "Right")
-			var j := ssk.find_bone(bn)
+			var j: int = sbones.get(bn, -1)
 			if j >= 0: map[i] = j
 		# Limbs posed differently at rest (some rigs stand with bent elbows):
 		# turn each limb bone of the target to point like the source's at
@@ -190,7 +199,7 @@ func _init() -> void:
 				out.rotation_track_insert_key(rot_tracks[i], t, loc.normalized())
 			# Hips position: in place (no forward drift), height scaled to the soldier.
 			var hp := ssk.get_bone_rest(hips_s).origin
-			var ht := src.find_track(NodePath(spath + ":mixamorig_Hips"), Animation.TYPE_POSITION_3D)
+			var ht := src.find_track(NodePath(spath + ":" + ssk.get_bone_name(hips_s)), Animation.TYPE_POSITION_3D)
 			if ht >= 0: hp = src.position_track_interpolate(ht, t)
 			if f == 0:
 				start_pos = hp
@@ -222,8 +231,17 @@ func _forward(sk: Skeleton3D, C: Quaternion, s: float) -> Vector3:
 	for i in sk.get_bone_count():
 		var p := sk.get_bone_parent(i)
 		g[i] = (g[p] * rest[i]) if p >= 0 else rest[i]
-	var foot := sk.find_bone("mixamorig_LeftFoot")
-	var toe := sk.find_bone("mixamorig_LeftToeBase")
+	var foot := _find_any(sk, "LeftFoot")
+	var toe := _find_any(sk, "LeftToeBase")
 	var v: Vector3 = C * (g[toe].origin - g[foot].origin)
 	v.y = 0.0
 	return v.normalized()
+
+## A bone by its plain Mixamo name, whatever the rig's prefix ("mixamorig12_").
+func _find_any(sk: Skeleton3D, plain: String) -> int:
+	var i := sk.find_bone("mixamorig_" + plain)
+	if i >= 0: return i
+	for j in sk.get_bone_count():
+		var nm := sk.get_bone_name(j)
+		if nm.begins_with("mixamorig") and nm.ends_with("_" + plain): return j
+	return -1
