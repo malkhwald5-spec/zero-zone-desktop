@@ -7,8 +7,6 @@ extends Node3D
 ## them with a two-bone "reach" solver for arms and legs and by tilting the body.
 ## The model faces -Z like the rest of the game.
 
-const SCENE := preload("res://assets/models/soldier.glb")
-const MIXAMO := preload("res://assets/anims/mixamo_anims.res")
 
 var body: Node3D              # the imported model; tilted/lowered for poses
 var sk: Skeleton3D
@@ -39,6 +37,11 @@ var downed := false           # knocked down in a team match: crawls on hands an
 var swimming := false         # in deep water: treads water, no weapon
 var reviving := false         # kneeling by a downed teammate
 var drinking := false         # energy drink / painkillers, standing still
+var bandaging := false        # bandage / first aid: down on one knee, wrapping the arm
+var sliding := 0.0            # 0..1: sliding on the hip after a sprint (crouch while sprinting)
+var inspect_t := -1.0         # 0..1 through looking the gun over (-1 = not)
+var bolt_p := -1.0            # 0..1 through working the bolt after a shot (bolt-action rifles)
+var idle_clip := ""           # standing still: this clip instead of the usual idle (lobby)
 var look_yaw := 0.0           # head turned left (+) / right (-) from the body, radians
 var look_pitch := 0.0         # head tilted up (+) / down (-)
 var turn_dir := 0             # turning on the spot: 1 left, -1 right (0 = not turning)
@@ -64,14 +67,12 @@ var _wave := 0.0
 var _skel_scale := 0.01
 var _mats := {}
 
-## Characters: the armoured soldier, or Lola (a realistic Mixamo human).
+## Characters: Lola (a realistic Mixamo human) and the dyed-uniform soldier (albu).
 ## Survivor, Bundeswehr soldier and Remy: Sketchfab / Mixamo characters (see
 ## README), cleaned by tools/prep_character.gd, moves by tools/retarget_mixamo.gd.
 ## "fit": fine-tuning of the measured gear fit (see _build_gear):
 ## [helmet scale, vest/pack scale, helmet lift m, vest lift m, vest forward m, pack forward m].
 const CHARACTERS := {
-	"soldier": {"scene": "res://assets/models/soldier.glb", "anims": "res://assets/anims/mixamo_anims.res", "turn": 0.0, "scale": 1.0, "tint": true,
-		"vest": false, "fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 	"lola": {"scene": "res://assets/models/lola/lola.fbx", "anims": "res://assets/anims/mixamo_lola.res", "turn": PI, "scale": 0.92, "tint": false,
 		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 	"survivor": {"scene": "res://assets/models/chars/survivor.glb", "anims": "res://assets/anims/mixamo_survivor.res", "turn": PI, "scale": 0.92, "tint": false,
@@ -81,22 +82,28 @@ const CHARACTERS := {
 		"fit": [1.0, 0.95, 0.0, 0.0, 0.07, 0.0]},
 	"remy": {"scene": "res://assets/models/chars/remy.glb", "anims": "res://assets/anims/mixamo_remy.res", "turn": PI, "scale": 0.5, "tint": false,
 		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
-	# Desert-camo soldier from Sketchfab (DenisAlbu, CC-BY-SA).
+	# Desert-camo soldier from Sketchfab (DenisAlbu, CC-BY-SA). His jacket,
+	# cap and trousers are separate materials: the coloured outfits dye them.
 	"albu": {"scene": "res://assets/models/chars/albu.glb", "anims": "res://assets/anims/mixamo_albu.res", "turn": PI, "scale": 1.07, "tint": false,
+		"dye": {"Topmat": "top", "Hatmat": "top", "Bottommat": "pants"},
 		"fit": [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
 }
-## Characters the bots are drawn from.
-const BOT_CHARACTERS := ["soldier", "survivor", "bundeswehr", "remy", "lola", "albu", "albu"]
-var character := "soldier"
+## Characters the bots are drawn from (real people only: the old armoured
+## "soldier" model is no longer in the game).
+const BOT_CHARACTERS := ["survivor", "bundeswehr", "remy", "lola", "albu", "albu", "albu"]
+## The coloured outfits are this character with his uniform dyed.
+const DYE_BASE := "albu"
+var character := "albu"
+var _dyed: Array[StandardMaterial3D] = []    # the dyed uniform materials (gold plates only these)
 var _u := 1.0                   # gear offsets are in centimetres of bone space; this converts
 
-func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"), _pants: Color = Color("33373d"), who := "soldier") -> void:
-	character = who if CHARACTERS.has(who) else "soldier"
+func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"), _pants: Color = Color("33373d"), who := DYE_BASE, dyed := false) -> void:
+	character = who if CHARACTERS.has(who) else DYE_BASE
 	var cdef: Dictionary = CHARACTERS[character]
 	# body: the posed/tilted node; the model inside is turned to face -Z and sized.
 	body = Node3D.new()
 	add_child(body)
-	var inst: Node3D = (SCENE if character == "soldier" else load(cdef.scene)).instantiate()
+	var inst: Node3D = (load(cdef.scene) as PackedScene).instantiate()
 	inst.rotation.y = cdef.turn
 	inst.scale = Vector3.ONE * cdef.scale
 	_cscale = cdef.scale
@@ -111,7 +118,7 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 	for a in ["Idle", "Walk", "Run"]:
 		if ap.has_animation(a): ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	# Mixamo rifle moves (aim, fire, reload, run, strafe), retargeted to this skeleton.
-	ap.add_animation_library("mx", MIXAMO if character == "soldier" else load(cdef.anims))
+	ap.add_animation_library("mx", load(cdef.anims))
 	# Skeleton units per metre of the model: every scale between the model's
 	# root and the skeleton (some rigs carry it a few nodes up).
 	_skel_scale = 1.0
@@ -131,6 +138,16 @@ func _init(clothes: Color = Color("4a5d6b"), chute_color: Color = Color("c84f3a"
 				var t: StandardMaterial3D = m.duplicate()
 				t.albedo_color = Color.WHITE.lerp(clothes, 0.55)
 				mi.material_override = t
+	if dyed and cdef.has("dye"):
+		# Dye the uniform (the cloth texture shows through), leave skin and kit.
+		for mi in inst.find_children("*", "MeshInstance3D", true, false):
+			var m0: Material = (mi as MeshInstance3D).get_active_material(0)
+			if m0 is StandardMaterial3D and cdef.dye.has(m0.resource_name):
+				var d: StandardMaterial3D = m0.duplicate()
+				var c: Color = clothes if cdef.dye[m0.resource_name] == "top" else _pants
+				d.albedo_color = Color.WHITE.lerp(c, 0.7) * 1.15
+				(mi as MeshInstance3D).set_surface_override_material(0, d)
+				_dyed.append(d)
 	_build_gun()
 	_build_gear()
 	canopy = Node3D.new()
@@ -565,7 +582,14 @@ var _panda: Node3D
 func set_style(style: String) -> void:
 	if style == _style: return
 	_style = style
-	for mi in sk.get_children():
+	if not _dyed.is_empty():
+		# A dyed uniform: only the cloth turns to gold.
+		if style == "gold":
+			for d in _dyed:
+				d.albedo_color = Color(1.0, 0.86, 0.5)
+				d.metallic = 0.85
+				d.roughness = 0.3
+	for mi in (sk.get_children() if _dyed.is_empty() else []):
 		if mi is MeshInstance3D and mi.mesh and mi.material_override == null and mi.mesh.surface_get_material(0) is StandardMaterial3D:
 			mi.material_override = mi.mesh.surface_get_material(0)
 		if mi is MeshInstance3D and mi.mesh and mi.material_override is StandardMaterial3D:
@@ -834,7 +858,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var upv := _skeleton_up()
 			var hv := sk.get_bone_pose_position(_hips)
 			sk.set_bone_pose_position(_hips, hv + upv * (minf(hv.dot(upv), _action_y0) - hv.dot(upv)))
-		elif _action in ["climb", "drop_down"] and absf(_action_rise) > 0.3:
+		elif _action in ["climb", "wall_climb", "drop_down", "swim_edge"] and absf(_action_rise) > 0.3:
 			# Climbing: the hips never go above where they started (the body is
 			# lifted by the owner); dropping down: never below. Crouches stay.
 			var up := _skeleton_up()
@@ -865,7 +889,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	var dir := _dir8()
 	# One-handed guns (pistol, pan) have their own walk, run and idle.
 	var pistol: bool = armed and _cls in ["pistol", "melee"] and ap.has_animation("mx/pidle")
-	if drinking and pose in ["stand", "crouch"] and speed < 0.3:
+	if bandaging and pose in ["stand", "crouch"] and speed < 0.3 and ap.has_animation("mx/kneel"):
+		# Down on one knee to patch up: loop the low part of the kneel clip.
+		_play("mx/kneel", 1.0)
+		if ap.current_animation_position < 1.8 or ap.current_animation_position > 6.2: ap.seek(3.2, true)
+	elif drinking and pose in ["stand", "crouch"] and speed < 0.3:
 		# Bottle to the mouth: loop the drinking part of the clip.
 		_play("mx/drink", 1.0)
 		if ap.current_animation_position < 1.9 or ap.current_animation_position > 5.7: ap.seek(2.0, true)
@@ -932,6 +960,8 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/pidle", 1.0)
 	elif pose == "stand" and armed and aiming:
 		_play("mx/fire" if recoil > 0.3 else "mx/idle_aim", 1.0)
+	elif pose == "stand" and speed < 0.3 and idle_clip != "" and ap.has_animation("mx/" + idle_clip):
+		_play("mx/" + idle_clip, 1.0)
 	elif pose == "stand" and armed:
 		_play("mx/idle", 1.0)
 	elif pose == "stand" and ap.has_animation("mx/u_idle"):
@@ -956,7 +986,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone", "airborne"]
 	# Crawling, knocked down, swimming or helping a mate up: hands are busy, the gun is put away.
-	if swimming or reviving or (drinking and _anim == "mx/drink") or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
+	if swimming or reviving or (drinking and _anim == "mx/drink") or (bandaging and _anim == "mx/kneel") or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
 	if swimming: body.position.y = 0.4          # afloat: head and shoulders out of the water
 	recoil = move_toward(recoil, 0.0, delta * 6.0)
 	match pose:
@@ -1013,6 +1043,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
 			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
 	_lean_into_moves(pose, speed, delta)
+	if sliding > 0.0 and pose == "crouch":
+		# On the hip: leaning back, low, the lead leg out in front.
+		body.rotation.x += 0.42 * sliding
+		body.position.y -= 0.22 * sliding
+		body.position.z += 0.25 * sliding
 	if pose in ["stand", "crouch"] and not swimming:
 		_plant_feet(delta)
 	else:
@@ -1033,6 +1068,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		# The unarmed clips swing their own arms; the rifle ones need fixing up.
 		if pose in ["stand", "crouch"] and not swimming and not reviving and _anim != "mx/drink" and not _anim.begins_with("mx/u_"):
 			_relaxed_arms(speed)
+	if bandaging and _anim == "mx/kneel": _bandage_hands(t)
 	_place_can()
 	if absf(look_yaw) > 0.01 or absf(look_pitch) > 0.01: _look_head()
 	if _wave > 0.0:
@@ -1154,11 +1190,19 @@ func _place_gun(pose: String, delta: float) -> void:
 			pos = pos.lerp(Vector3(0.13, 1.14, -0.24), low)
 			rot = rot.lerp(Vector3(-0.75, 0.5, 0.3), low)
 		pitch_with_aim = low < 0.5
+	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
+		# Looking the gun over: brought up in front, turned to one side, then the other.
+		var ki := sin(clampf(inspect_t, 0.0, 1.0) * PI)
+		var sw := sin(inspect_t * TAU)
+		pos = pos.lerp(Vector3(0.05, 1.34, -0.36), ki)
+		rot = rot.lerp(Vector3(0.12, 0.7 * sw, 1.25 * sw), ki)
+		pitch_with_aim = false
 	if reload_p >= 0.0:
-		# Gun brought in front of the chest and rolled to see the magazine well.
+		# Gun brought in front of the chest and rolled to see the magazine well
+		# (a bolt-action or a shotgun: rolled to show the loading port).
 		var k := sin(clampf(reload_p, 0.0, 1.0) * PI)
 		pos = pos.lerp(Vector3(0.1, 1.3, -0.2), k)
-		rot = rot.lerp(Vector3(0.1, 0.3, 0.55), k)
+		rot = rot.lerp(Vector3(0.1, 0.3, 0.55) if _cls not in ["sr", "shotgun"] else Vector3(0.15, 0.25, -0.5), k)
 	pos.y += body.position.y + _gun_drop
 	var b := Basis.from_euler(rot, EULER_ORDER_YXZ)
 	var target := Transform3D(b, pos)
@@ -1264,6 +1308,21 @@ func _peek_feet(pose: String) -> void:
 		var inv := sk.get_bone_global_pose(b).basis.inverse()
 		sk.set_bone_pose_rotation(b, sk.get_bone_pose_rotation(b) * Quaternion((inv * axis_sk).normalized(), peek * PEEK_ROLL * 0.22))
 
+## Patching up: the left forearm held across the chest, the right hand
+## winding the bandage round it.
+func _bandage_hands(t: float) -> void:
+	if not _bone.has("Spine2"): return
+	var to_model := _sk_to_model()
+	var chest: Vector3 = to_model * sk.get_bone_global_pose(_bone["Spine2"]).origin
+	var held := chest + Vector3(-0.04, -0.12, -0.3)
+	_arm("Left", held, Vector3(-1, -1, 0))
+	var a := t * 7.0
+	_arm("Right", held + Vector3(0.1 + cos(a) * 0.05, sin(a) * 0.06, cos(a) * 0.04), Vector3(1, -1, 0.3))
+
+## Stops a one-shot action early (an emote cut short by moving).
+func stop_action() -> void:
+	_action_t = 0.0
+
 ## Lean sideways from the hips (Q / E), split over the three spine bones.
 func _lean_spine() -> void:
 	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
@@ -1320,6 +1379,36 @@ func _hold_gun() -> void:
 	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32)) if weapon_node else Vector3(0, -0.06, -0.32)
 	var fore := g * (fore_v * WSCALE + Vector3(-0.02, -0.02, 0.06))
 	var p := reload_p
+	var rgrip := grip
+	var pouch_r := global_transform * Vector3(0.22, 1.0 + body.position.y, 0.05)
+	if p >= 0.0 and _cls == "sr":
+		# Bolt-action: bolt up and back, rounds pushed in from a clip, bolt home.
+		var bolt := g * Vector3(0.04, 0.05, -0.06)
+		var bolt_back := g * Vector3(0.04, 0.06, 0.04)
+		var port := g * Vector3(0.0, 0.08, -0.1)
+		if p < 0.12: rgrip = grip.lerp(bolt, p / 0.12)
+		elif p < 0.2: rgrip = bolt.lerp(bolt_back, (p - 0.12) / 0.08)
+		elif p < 0.8:
+			var q := fmod((p - 0.2) / 0.6 * 2.0, 1.0)      # two clips' worth of trips
+			rgrip = bolt_back.lerp(pouch_r, sin(q * PI)) if q < 0.5 else pouch_r.lerp(port, (q - 0.5) * 2.0)
+		elif p < 0.9: rgrip = bolt_back.lerp(bolt, (p - 0.8) / 0.1)
+		else: rgrip = bolt.lerp(grip, (p - 0.9) / 0.1)
+		p = -1.0      # the support hand stays under the gun
+	elif p >= 0.0 and _cls == "shotgun":
+		# Shells one at a time from the belt into the port under the gun.
+		var port := g * Vector3(0.0, -0.07, -0.14)
+		var q := fmod(p * 4.0, 1.0)
+		rgrip = pouch_r.lerp(port, smoothstep(0.2, 0.8, q)) if p < 0.95 else port.lerp(grip, (p - 0.95) / 0.05)
+		if p < 0.06: rgrip = grip.lerp(pouch_r, p / 0.06)
+		p = -1.0
+	elif bolt_p >= 0.0 and _cls == "sr":
+		# Working the bolt after a shot: up, back, forward, down.
+		var bolt := g * Vector3(0.04, 0.05, -0.06)
+		var bolt_back := g * Vector3(0.04, 0.06, 0.04)
+		if bolt_p < 0.25: rgrip = grip.lerp(bolt, bolt_p / 0.25)
+		elif bolt_p < 0.5: rgrip = bolt.lerp(bolt_back, (bolt_p - 0.25) / 0.25)
+		elif bolt_p < 0.75: rgrip = bolt_back.lerp(bolt, (bolt_p - 0.5) / 0.25)
+		else: rgrip = bolt.lerp(grip, (bolt_p - 0.75) / 0.25)
 	if p >= 0.0:
 		var mag := weapon_node.get_node_or_null("Mag") as Node3D
 		var mag_pt := (mag.global_transform * Vector3(-0.03, -0.08, 0.0)) if mag else fore
@@ -1330,8 +1419,8 @@ func _hold_gun() -> void:
 		elif p < 0.6: fore = pouch.lerp(mag_pt, (p - 0.45) / 0.15)
 		elif p < 0.8: fore = mag_pt
 		else: fore = mag_pt.lerp(fore, (p - 0.8) / 0.2)
-	_arm("Right", to_local * grip, Vector3(1, -1, 0.4))
-	if _cls in ["pistol", "melee"] and not aiming and p < 0.0:
+	_arm("Right", to_local * rgrip, Vector3(1, -1, 0.4))
+	if _cls in ["pistol", "melee"] and not aiming and reload_p < 0.0:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:
 		_arm("Left", to_local * fore, Vector3(-1, -1, 0))

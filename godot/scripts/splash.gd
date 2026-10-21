@@ -369,6 +369,8 @@ func _process(delta: float) -> void:
 	_shake = maxf(_shake - delta * 2.5, 0.0)
 	stage.queue_redraw()
 	var target := minf(maxf(t - T_READY, 0.0) / 2.6, 1.0)     # starts after the intro
+	# The key art normally takes a frame or two; never hang on it.
+	if not _art_done and t > T_READY + 9.0: _art_done = true
 	if not _art_done: target = minf(target, 0.95)
 	progress = move_toward(progress, target, delta * 0.8)
 	for s in STEPS:

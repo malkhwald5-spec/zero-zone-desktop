@@ -45,7 +45,7 @@ func _bake() -> void:
 	var saved := int(Game.profile.outfit)
 	for i in Game.WARDROBE.size():
 		Game.profile.outfit = i
-		var m := HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
+		var m := HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character(), Game.outfit_dyed())
 		m.set_style(Game.outfit_style())
 		m.set_gear(0, 0, 0)
 		m.set_weapon("")

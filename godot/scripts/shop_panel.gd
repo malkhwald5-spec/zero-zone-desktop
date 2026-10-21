@@ -169,6 +169,7 @@ func _card(title: String, sub: String, price: int, need: int, lvl: int, cb: Call
 func _pay(price: int) -> bool:
 	if war.money < price: return false
 	war.money -= price
+	Game.coin_sound()
 	world.sound_local("reload_rifle", 0.0, 1.4, -10.0)
 	return true
 

@@ -44,6 +44,7 @@ func defaults(s: Vector2) -> Array:
 		{"id": "heal", "act": "heal", "icon": "", "label": "علاج", "pos": Vector2(Hud.slot_rect(2, s).end.x + 38, s.y - 82), "r": 24.0},
 		{"id": "boost", "act": "boost", "icon": "", "label": "منشّط", "pos": Vector2(Hud.slot_rect(2, s).end.x + 96, s.y - 82), "r": 24.0},
 		{"id": "map", "act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 330), "r": 24.0},
+		{"id": "emote", "act": "emote", "icon": "", "label": "رقصة", "pos": Vector2(s.x - 36, 400), "r": 22.0},
 		{"id": "pause", "act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
 		{"id": "slot1", "act": "slot1", "icon": "", "label": "", "pos": Hud.slot_rect(0, s).get_center(), "r": 0.0},
 		{"id": "slot2", "act": "slot2", "icon": "", "label": "", "pos": Hud.slot_rect(1, s).get_center(), "r": 0.0},
@@ -235,6 +236,14 @@ func _icon(act: String, c: Vector2, r: float) -> void:
 			draw_circle(c + Vector2(4, -13) * k, 4.5 * k, w)
 			draw_polyline(PackedVector2Array([c + Vector2(3, -7) * k, c + Vector2(-4, 3) * k, c + Vector2(6, 6) * k, c + Vector2(2, 15) * k]), w, 3.5 * k)
 			draw_line(c + Vector2(1, -3) * k, c + Vector2(11, -1) * k, w, 3.0 * k)
+		"emote":
+			# A figure with both arms up (cheering).
+			draw_circle(c + Vector2(0, -10) * k, 4.5 * k, w)
+			draw_line(c + Vector2(0, -4) * k, c + Vector2(0, 8) * k, w, 3.5 * k)
+			draw_line(c + Vector2(0, -2) * k, c + Vector2(-9, -12) * k, w, 3.0 * k)
+			draw_line(c + Vector2(0, -2) * k, c + Vector2(9, -12) * k, w, 3.0 * k)
+			draw_line(c + Vector2(0, 8) * k, c + Vector2(-6, 16) * k, w, 3.0 * k)
+			draw_line(c + Vector2(0, 8) * k, c + Vector2(6, 16) * k, w, 3.0 * k)
 		"peek_l", "peek_r":
 			# A figure leaning out to that side.
 			var sd := -1.0 if act == "peek_l" else 1.0

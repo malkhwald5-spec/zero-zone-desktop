@@ -41,17 +41,21 @@ func _ready() -> void:
 		m.position = Vector3(i * 1.6 - (n - 1) * 0.8, 0, 0)
 		m.rotation.y = PI * 0.5      # side view
 		models.append(m)
-	var a: Animation = models[0].ap.get_animation("mx/" + clip)
 	cam.look_at_from_position(Vector3(0, 1.4, 13.0), Vector3(0, 0.9, 0))
-	for f in 3:
-		for i in n:
-			var hm: HumanModel = models[i]
-			hm.ap.play("mx/" + clip, 0.0)
-			hm.ap.seek(a.length * i / float(n - 1), true)
-		await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(out.path_join("clip_%s.png" % clip))
-	print("shot clip ", clip, " length ", a.length)
+	for c in clip.split(","):
+		var a: Animation = models[0].ap.get_animation("mx/" + c)
+		for f in 3:
+			for i in n:
+				var hm: HumanModel = models[i]
+				hm.ap.play("mx/" + c, 0.0)
+				hm.ap.seek(a.length * i / float(n - 1), true)
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(out.path_join("clip_%s.png" % c))
+		print("shot clip ", c, " length ", a.length)
+	if not OS.get_cmdline_user_args().has("--peek"):
+		get_tree().quit()
+		return
 	# Peek: standing still, left / none / right, armed; crouched right; then from behind.
 	for m in models: m.queue_free()
 	await get_tree().process_frame

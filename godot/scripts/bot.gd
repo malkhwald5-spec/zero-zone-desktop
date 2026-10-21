@@ -97,7 +97,7 @@ func _ready() -> void:
 	floor_max_angle = deg_to_rad(50)
 	max_slides = 3
 	model = HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25),
-		HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()])
+		HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()], randf() < 0.6)
 	add_child(model)
 	model.set_gear(0, 0, 0)
 	_frame = randi() % 4
@@ -318,6 +318,19 @@ func _ground(delta: float) -> void:
 	# Away from the camera: move every other frame in double steps, every
 	# fourth far away or out of view (100 players cost a lot of physics
 	# otherwise). Up close and in view, and anyone in a fight near you, every frame.
+	if _unboard_t >= 0.0:
+		# Getting out of a car: the clip plays at the door, nothing else yet.
+		_unboard_t += delta
+		if is_instance_valid(_unboard_v) and _unboard_t < UNBOARD_TIME:
+			model.global_transform = _unboard_v.global_transform * _unboard_v.unboard_xform(_unboard_t / UNBOARD_TIME)
+			model.set_pose("stand", 0.0, armed(), delta, world.time)
+			return
+		_unboard_t = -1.0
+		model.stop_action()
+		if is_instance_valid(_unboard_v):
+			var ob := _unboard_v.outward_basis()
+			yaw = atan2(ob.z.x, ob.z.z)
+		model.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3.ZERO)
 	var smooth := d_player < 45.0 or (on_screen and d_player < 130.0) or (target != null and d_player < 90.0)
 	_cheap = not smooth and d_player > 60.0
 	if not smooth:
@@ -908,6 +921,9 @@ func _shoot(e: Node3D) -> void:
 # ---------------------------------------------------------------- driving
 const MAX_DRIVERS := 8
 const BOARD_TIME := 0.9
+const UNBOARD_TIME := 1.1
+var _unboard_t := -1.0
+var _unboard_v: Vehicle = null
 var vehicle: Vehicle = null
 var car: Vehicle = null        # the car it is walking to
 var _ride_goal := Vector3.ZERO
@@ -980,14 +996,20 @@ func exit_vehicle(force := false) -> void:
 			v.linear_velocity = Vector3.ZERO
 		var seat := v.seat_xform()
 		var out: Vector3 = v.global_transform * (seat.origin + Vector3(signf(seat.origin.x) * 1.6, 0, 0))
-		if world.is_deep(out): out = world.safe_landing(out)
+		var wet: bool = world.is_deep(out)
+		if wet: out = world.safe_landing(out)
 		global_position = Vector3(out.x, world.ground_height(out) + 0.2, out.z)
 		reset_physics_interpolation()
+		if not force and not wet and v.kind != "bike" and model.visible and absf(v.speed()) < 6.0 and model.ap.has_animation("mx/car_exit"):
+			# Climbing out (only worth it where someone can see).
+			_unboard_t = 0.0
+			_unboard_v = v
+			model.play_action("car_exit", UNBOARD_TIME, 0.5, 3.2)
 	if state == "vehicle": state = "ground"
 	shape.disabled = false
 	velocity = Vector3.ZERO
 	_board_t = -1.0
-	model.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3.ZERO)
+	if _unboard_t < 0.0: model.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3.ZERO)
 	mode = "zone"
 	think_t = 0.0
 

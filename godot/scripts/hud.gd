@@ -425,8 +425,29 @@ func toggle_pause() -> void:
 		return
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	pause_panel = _panel("إيقاف مؤقت", [["متابعة", toggle_pause], ["الإعدادات", _match_settings], ["القائمة الرئيسية", _to_lobby]])
+	pause_panel = _panel("إيقاف مؤقت", [["متابعة", toggle_pause], ["الإعدادات", _match_settings], ["القائمة الرئيسية", _confirm_leave]])
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+
+## Leaving a match you are still alive in: asked once.
+func _confirm_leave() -> void:
+	if world.player.state == "dead" or world.match_over:
+		_to_lobby()
+		return
+	if pause_panel:
+		pause_panel.queue_free()
+	pause_panel = _panel("تطلع من المباراة؟", [["إيه، اطلع", _to_lobby], ["لا، كمّل", func():
+		pause_panel.queue_free()
+		pause_panel = null
+		toggle_pause()]], "رح تخسر هالمباراة وما رح تنحسبلك")
+	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+
+## Phone back button: close what is open (map, bag, shop), else pause.
+func go_back() -> void:
+	if results: return
+	if map_open: toggle_map()
+	elif bag_open: toggle_bag()
+	elif shop: toggle_shop()
+	else: toggle_pause()
 
 var _settings_box: Control
 
@@ -598,6 +619,7 @@ func _show_results_panel() -> void:
 	var buttons := []
 	if world.player.state == "dead" and world.alive_count() > 0:
 		buttons.append(["مشاهدة اللاعبين", start_spectate])
+	buttons.append(["العب مرة ثانية", _play_again])
 	buttons.append(["العودة إلى اللوبي", _to_lobby])
 	results = _panel(_results_args[0], buttons, _results_args[1])
 	if not _rank_change.is_empty():
@@ -683,6 +705,13 @@ func _draw_dead(c: Control, sz: Vector2, p: Player) -> void:
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.72 + 32), "قتلك " + kname + how + " من %d م" % d, 24, Color("ff6a5a"), HORIZONTAL_ALIGNMENT_CENTER, bold, 800)
 		if k is Bot:
 			_text(c, Vector2(sz.x * 0.5, sz.y * 0.72 + 58), "صحته المتبقية %d" % int(maxf(k.health, 0.0)), 15, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, null, 400)
+
+## Straight into another match of the same mode.
+func _play_again() -> void:
+	get_tree().paused = false
+	AudioServer.set_bus_volume_db(0, 0.0)
+	Game.spawn_island = true
+	get_tree().change_scene_to_file("res://scenes/world.tscn")
 
 func _to_lobby() -> void:
 	get_tree().paused = false
@@ -1118,6 +1147,7 @@ func _on_hit(head: bool, killed: bool, pos: Vector3) -> void:
 		var names := {2: "إقصاء مزدوج!", 3: "ثلاثي!", 4: "رباعي!", 5: "لا يوقف!"}
 		var txt: String = names.get(mini(_streak, 5), "") if _streak >= 2 else ""
 		_kill_card(txt)
+		if _streak >= 2: world.announce({2: "double", 3: "triple"}.get(_streak, "great"))
 
 ## A short synthesised sound: a soft tick for a hit (higher for the head),
 ## a bright double chime for a kill.

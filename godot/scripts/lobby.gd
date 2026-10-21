@@ -35,6 +35,8 @@ func _ready() -> void:
 	_build_scene()
 	_build_ui()
 	if not Game.last_reward.is_empty():
+		# Back from a win: a cheer first.
+		if Game.last_reward.get("won", false) and soldier.ap.has_animation("mx/victory"): soldier.play_action("victory", 3.0, 0.0, 1.67)
 		_show_reward(Game.last_reward)
 		Game.last_reward = {}
 	if Game.is_integrated_gpu(): _gpu_warning()
@@ -96,6 +98,42 @@ func _login_gift() -> void:
 
 ## The game is running on the built-in graphics chip (very slow): say how to
 ## move it onto the real graphics card.
+var _exit_box: Control
+
+## Phone back button: close the open page, else ask before leaving the game.
+func go_back() -> void:
+	if _exit_box:
+		_exit_box.queue_free()
+		_exit_box = null
+	elif panel:
+		_close_panel()
+	else:
+		var dim := ColorRect.new()
+		dim.color = Color(0, 0, 0, 0.6)
+		dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+		ui.add_child(dim)
+		_exit_box = dim
+		var pc := PanelContainer.new()
+		pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.04, 0.06, 0.1, 0.97), 16, ACCENT, 2, 22))
+		dim.add_child(pc)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 14)
+		pc.add_child(v)
+		v.add_child(UiKit.label("بدك تطلع من اللعبة؟", 24, Color.WHITE, UiKit.bold(), 0))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		v.add_child(row)
+		row.add_child(_small_btn("إيه، اطلع", func():
+			Game.save_data()
+			get_tree().quit(), true, false))
+		row.add_child(_small_btn("لا", func():
+			_exit_box.queue_free()
+			_exit_box = null))
+		pc.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		pc.grow_vertical = Control.GROW_DIRECTION_BOTH
+
 func _gpu_warning() -> void:
 	var box := PanelContainer.new()
 	box.add_theme_stylebox_override("panel", UiKit.style(Color(0.35, 0.06, 0.04, 0.94), 6, Color("ffb070"), 2, 14))
@@ -412,7 +450,7 @@ func _backdrop() -> void:
 
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
-	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
+	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character(), Game.outfit_dyed())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
 	soldier.set_weapon("")
@@ -452,6 +490,16 @@ func _spawn_mates() -> void:
 const IDLE_STEPS := [["idle", 6.0], ["look", 4.5], ["idle", 5.0], ["look", 4.5]]
 var _idle_t := 0.0
 var _idle_i := 0
+
+## The hand button: salute, dance, cheer in turn (a wave if the clips are missing).
+const LOBBY_EMOTES := [["salute", 2.8], ["dance_hiphop", 4.7], ["victory", 1.7], ["dance_break", 5.0]]
+var _emote_i := -1
+
+func _emote() -> void:
+	_emote_i = (_emote_i + 1) % LOBBY_EMOTES.size()
+	var e: Array = LOBBY_EMOTES[_emote_i]
+	if soldier.ap.has_animation("mx/" + e[0]): soldier.play_action(e[0], e[1])
+	else: soldier.wave(2.2)
 
 func _idle_director(delta: float) -> void:
 	_idle_t += delta
@@ -857,7 +905,7 @@ func _ticker() -> void:
 	_anchor(box, Control.PRESET_BOTTOM_LEFT, Vector2(16, -16))
 	var icons := HBoxContainer.new()
 	icons.add_theme_constant_override("separation", 8)
-	for ic in [["question", func(): _open("help")], ["hand", func(): soldier.wave(2.2)], ["friends", func(): _open("mode")]]:
+	for ic in [["question", func(): _open("help")], ["hand", _emote], ["friends", func(): _open("mode")]]:
 		icons.add_child(_icon_button(ic[0], "", ic[1], Vector2(40, 40), false, GLASS, Color.WHITE, 20))
 	box.add_child(icons)
 	var pc := PanelContainer.new()
@@ -1090,6 +1138,10 @@ func _toast(text: String) -> void:
 func _show_reward(r: Dictionary) -> void:
 	var title := "🏆 فوز! أنت الناجي الأخير" if r.won else "انتهت المباراة — الترتيب #%d" % r.rank
 	_toast("%s   •   القتلى %d   •   +%d ذهب   •   +%d خبرة موسم" % [title, r.kills, r.gold, r.xp])
+	Game.coin_sound()
+	if r.get("level_up", false):
+		Game.ui_sound("level_up", 1.0, -4.0, 0.6)
+		get_tree().create_timer(3.5).timeout.connect(_toast.bind("⬆ مستوى جديد في الموسم: %d" % Game.pass_level()))
 
 func _claimed(id: String) -> bool:
 	return Game.wallet.claimed.has(id)
@@ -1354,6 +1406,7 @@ func _wear_or_buy(i: int) -> void:
 			return
 		Game.wallet.gold = int(Game.wallet.gold) - price
 		Game.profile.owned.append(i)
+		Game.coin_sound()
 		_toast("اشتريت: %s" % Game.WARDROBE[i][0])
 	Game.profile.outfit = i
 	Game.save_data()
@@ -1691,6 +1744,7 @@ func _open_crate() -> void:
 	if not missing.is_empty() and randf() < 0.4:
 		var i: int = missing[randi() % missing.size()]
 		Game.profile.owned.append(i)
+		Game.coin_sound()
 		Game.save_data()
 		_open("crate")
 		_reveal("🎉 طلعلك: %s" % Game.WARDROBE[i][0], load("res://assets/textures/ui/outfits/outfit_%d.png" % i))
@@ -1765,6 +1819,7 @@ func _page_events(body: VBoxContainer) -> void:
 	var got := Game.owns(6)
 	v.add_child(_small_btn("مستلم ✓" if got else ("استلام" if done else "قيد التقدم"), func():
 		Game.profile.owned.append(6)
+		Game.coin_sound()
 		Game.save_data()
 		_toast("🎉 ربحت لبس «ليلة القمر»")
 		_open("events"), done and not got))
@@ -1971,6 +2026,7 @@ func _page_settings(body: VBoxContainer) -> void:
 			var g := _section(body, "الصوت")
 			g.add_child(_cell("الصوت", _onoff("sound", func(): Game.apply_audio())))
 			g.add_child(_cell("مستوى الصوت", _slider("master_vol", 0.0, 1.0, 0.05, 1.0, _pct, func(): Game.apply_audio())))
+			g.add_child(_cell("صوت المعلّق", _onoff("narrator", func(): Game.save_data())))
 
 ## The on-screen buttons editor, over the whole lobby.
 func _open_touch_editor() -> void:

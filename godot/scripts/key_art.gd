@@ -194,7 +194,7 @@ func _shards() -> void:
 
 func _characters() -> void:
 	# Player 1: left foreground, seen from behind, aiming up at the villain.
-	var p1 := HumanModel.new(Color("d8d8d2"), Color("f2a900"), Color("2c3a55"))
+	var p1 := HumanModel.new(Color("d8d8d2"), Color("f2a900"), Color("2c3a55"), "albu", true)
 	p1.set_weapon("ar")
 	p1.set_gear(2, 2, 0)
 	add_child(p1)
@@ -202,7 +202,7 @@ func _characters() -> void:
 	p1.rotation.y = 0.35
 	p1.set_pose("stand", 0.0, true, 0.016, 0.0)
 	# Player 2: right, firing with a muzzle flash.
-	var p2 := HumanModel.new(Color("232327"), Color("f2a900"), Color("39404f"))
+	var p2 := HumanModel.new(Color("232327"), Color("f2a900"), Color("39404f"), "lola")
 	p2.set_weapon("smg")
 	p2.set_gear(0, 0, 0)
 	add_child(p2)

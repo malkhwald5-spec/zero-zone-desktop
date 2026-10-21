@@ -21,7 +21,7 @@ var _toast_t := 0.0
 const NAMES := {"fire": "زر الإطلاق", "fire_l": "زر الإطلاق اليسار", "aim": "المنظار", "jump": "القفز",
 	"crouch": "الانحناء", "prone": "الانبطاح", "reload": "التلقيم", "throw": "القنبلة", "peek_l": "ميلان يسار",
 	"peek_r": "ميلان يمين", "bag": "الحقيبة", "heal": "العلاج", "boost": "المنشّط", "map": "الخريطة",
-	"pause": "الإعدادات", "interact": "زر التقاط / ركوب", "joy": "عصا الحركة"}
+	"pause": "الإعدادات", "emote": "التحية / الرقصة", "interact": "زر التقاط / ركوب", "joy": "عصا الحركة"}
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

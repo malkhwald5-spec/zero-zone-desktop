@@ -60,6 +60,7 @@ var settings := {
 	"fps": 60,                # frame-rate cap: 30 | 60 | 90 | 120
 	"sensitivity": 1.0,
 	"sound": true,
+	"narrator": true,         # the radio voice calling out the match (zone, kills, win)
 	"difficulty": "normal",
 	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"
 	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal
@@ -138,16 +139,16 @@ func team_size() -> int:
 ## Keyboard actions you can rebind (Settings → الأزرار), their default keys
 ## and names. Esc and 4-8 (heals) stay fixed.
 const KEY_ORDER := ["move_forward", "move_back", "move_left", "move_right", "sprint", "jump", "crouch", "prone",
-	"interact", "reload", "peek_l", "peek_r", "heal", "boost", "throw", "throw_kind", "slot1", "slot2", "slot3", "map", "bag", "cursor"]
+	"interact", "reload", "peek_l", "peek_r", "heal", "boost", "throw", "throw_kind", "slot1", "slot2", "slot3", "map", "bag", "cursor", "emote", "inspect"]
 const KEY_DEFAULTS := {"move_forward": KEY_W, "move_back": KEY_S, "move_left": KEY_A, "move_right": KEY_D,
 	"sprint": KEY_SHIFT, "jump": KEY_SPACE, "crouch": KEY_C, "prone": KEY_Z, "interact": KEY_F, "reload": KEY_R,
 	"peek_l": KEY_Q, "peek_r": KEY_E, "heal": KEY_H, "boost": KEY_Y, "throw": KEY_G, "throw_kind": KEY_T,
-	"slot1": KEY_1, "slot2": KEY_2, "slot3": KEY_3, "map": KEY_M, "bag": KEY_B, "cursor": KEY_CTRL}
+	"slot1": KEY_1, "slot2": KEY_2, "slot3": KEY_3, "map": KEY_M, "bag": KEY_B, "cursor": KEY_CTRL, "emote": KEY_N, "inspect": KEY_K}
 const KEY_NAMES := {"move_forward": "لقدام", "move_back": "لورا", "move_left": "يسار", "move_right": "يمين",
 	"sprint": "ركض", "jump": "قفز / نطّ فوق حيط", "crouch": "انحناء", "prone": "انبطاح", "interact": "التقاط / ركوب / فتح صندوق",
 	"reload": "تلقيم", "peek_l": "ميلان يسار", "peek_r": "ميلان يمين", "heal": "علاج", "boost": "منشّط",
 	"throw": "رمي قنبلة", "throw_kind": "نوع القنبلة", "slot1": "السلاح الأول", "slot2": "السلاح الثاني",
-	"slot3": "المسدس", "map": "الخريطة", "bag": "الحقيبة", "cursor": "إظهار الماوس"}
+	"slot3": "المسدس", "map": "الخريطة", "bag": "الحقيبة", "cursor": "إظهار الماوس", "emote": "تحية / رقصة", "inspect": "تفقّد السلاح"}
 
 ## The physical key for an action.
 func key(action: String) -> int:
@@ -219,6 +220,45 @@ var spawn_island := false         # the next match starts on the waiting island 
 func _ready() -> void:
 	load_data()
 	apply_fps.call_deferred()
+	# The phone's back button must not close the game: the scene decides
+	# (pause in a match, close a page or ask in the lobby).
+	get_tree().set_quit_on_go_back(false)
+	# Every button in every menu clicks.
+	get_tree().node_added.connect(func(n: Node):
+		if n is BaseButton and not n.has_meta("silent"):
+			(n as BaseButton).pressed.connect(ui_sound.bind("ui_click", 1.0, -10.0)))
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		var sc := get_tree().current_scene
+		if sc and sc.has_method("go_back"): sc.go_back()
+	elif what == NOTIFICATION_APPLICATION_PAUSED or (what == NOTIFICATION_APPLICATION_FOCUS_OUT and phone()):
+		# Phone call, home button: the match waits for you.
+		var sc := get_tree().current_scene
+		if sc and sc.has_method("app_paused"): sc.app_paused()
+
+var _ui_snd := {}
+
+## A menu sound (assets/sounds/<name>.ogg), played even while paused.
+func ui_sound(name: String, pitch := 1.0, volume := -6.0, delay := 0.0) -> void:
+	if not settings.get("sound", true) or DisplayServer.get_name() == "headless": return
+	if not _ui_snd.has(name):
+		var path := "res://assets/sounds/%s.ogg" % name
+		_ui_snd[name] = load(path) if ResourceLoader.exists(path) else null
+	if _ui_snd[name] == null: return
+	var p := AudioStreamPlayer.new()
+	p.stream = _ui_snd[name]
+	p.pitch_scale = pitch
+	p.volume_db = volume
+	p.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(p)
+	if delay > 0.0: get_tree().create_timer(delay, true).timeout.connect(func(): if is_instance_valid(p): p.play())
+	else: p.play()
+	p.finished.connect(p.queue_free)
+
+## Money spent or earned: a little run of coins.
+func coin_sound() -> void:
+	for i in 3: ui_sound("coin", 1.0 + i * 0.08, -8.0, i * 0.07)
 
 ## First launch: integrated graphics (Intel) start on متوازن, real cards on HD.
 func _auto_quality() -> void:
@@ -320,9 +360,13 @@ func save_data() -> void:
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]
 
-## Which character model the outfit uses ("soldier", "lola", "survivor"...).
+## Which character model the outfit uses ("albu", "lola", "survivor"...).
 func outfit_character() -> String:
-	return outfit_style() if HumanModel.CHARACTERS.has(outfit_style()) else "soldier"
+	return outfit_style() if HumanModel.CHARACTERS.has(outfit_style()) else HumanModel.DYE_BASE
+
+## The coloured outfits: the base character with his uniform dyed.
+func outfit_dyed() -> bool:
+	return not HumanModel.CHARACTERS.has(outfit_style())
 
 func outfit_style() -> String:
 	var w: Array = WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)]
@@ -343,9 +387,10 @@ func pass_level() -> int:
 func reward_match(rank: int, kills: int, won: bool) -> Dictionary:
 	var gold := 20 + kills * 15 + maxi(0, 17 - rank) * 4 + (100 if won else 0)
 	var xp := 60 + kills * 40 + (200 if won else 0)
+	var pass0 := pass_level()
 	wallet.gold = int(wallet.gold) + gold
 	wallet.xp = int(wallet.xp) + xp
-	last_reward = {"gold": gold, "xp": xp, "rank": rank, "kills": kills, "won": won}
+	last_reward = {"gold": gold, "xp": xp, "rank": rank, "kills": kills, "won": won, "level_up": pass_level() > pass0}
 	save_data()
 	return last_reward
 

@@ -116,7 +116,7 @@ func _ready() -> void:
 	floor_snap_length = 0.4
 	floor_max_angle = deg_to_rad(50)
 
-	model = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character())
+	model = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character(), Game.outfit_dyed())
 	model.set_style(Game.outfit_style())
 	add_child(model)
 	_refresh_gear()
@@ -200,6 +200,8 @@ func action(act: String, pressed: bool) -> void:
 		"slot1": if pressed: switch_slot(0)
 		"slot2": if pressed: switch_slot(1)
 		"slot3": if pressed: switch_slot(2)
+		"emote": if pressed: emote()
+		"inspect": if pressed: inspect_weapon()
 
 var _aim_was := false
 var _aim_t0 := 0
@@ -298,6 +300,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			"slot1": switch_slot(0)
 			"slot2": switch_slot(1)
 			"slot3": switch_slot(2)
+			"emote": emote()
+			"inspect": inspect_weapon()
 		match event.physical_keycode:
 			KEY_4: use_heal("bandage")
 			KEY_5: use_heal("firstaid")
@@ -419,7 +423,20 @@ func open_chute() -> void:
 
 func set_stance(s: String) -> void:
 	if state != "ground" or knocked: return
+	if s == "crouch" and stance == "stand" and is_sprinting and is_on_floor() and _slide_t <= 0.0:
+		# Crouch at a sprint: slide on the hip, carried on by the run.
+		_slide_t = SLIDE_TIME
+		_slide_dir = Vector3(velocity.x, 0, velocity.z).normalized()
+		_force_stance("crouch")
+		if world.sound_length("slide") > 0.0: world.sound_local("slide", 0.0, randf_range(0.95, 1.05), -4.0)
+		world.footstep(global_position, true, 0.9)
+		return
 	_force_stance("stand" if stance == s else s)
+
+const SLIDE_TIME := 0.75
+var _slide_t := 0.0
+var _slide_dir := Vector3.ZERO
+var _punch_n := 0
 
 func _force_stance(s: String) -> void:
 	# Getting down onto the belly and back up (rifle in hand).
@@ -787,6 +804,12 @@ func _ground(delta: float) -> void:
 		var up := -Vector3(n.x, 0, n.z).dot(wish.normalized())
 		speed *= clampf(1.0 - up * 0.9, 0.7, 1.08)
 	var target := wish * speed
+	if _slide_t > 0.0:
+		# Sliding: carried along the run, slowing down, steering a little.
+		_slide_t -= delta
+		var k_s := clampf(_slide_t / SLIDE_TIME, 0.0, 1.0)
+		target = (_slide_dir * (2.6 + 5.4 * k_s)).lerp(wish * 2.8, 0.15)
+		if stance != "crouch" or not is_on_floor(): _slide_t = 0.0
 	# Smooth, quick to start and quicker to stop; a little drift in the air.
 	var hv := Vector2(velocity.x, velocity.z)
 	var tv := Vector2(target.x, target.z)
@@ -804,6 +827,9 @@ func _ground(delta: float) -> void:
 		velocity.y = 5.4
 		_coyote = 0.0
 		_jump_buf = 0.0
+	if swimming() and jump_queued and try_vault():
+		jump_queued = false
+		return
 	if is_on_floor():
 		if _jump_buf > 0.0 and not jump_queued: jump_queued = true
 		_jump_buf = 0.0
@@ -901,7 +927,7 @@ func try_vault() -> bool:
 	var top_hit: Dictionary = ray.call(probe + Vector3(0, 2.3, 0), probe + Vector3(0, 0.3, 0))
 	if top_hit.is_empty(): return false
 	var h: float = top_hit.position.y - base.y
-	if h < 0.35 or h > 1.75: return false
+	if h < 0.35 or h > (2.4 if swimming() else 1.75): return false
 	# Room above it to get over (a window opening is enough).
 	if not ray.call(base + Vector3(0, h + 0.55, 0), base + Vector3(0, h + 0.55, 0) + fwd * (d + 1.2)).is_empty():
 		return false
@@ -931,7 +957,15 @@ func try_vault() -> bool:
 	_vault_top = base.y + h + 0.25
 	_vault_time = 0.38 + h * 0.18
 	# High walls: a real climb (pull up and over); dropping down the far side: a jump down.
-	if h > 1.15:
+	if swimming() and model.ap.has_animation("mx/swim_edge"):
+		# Out of the water onto the edge: the pull-up part of the clip.
+		_vault_time = 1.5
+		model.play_action("swim_edge", _vault_time, 2.3, 5.0)
+	elif h > 1.15 and is_sprinting and model.ap.has_animation("mx/wall_climb"):
+		# Running at it: a foot on the wall and up (the climb part of the clip).
+		_vault_time = 0.95 + (h - 1.15) * 0.3
+		model.play_action("wall_climb", _vault_time, 0.55, 1.8)
+	elif h > 1.15:
 		_vault_time = 1.25 + (h - 1.15) * 0.4
 		model.play_action("climb", _vault_time)
 	elif to.y < base.y - 0.8:
@@ -941,6 +975,7 @@ func try_vault() -> bool:
 		# Over a low wall: the hop of the jump-over clip.
 		model.play_action("vault", _vault_time, 1.75, 3.0)
 	vault_t = 0.0
+	if h > 1.15 or swimming(): world.sound_local("climb_grunt", 0.1, randf_range(0.95, 1.05), -8.0)
 	shape_node.disabled = true
 	velocity = Vector3.ZERO
 	firing = false
@@ -973,6 +1008,12 @@ var _step_dist := 0.0
 ## A footstep sound every stride (none while prone).
 func _footsteps(delta: float) -> void:
 	world._update_auto_tail()
+	if swimming() and Vector2(velocity.x, velocity.z).length() > 0.5:
+		# Strokes through the water.
+		_swim_snd_t -= delta
+		if _swim_snd_t <= 0.0:
+			_swim_snd_t = randf_range(0.9, 1.3)
+			world.sound_local("swim_%d" % (1 + randi() % 3), 0.0, randf_range(0.9, 1.1), -9.0)
 	if not is_on_floor() or stance == "prone":
 		_step_dist = 0.0
 		return
@@ -985,6 +1026,9 @@ func _footsteps(delta: float) -> void:
 # ---------- Shooting ----------
 func _try_fire() -> void:
 	var w := weapon()
+	if w.is_empty() and fire_cd <= 0.0 and state == "ground" and not knocked and stance != "prone" and heal_id == "":
+		_swing({"dmg": 14, "rate": 0.55}, true)
+		return
 	if w.is_empty() or reload_t > 0.0 or fire_cd > 0.0 or state != "ground" or knocked:
 		return
 	if w.get("melee", false):
@@ -1023,11 +1067,17 @@ func _try_fire() -> void:
 	if s.mag == 0:
 		start_reload()
 
-## Pan (melee): a swing that hits whoever is right in front of you.
-func _swing(w: Dictionary) -> void:
+## Pan (melee) or bare fists: a swing that hits whoever is right in front of you.
+func _swing(w: Dictionary, fists := false) -> void:
 	fire_cd = w.rate
 	firing = false
-	model.play_action("melee", 0.6, 0.35, 1.15)     # the first swing of the clip
+	_stop_emote()
+	if fists and model.ap.has_animation("mx/punch"):
+		# A jab from the punching clip (left and right in turn).
+		_punch_n += 1
+		model.play_action("punch", 0.5, 0.2 if _punch_n % 2 == 0 else 1.0, 0.75 if _punch_n % 2 == 0 else 1.55)
+	else:
+		model.play_action("melee", 0.6, 0.35, 1.15)     # the first swing of the clip
 	var fwd := -camera.global_basis.z
 	fwd = Vector3(fwd.x, clampf(fwd.y, -0.4, 0.4), fwd.z).normalized()
 	var space := get_world_3d().direct_space_state
@@ -1047,7 +1097,8 @@ func _swing(w: Dictionary) -> void:
 			if killed: kills += 1
 			hit_someone = true
 			break
-	world.sound_local("bolt_cycle", 0.08, 0.55 if hit_someone else 1.4, -2.0 if hit_someone else -10.0)
+	if hit_someone and fists and world.sound_length("punch_hit") > 0.0: world.sound_local(["punch_hit", "punch_hit_2"][randi() % 2], 0.0, randf_range(0.9, 1.1), -2.0)
+	else: world.sound_local("bolt_cycle", 0.08, 0.55 if hit_someone else 1.4, -2.0 if hit_someone else -10.0)
 	world.notify_shot(global_position, self, true)
 
 ## The pan on your hip stops bullets from behind (when you are not holding it).
@@ -1376,7 +1427,18 @@ func _update_model(delta: float) -> void:
 		var b := Basis(Vector3.UP, ry) * Basis(Vector3.BACK, chute_bank) * Basis(Vector3.RIGHT, chute_swing)
 		var pivot := Vector3(0, HumanModel.CANOPY_Y - 0.4, 0)
 		model.transform = Transform3D(b, pivot - b * pivot)
+	elif _unboard_t >= 0.0 and is_instance_valid(_unboard_v) and state == "ground":
+		_unboard_t += delta
+		model.global_transform = _unboard_v.global_transform * _unboard_v.unboard_xform(_unboard_t / UNBOARD_TIME)
+		if _unboard_t >= UNBOARD_TIME or Vector2(velocity.x, velocity.z).length() > 1.0:
+			# Out: the body already faces away from the car; carry on from there.
+			_unboard_t = -1.0
+			model.stop_action()
+			var ob := _unboard_v.outward_basis()
+			model.global_transform = Transform3D(Basis(Vector3.UP, atan2(ob.z.x, ob.z.z)), global_position)
+			_body_yaw = model.rotation.y
 	else:
+		_unboard_t = -1.0
 		model.transform = Transform3D(Basis(Vector3.UP, ry), Vector3.ZERO)
 	model.dive = dive
 	model.vel_y = velocity.y
@@ -1407,6 +1469,12 @@ func _update_model(delta: float) -> void:
 	model.downed = knocked
 	model.reviving = revive_target != null
 	model.drinking = heal_id in ["drink", "pills"]
+	model.bandaging = heal_id in ["bandage", "firstaid", "medkit"]
+	model.sliding = clampf(_slide_t / SLIDE_TIME * 1.6, 0.0, 1.0) if _slide_t > 0.0 else 0.0
+	var wi := weapon()
+	model.bolt_p = clampf(1.0 - fire_cd / float(wi.rate), 0.0, 1.0) if not wi.is_empty() and wi.cls == "sr" and fire_cd > 0.05 and reload_t <= 0.0 and not aiming else -1.0
+	_update_inspect(delta)
+	_update_emote()
 	model.foot_ik = is_on_floor() and state == "ground" and not model.swimming
 	model.set_pose(pose, sp, active >= 0 and not knocked, delta, Time.get_ticks_msec() / 1000.0)
 
@@ -1507,8 +1575,66 @@ func use_heal(id: String) -> void:
 		return
 	heal_id = id
 	heal_t = h.time
+	_heal_snd_t = 0.0
 	firing = false
 	reload_t = 0.0
+	_stop_emote()
+	# Opening it: the can's hiss, the pill bottle, the kit's zip.
+	match id:
+		"drink": world.sound_local("heal_can", 0.0, 1.0, -6.0)
+		"pills": world.sound_local("heal_pills", 0.0, 1.0, -6.0)
+		"firstaid", "medkit": world.sound_local("heal_zipper", 0.0, 1.0, -6.0)
+		"bandage": world.sound_local("heal_bandage", 0.0, 1.0, -6.0)
+
+# ---------- Emotes and looking the gun over ----------
+const EMOTES := [["salute", 2.8], ["dance_hiphop", 4.7], ["victory", 1.7], ["dance_break", 5.0]]
+var _emote_i := -1
+var _emote_t := 0.0
+var _inspect_t := -1.0
+var _still_t := 0.0
+
+## Next emote (salute, dances, a cheer): standing still on the ground only.
+func emote() -> void:
+	if state != "ground" or knocked or stance != "stand" or heal_id != "" or reload_t > 0.0: return
+	if Vector2(velocity.x, velocity.z).length() > 0.5: return
+	_emote_i = (_emote_i + 1) % EMOTES.size()
+	var e: Array = EMOTES[_emote_i]
+	if not model.ap.has_animation("mx/" + e[0]): return
+	firing = false
+	aiming = false
+	_emote_t = e[1]
+	model.play_action(e[0], e[1])
+
+func _stop_emote() -> void:
+	if _emote_t > 0.0:
+		_emote_t = 0.0
+		model.stop_action()
+
+## Moving, shooting, aiming or getting hurt ends an emote.
+func _update_emote() -> void:
+	if _emote_t <= 0.0: return
+	_emote_t -= get_physics_process_delta_time()
+	if Vector2(velocity.x, velocity.z).length() > 0.8 or firing or aiming or state != "ground" or stance != "stand" or knocked:
+		_stop_emote()
+
+## Look the gun over (also by itself after standing about for a while).
+func inspect_weapon() -> void:
+	if weapon().is_empty() or reload_t > 0.0 or aiming or state != "ground": return
+	_inspect_t = 0.0
+
+func _update_inspect(delta: float) -> void:
+	var still := state == "ground" and Vector2(velocity.x, velocity.z).length() < 0.2 and not aiming and not firing and reload_t <= 0.0 and heal_id == ""
+	_still_t = _still_t + delta if still else 0.0
+	if _still_t > 14.0 and _inspect_t < 0.0 and not weapon().is_empty() and _emote_t <= 0.0:
+		_still_t = 0.0
+		_inspect_t = 0.0
+	if _inspect_t >= 0.0:
+		_inspect_t += delta / 2.6
+		if not still or _inspect_t >= 1.0: _inspect_t = -1.0
+	model.inspect_t = _inspect_t
+
+var _heal_snd_t := 0.0
+var _swim_snd_t := 0.0
 
 func cancel_heal() -> void:
 	heal_id = ""
@@ -1524,6 +1650,14 @@ func _tick_heal(delta: float) -> void:
 		cancel_heal()
 		return
 	heal_t -= delta
+	# Using it: gulps from the drink, the bandage pulled round again.
+	_heal_snd_t += delta
+	if heal_id == "drink" and _heal_snd_t > 1.1 and heal_t > 0.4:
+		_heal_snd_t = 0.0
+		world.sound_local("heal_gulp", 0.0, randf_range(0.92, 1.08), -7.0)
+	elif heal_id in ["bandage", "firstaid", "medkit"] and _heal_snd_t > 2.4 and heal_t > 1.0:
+		_heal_snd_t = 0.0
+		world.sound_local("heal_bandage", 0.0, randf_range(0.9, 1.1), -7.0)
 	if heal_t <= 0.0:
 		var h: Dictionary = Items.HEALS[heal_id]
 		heals[heal_id] -= 1
@@ -1601,6 +1735,9 @@ func release_throw() -> void:
 # ---------- Vehicles ----------
 const BOARD_TIME := 0.9
 var _board_t := -1.0
+const UNBOARD_TIME := 1.1
+var _unboard_t := -1.0
+var _unboard_v: Vehicle = null
 
 func enter_vehicle(v: Vehicle) -> void:
 	if v.dead or v.driver != null or knocked: return
@@ -1646,10 +1783,16 @@ func exit_vehicle(force := false) -> void:
 	v.throttle = 0.0
 	v.steer_in = 0.0
 	vehicle = null
-	# Step out on the left side (or the right if that side is blocked by water).
-	var side: Vector3 = v.global_transform.basis.x
-	var out := v.global_position - side * 1.9
-	if world.is_deep(out): out = v.global_position + side * 1.9
+	# Step out on the driver's side (or the other if that side is in water).
+	var sd := signf(v.seat_xform().origin.x) if absf(v.seat_xform().origin.x) > 0.01 else -1.0
+	var side: Vector3 = v.global_transform.basis.x * sd
+	var out := v.global_position + side * 1.9
+	if world.is_deep(out): out = v.global_position - side * 1.9
+	elif not force and v.kind not in ["bike", "apc"] and absf(v.speed()) < 4.0 and model.ap.has_animation("mx/car_exit"):
+		# Climbing out: the clip from the seat, sliding across to the door.
+		_unboard_t = 0.0
+		_unboard_v = v
+		model.play_action("car_exit", UNBOARD_TIME, 0.5, 3.2)
 	out.y = maxf(world.ground_height(out), v.global_position.y - 0.5) + 0.3
 	global_position = out
 	reset_physics_interpolation()

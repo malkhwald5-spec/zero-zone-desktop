@@ -44,14 +44,21 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"preload": "pistol_reload", "pfire": "pistol_shooting", "pgunplay": "gunplay",
 	"prone_death": "prone_death", "door": "opening", "toss2": "throw_grenade", "vault": "jumping_over_into_combat",
 	# Vehicles, ladders, reviving a teammate.
-	"drive": "driving", "sit": "sitting_idle", "car_enter": "entering_car", "ladder": "climbing_ladder", "revive": "kneel_1"}
+	"drive": "driving", "sit": "sitting_idle", "car_enter": "entering_car", "ladder": "climbing_ladder", "revive": "kneel_1",
+	# Round 3: out of the car, up a high wall, fists, a second drink, looking
+	# the gun over, water, and the lobby / celebration moves.
+	"car_exit": "exiting_car", "wall_climb": "sprint_to_wall_climb", "punch": "punching_bag", "drink2": "drinking_1",
+	"inspect": "inspecting", "swim_tread2": "treading_water_1", "swim_edge": "swimming_to_edge",
+	"salute": "salute", "dance_hiphop": "hip_hop_dancing", "dance_break": "breakdance_freeze_var_4",
+	"rifle_idle": "rifle_idle", "victory": "victory_idle"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
 	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump",
-	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault", "car_enter"]
+	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault", "car_enter",
+	"car_exit", "wall_climb", "swim_edge", "salute"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

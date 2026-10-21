@@ -351,6 +351,22 @@ func board_xform(k: float) -> Transform3D:
 	at.y = door.y
 	return Transform3D(Basis(Vector3.UP, PI * 0.5 * signf(seat.origin.x)), at)
 
+## Getting out, `k` 0..1 through it (vehicle space): seated facing the front,
+## sliding across to beside the door in the first half while the clip swings
+## the legs out, stands up and turns to face away from the car.
+func unboard_xform(k: float) -> Transform3D:
+	var seat := seat_xform()
+	var door := seat.origin + Vector3(signf(seat.origin.x) * 0.8, 0.0, 0.0)
+	var gw: Vector3 = global_transform * door
+	door.y = (global_transform.affine_inverse() * Vector3(gw.x, world.ground_height(gw), gw.z)).y
+	var at := seat.origin.lerp(door, smoothstep(0.05, 0.55, k))
+	at.y = door.y
+	return Transform3D(seat.basis, at)
+
+## Facing away from the car on the driver's side (where getting out ends).
+func outward_basis() -> Basis:
+	return global_basis * Basis(Vector3.UP, PI + 1.5 * signf(seat_xform().origin.x))
+
 func _mat(c: Color, rough := 0.5, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c

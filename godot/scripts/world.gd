@@ -220,6 +220,7 @@ func board_plane() -> void:
 	plane_t = 0.0
 	plane_active = true
 	plane.visible = true
+	announce("match_start", 1.2)
 	if hud: hud.show_banner("الكل ركب الطيارة! اقفز لما تكون فوق الجزيرة")
 
 # ---------- Loot ----------
@@ -1039,6 +1040,7 @@ func _commentate(victim: Node, attacker: Node) -> void:
 	for n in [75, 50, 25, 10, 5, 3, 2]:
 		if left <= n and not _radio_said.has(n) and line == "":
 			_radio_said[n] = true
+			if n in [10, 5]: announce("ten_left" if n == 10 else "five_left")
 			line = {75: "ضل 75 لاعب — الجزيرة لسا مليانة", 50: "نص اللاعبين راحوا! ضل 50", 25: "ضل 25 — كل حركة إلها حساب",
 				10: "أول عشرة! مين رح يطلع منهم؟", 5: "ضل 5 بس… حبس أنفاس", 3: "ثلاثة ع الجزيرة!", 2: "الجولة الأخيرة: واحد ضد واحد!"}[n]
 	if attacker == player:
@@ -1049,6 +1051,40 @@ func _commentate(victim: Node, attacker: Node) -> void:
 		elif victim is Bot and victim.persona != "":
 			line = "%s وقّع %s — %s" % [player.display_name, victim.display_name, {"sniper": "راح القنّاص", "rusher": "المهاجم ما لحق", "camper": "طلّعه من مخبأه"}[victim.persona]]
 	if line != "": hud.radio(line)
+
+var _vo: AudioStreamPlayer
+var _vo_cache := {}
+
+## Phone back button (see Game._notification).
+func go_back() -> void:
+	if hud and ready_done: hud.go_back()
+
+## The app went to the background: pause (unless already).
+func app_paused() -> void:
+	if hud and ready_done and not match_over and hud.pause_panel == null and hud.results == null:
+		hud.toggle_pause()
+		Game.save_data()
+
+## The narrator's voice over the radio (assets/sounds/vo_<name>.ogg); a new
+## line cuts off the one playing. Settings → sound can turn it off.
+func announce(name: String, delay := 0.0) -> void:
+	if not Game.settings.get("sound", true) or not Game.settings.get("narrator", true): return
+	if DisplayServer.get_name() == "headless": return
+	if not _vo_cache.has(name):
+		var path := "res://assets/sounds/vo_%s.ogg" % name
+		_vo_cache[name] = load(path) if ResourceLoader.exists(path) else null
+	if _vo_cache[name] == null: return
+	if _vo == null:
+		_vo = AudioStreamPlayer.new()
+		_vo.volume_db = -1.0
+		add_child(_vo)
+	if delay > 0.0:
+		get_tree().create_timer(delay).timeout.connect(func():
+			_vo.stream = _vo_cache[name]
+			_vo.play())
+		return
+	_vo.stream = _vo_cache[name]
+	_vo.play()
 
 func alive_count() -> int:
 	var n := 1 if player and player.state != "dead" else 0
@@ -1118,6 +1154,7 @@ func _on_player_died(_killer: String) -> void:
 func _end_match(won: bool) -> void:
 	if match_over: return
 	match_over = true
+	announce("win" if won else "died")
 	var rank := 1 if won else (teams_alive() + 1 if team_size > 1 else alive_count() + 1)
 	if war and not won: rank = war.teams_in() + 1
 	if won: Game.stats.wins += 1
@@ -1491,6 +1528,7 @@ func _update_airdrops(delta: float) -> void:
 			add_child(ad)
 			ad.global_position = Vector3(f.drop.x, pos.y - 6.0, f.drop.z)
 			airdrops.append(ad)
+			announce("airdrop")
 		if f.t >= 1.0:
 			f.node.queue_free()
 			_drop_flights.erase(f)
@@ -1938,7 +1976,9 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"shot_m4_1", "shot_m4_2", "shot_m4_3", "shot_smg_1", "shot_smg_2", "shot_smg_3", "smg_tail",
 	"shot_lmg_1", "shot_lmg_2", "shot_lmg_3", "lmg_tail", "shot_shotgun_b", "shotgun_pump_b",
 	"shot_pistol_b", "shot_pistol_c", "shot_sniper_c", "far_ak_1", "far_ak_2", "far_ak_3",
-	"far_smg_1", "far_smg_2", "far_smg_3"]
+	"far_smg_1", "far_smg_2", "far_smg_3",
+	"heal_zipper", "heal_pills", "heal_bandage", "heal_gulp", "heal_can", "climb_grunt", "swim_1", "swim_2", "swim_3",
+	"slide", "punch_hit", "punch_hit_2"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due

@@ -182,7 +182,7 @@ func _free_spot(rng_r: float) -> Vector2:
 func _people() -> void:
 	for i in WALKERS:
 		var m := HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25),
-			HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()])
+			HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()], randf() < 0.6)
 		add_child(m)
 		m.set_gear(0, 0, 0)
 		var p := _free_spot(RADIUS - 5.0)
