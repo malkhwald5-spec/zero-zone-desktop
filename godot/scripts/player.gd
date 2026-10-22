@@ -1129,7 +1129,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 	var hit := space.intersect_ray(q)
 	var end: Vector3 = hit.position if hit else origin + dir * float(w.range)
 	# The bullet leaves the muzzle; make sure nothing blocks it on the way.
-	var muzzle := model.muzzle_position()
+	var muzzle := model.shot_origin()
 	var q2 := PhysicsRayQueryParameters3D.create(muzzle, end + (end - muzzle).normalized() * 0.1, 1 | 4)
 	q2.exclude = [get_rid()]
 	var hit2 := space.intersect_ray(q2)

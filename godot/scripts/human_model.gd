@@ -526,6 +526,14 @@ func muzzle_position() -> Vector3:
 	var z: float = weapon_node.get_meta("muzzle", -0.6) if weapon_node else -0.6
 	return gun.global_transform * (Vector3(0, 0.03, z) * WSCALE)
 
+## Where the muzzle is once the gun is up at the shoulder. The first shot from
+## the carry position starts here: the gun is on its way up, and its real
+## muzzle (low and pointing down) would put the ground in the way.
+func shot_origin() -> Vector3:
+	if _gun_xf.origin.y - body.position.y > AIM_PIVOT.y - 0.06: return muzzle_position()
+	var z: float = weapon_node.get_meta("muzzle", -0.6) if weapon_node else -0.6
+	return global_transform * (Vector3(0.08, AIM_PIVOT.y + 0.04 + body.position.y, -0.24) + Vector3(0, 0, z * WSCALE))
+
 func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 	if not CHARACTERS[character].get("vest", true): vest_lvl = 0
 	if not CHARACTERS[character].get("pack", true): pack_lvl = 0
@@ -1101,9 +1109,12 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 
 ## Walk or run clips for this ground speed, with a gap between the two
 ## switch points so a stick held near the edge does not flick between them.
+## The switch sits where both clips play at about the same rate off their
+## own pace (walk ~1.8 m/s, run ~5 m/s: half-way on a log scale, ~3 m/s), so
+## neither looks hurried or slow-motion at the change.
 func _runs(speed: float) -> bool:
-	if speed > 3.5: _run_set = true
-	elif speed < 2.9: _run_set = false
+	if speed > 3.2: _run_set = true
+	elif speed < 2.75: _run_set = false
 	return _run_set
 
 ## Starts reaching down for something on the ground (loot).

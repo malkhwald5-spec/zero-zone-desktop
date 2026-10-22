@@ -775,6 +775,7 @@ func _panel(title: String, buttons: Array, sub: String = "") -> PanelContainer:
 # ---------- Drawing ----------
 func _text(c: Control, pos: Vector2, s: String, size: int, col := Color.WHITE, align := HORIZONTAL_ALIGNMENT_CENTER, f: Font = null, width := -1.0) -> void:
 	var fnt := f if f else font
+	s = Game.t(s)
 	var w := width if width > 0.0 else 400.0
 	var x := pos.x - w * 0.5 if align == HORIZONTAL_ALIGNMENT_CENTER else (pos.x - w if align == HORIZONTAL_ALIGNMENT_RIGHT else pos.x)
 	c.draw_string_outline(fnt, Vector2(x, pos.y), s, align, w, size, 4, Color(0, 0, 0, 0.6))
@@ -1049,14 +1050,14 @@ func _draw_crosshair(c: Control, sz: Vector2, p: Player) -> void:
 	if not p.scoped():
 		var w := p.weapon()
 		var gap := 6.0 + (float(w.get("spread", 2.0)) * (0.4 if p.aiming else 1.0) * 5.0 if not w.is_empty() else 4.0)
+		# Opens up as you fire (each shot's kick) and when you run, closes as you settle.
+		var sp := Vector2(p.velocity.x, p.velocity.z).length()
+		gap += p.model.recoil * 9.0 + clampf(sp - 1.0, 0.0, 6.0) * 1.6
 		var col: Color = Color("ffcf5a") if p.reload_t > 0.0 else Game.CROSSHAIR_COLORS.get(Game.settings.get("crosshair", "white"), Color(1, 1, 1, 0.9))
 		for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
 			c.draw_line(ctr + d * gap, ctr + d * (gap + 9.0), col, 2.0)
 	c.draw_rect(Rect2(ctr - Vector2(1.5, 1.5), Vector2(3, 3)), Color("ff3d4a"))
-	if hit_t > 0.0:
-		var hc := Color("ff4040") if hit_head else Color.WHITE
-		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
-			c.draw_line(ctr + d * 7.0, ctr + d * 15.0, hc, 2.5)
+	_hit_marks(c, ctr)
 
 ## Looking through a sight: reflex sights (red dot, holographic) keep the view
 ## open inside a thin housing; magnified scopes black out all but the lens.
@@ -1131,9 +1132,13 @@ func _draw_scope(c: Control, sz: Vector2, w: Dictionary) -> void:
 
 func _hit_marks(c: Control, ctr: Vector2) -> void:
 	if hit_t > 0.0:
+		# The hit tick pops out a little bigger and settles back (0.22 s).
 		var hc := Color("ff4040") if hit_head else Color.WHITE
+		var pop := 1.0 + 0.45 * clampf((hit_t - 0.14) / 0.08, 0.0, 1.0)
+		hc.a = clampf(hit_t / 0.08, 0.0, 1.0)
 		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
-			c.draw_line(ctr + d * 7.0, ctr + d * 15.0, hc, 2.5)
+			c.draw_line(ctr + d * 7.0 * pop, ctr + d * 15.0 * pop, Color(0, 0, 0, hc.a * 0.5), 4.5)
+			c.draw_line(ctr + d * 7.0 * pop, ctr + d * 15.0 * pop, hc, 2.5)
 	if kill_t > 0.0:
 		# A kill: a big red cross that grows out from the crosshair.
 		var k := 1.0 - kill_t / 0.6
@@ -1174,6 +1179,15 @@ func _beep(kill: bool, head: bool) -> void:
 	if _tick_snd == null:
 		_tick_snd = _tone([[1800.0, 0.035]], 0.5)
 		_kill_snd = _tone([[1320.0, 0.07], [1980.0, 0.12]], 0.6)
+		_thud_snd = _thud()
+	# The round landing: a dull thud under the tick (a sharper crack on the head).
+	var th := AudioStreamPlayer.new()
+	th.stream = _thud_snd
+	th.volume_db = -8.0
+	th.pitch_scale = 1.5 if head else randf_range(0.9, 1.1)
+	add_child(th)
+	th.play()
+	th.finished.connect(th.queue_free)
 	var p := AudioStreamPlayer.new()
 	p.stream = _kill_snd if kill else _tick_snd
 	p.volume_db = -6.0 if kill else -14.0
@@ -1181,6 +1195,29 @@ func _beep(kill: bool, head: bool) -> void:
 	add_child(p)
 	p.play()
 	p.finished.connect(p.queue_free)
+
+var _thud_snd: AudioStreamWAV
+
+## A short, low, muffled knock: noise smoothed into a low rumble that dies in 80 ms.
+func _thud() -> AudioStreamWAV:
+	var rate := 22050
+	var n := int(rate * 0.08)
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	var lp := 0.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	for i in n:
+		var t := float(i) / rate
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.08
+		var body := sin(t * TAU * 95.0) * 0.6 + lp * 2.2
+		var env := minf(1.0, t * 900.0) * exp(-t * 45.0)
+		data.encode_s16(i * 2, int(clampf(body * env * 0.7, -1.0, 1.0) * 32767.0))
+	var st := AudioStreamWAV.new()
+	st.format = AudioStreamWAV.FORMAT_16_BITS
+	st.mix_rate = rate
+	st.data = data
+	return st
 
 func _tone(notes: Array, vol: float) -> AudioStreamWAV:
 	var rate := 22050
