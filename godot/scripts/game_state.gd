@@ -69,6 +69,7 @@ var settings := {
 	"mode": "solo",           # "solo" | "duo" | "squad"
 	"length": "classic",      # "classic" (100 players, full zone) | "quick" (50 players, ~10 minutes)
 	"laptop": false,          # laptop mode: lighter effects, lower render resolution, shorter view
+	"lite": false,            # weak phones: shortest view, no shadows, lowest resolution
 	"render_scale": 1.0,      # 3D resolution (0.5–1.0), sharpened back up with FSR
 	"show_fps": true,         # frame counter under the minimap
 	# Basic
@@ -268,11 +269,32 @@ func _auto_quality() -> void:
 		settings.quality = "low"
 		settings.laptop = true
 		settings.render_scale = 0.6      # phone screens are very sharp: 60% of it is plenty
+		if weak_phone_gpu():
+			settings.lite = true
+			settings.render_scale = 0.5
+			settings.fps = 30
 		return
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()
 	if not (gpu.contains("intel") or gpu.contains("uhd") or gpu.contains("iris") or gpu.contains("llvmpipe")):
 		settings.quality = "high"
 	if is_laptop_gpu(): settings.laptop = true
+
+## Older / entry-level phone graphics (Adreno up to 612, Mali-T and the
+## small Mali-G cores below G57, PowerVR): they start in the weak-phone mode.
+func weak_phone_gpu() -> bool:
+	var gpu := RenderingServer.get_video_adapter_name().to_lower()
+	if gpu.contains("powervr") or gpu.contains("mali-t") or gpu.contains("mali-4"): return true
+	var m := RegEx.create_from_string("adreno[^0-9]*(\\d{3})").search(gpu)
+	if m:
+		var n := int(m.get_string(1))
+		return n <= 612
+	m = RegEx.create_from_string("mali-g(\\d+)").search(gpu)
+	if m: return int(m.get_string(1)) < 57
+	return false
+
+## The weak-phone mode is on.
+func lite() -> bool:
+	return bool(settings.get("lite", false))
 
 ## Graphics chips made only for laptops (or named as laptop parts).
 ## Built-in graphics (Intel UHD / Iris, AMD Radeon Graphics in the processor).
@@ -291,7 +313,7 @@ func is_laptop_gpu() -> bool:
 ## The 3D resolution. Every preset draws at full screen resolution unless the
 ## player lowers it (never below 70%: under that the picture turns to mush).
 func render_scale() -> float:
-	return clampf(float(settings.get("render_scale", 1.0)), 0.5 if phone() else 0.7, 1.0)
+	return clampf(float(settings.get("render_scale", 1.0)), (0.45 if lite() else 0.5) if phone() else 0.7, 1.0)
 
 ## Running on a phone or tablet (Android / iOS).
 func phone() -> bool:
@@ -302,6 +324,7 @@ func laptop() -> bool:
 
 ## View distances (grass, detailed trees, far bots) shrink in laptop mode.
 func view_k() -> float:
+	if lite(): return 0.4
 	return 0.55 if phone() else (0.7 if laptop() else 1.0)
 
 func load_data() -> void:
@@ -564,7 +587,7 @@ func apply_quality(env: Environment, sun: DirectionalLight3D) -> void:
 	if sun:
 		# Shadows on every preset (hard and short on the lightest): without them
 		# the world looks flat and washed out.
-		sun.shadow_enabled = true
+		sun.shadow_enabled = not lite()
 		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if lv <= 1 or lap else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 		sun.directional_shadow_max_distance = [70.0, 120.0, 220.0, 320.0, 500.0][lv] * (0.6 if lap else 1.0)
 		sun.shadow_blur = 1.0 if lv < 4 else 1.4
@@ -613,7 +636,7 @@ func _apply_phone(env: Environment, sun: DirectionalLight3D, vp: Viewport, lv: i
 		env.adjustment_enabled = true
 		env.adjustment_brightness = float(env.get_meta("base_brightness")) * clampf(float(settings.get("brightness", 1.0)), 0.7, 1.4)
 	if sun:
-		sun.shadow_enabled = lv >= 1
+		sun.shadow_enabled = lv >= 1 and not lite()
 		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL if lv <= 1 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 		sun.directional_shadow_max_distance = [40.0, 45.0, 80.0, 110.0, 150.0][lv]
 		sun.shadow_blur = 1.0

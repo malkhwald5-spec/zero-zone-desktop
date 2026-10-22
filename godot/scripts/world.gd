@@ -1400,6 +1400,12 @@ func _perf_governor(delta: float) -> void:
 	elif Game.render_scale() > (0.5 if Game.phone() else 0.8):
 		Game.settings.render_scale = maxf(0.5 if Game.phone() else 0.8, Game.render_scale() - 0.1)
 		step = "دقة الرسم %d%%" % roundi(Game.render_scale() * 100.0)
+	elif not Game.lite():
+		# Last step: the weak-device mode (short view, no shadows, fewer
+		# far players drawn) and a 30 fps cap so the frame rate holds steady.
+		Game.settings.lite = true
+		Game.settings.fps = mini(int(Game.settings.get("fps", 60)), 30)
+		step = "وضع الأجهزة الضعيفة"
 	else:
 		return
 	Game.apply_quality(builder.env, builder.sun)
