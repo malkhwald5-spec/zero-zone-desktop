@@ -48,6 +48,7 @@ var _shot_stream: AudioStreamWAV
 var loading: LoadingScreen
 var ready_done := false
 var _lava_tick := 0.0
+var training: Training = null     # the training ground (no bots, no zone)
 var spawn: SpawnIsland = null     # the waiting island before the plane (null once everyone boarded)
 
 func _ready() -> void:
@@ -55,6 +56,9 @@ func _ready() -> void:
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
 	loading.title = "حرب الفرق" if war_mode() else Island.MAP_NAME
 	loading.subtitle = "4 فرق × 25 لاعب" if war_mode() else ("باتل رويال • %s" % ("50 لاعب" if quick else "100 لاعب"))
+	if Game.training:
+		loading.title = "التدريب"
+		loading.subtitle = "تعلّم الأساسيات خطوة خطوة"
 	add_child(loading)
 	loading.set_progress(0.03, "جاري توليد الجزيرة")
 	await _frame()
@@ -109,6 +113,9 @@ func _build() -> void:
 		war = War.new()
 		add_child(war)
 		war.setup(self)
+	elif Game.training:
+		Game.spawn_island = false
+		team_size = 1
 	else:
 		_spawn_bots()
 	if Game.spawn_island:
@@ -137,6 +144,11 @@ func _build() -> void:
 	add_child(birds)
 	birds.setup(self)
 	ready_done = true
+	if Game.training:
+		training = Training.new()
+		add_child(training)
+		training.setup(self)
+		return
 	Game.stats.games += 1
 	Game.save_data()
 
@@ -594,6 +606,8 @@ func _spawn_bots() -> void:
 			b.team = 1 + (i - (team_size - 1)) / team_size
 			b.slot = (i - (team_size - 1)) % team_size
 		b.skill = clampf({"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15), 0.05, 0.95)
+		# The first two matches go easy on a new player.
+		if Game.stats.games < 2: b.skill = minf(b.skill, randf_range(0.12, 0.3))
 		# Some play a way of their own (shown after the name in the kill feed).
 		if not b.buddy and b.team != 0:
 			var r := randf()

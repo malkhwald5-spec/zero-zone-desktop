@@ -32,6 +32,7 @@ const MATE_NAMES := ["صقر_الليل", "Falcon_IQ", "ليث", "Viper_SY", "ش
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().paused = false
+	Game.training = false
 	_build_scene()
 	_build_ui()
 	if not Game.last_reward.is_empty():
@@ -75,15 +76,15 @@ func _first_run() -> void:
 		Game.wallet.intro_done = true
 		Game.save_data()
 		for c in v.get_children(): c.queue_free()
-		v.add_child(UiKit.label("أهلاً %s! بدك نشرحلك الأزرار بسرعة؟" % Game.profile.name, 22, Color.WHITE, UiKit.bold(), 0))
+		v.add_child(UiKit.label("أهلاً %s! بدك تجرّب التدريب قبل أول مباراة؟" % Game.profile.name, 22, Color.WHITE, UiKit.bold(), 0))
+		v.add_child(UiKit.label("دقيقتين بتتعلّم فيهم كل شي — وبتاخد 300 ذهب", 16, Color(1, 1, 1, 0.75), null, 0))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		v.add_child(row)
-		row.add_child(_small_btn("آه، اشرحلي", func():
+		row.add_child(_small_btn("آه، يلا نتدرّب", func():
 			dim.queue_free()
-			_refresh()
-			_open("help")))
+			_start_training()))
 		row.add_child(_small_btn("لا، بعرف", func():
 			dim.queue_free()
 			_refresh()
@@ -968,13 +969,14 @@ func _more_menu() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
 	pc.add_child(v)
-	for it in [["البريد", "mail", "mail"], ["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"],
+	for it in [["التدريب", "training", "trophy"], ["البريد", "mail", "mail"], ["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"],
 			["العشيرة", "clan", "clan"], ["الصناديق", "crate", "crate"], ["الفعاليات", "events", "trophy"], ["طريقة اللعب", "help", "tasks"]]:
 		var key: String = it[1]
 		var b := _icon_button(it[2], it[0], func():
 			_more_box.queue_free()
 			_more_box = null
-			_open(key), Vector2(240, 44), false, Color(0, 0, 0, 0), Color.WHITE, 8)
+			if key == "training": _start_training()
+			else: _open(key), Vector2(240, 44), false, Color(0, 0, 0, 0), Color.WHITE, 8)
 		v.add_child(b)
 	_anchor(pc, Control.PRESET_TOP_LEFT, Vector2(28, 58))
 	_more_box = pc
@@ -1190,6 +1192,18 @@ func _start() -> void:
 	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/world.tscn"))
 
 var _starting := false
+
+## The training ground: the match world with no bots, a step-by-step guide.
+func _start_training() -> void:
+	Game.training = true
+	Game.spawn_island = false
+	var fade := ColorRect.new()
+	fade.color = Color(0, 0, 0, 0)
+	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(fade)
+	var tw := create_tween()
+	tw.tween_property(fade, "color:a", 1.0, 0.35)
+	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/world.tscn"))
 
 # ---------- Toasts / rewards ----------
 func _toast(text: String) -> void:

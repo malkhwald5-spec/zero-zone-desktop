@@ -1179,6 +1179,7 @@ func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 		return false
 	if attacker != null and not knocked:
 		amount = _armour(amount, _head)
+	if world.training: amount = minf(amount, health - 5.0)     # nobody dies on the training ground
 	health -= amount
 	if attacker != null: model.hit(amount / 40.0)
 	if attacker is Node3D:
