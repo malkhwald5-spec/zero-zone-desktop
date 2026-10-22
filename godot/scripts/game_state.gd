@@ -560,17 +560,28 @@ var _en: EnTranslation
 
 ## Menus and HUD in Arabic (the text in the code) or English (i18n/en.json).
 func apply_lang() -> void:
+	# Arabic is the text itself: no locale is set for it (setting "ar" with
+	# nothing to translate made the engine abort on exit); English adds the
+	# translation and takes it away again.
 	if settings.get("lang", "ar") == "en":
 		if _en == null:
 			_en = EnTranslation.new()
 			TranslationServer.add_translation(_en)
 		TranslationServer.set_locale("en")
-	else:
-		TranslationServer.set_locale("ar")
+	elif _en != null:
+		TranslationServer.remove_translation(_en)
+		_en = null
+
+## The script-made translation must be gone before the engine shuts down
+## (it aborts otherwise).
+func _exit_tree() -> void:
+	if _en != null:
+		TranslationServer.remove_translation(_en)
+		_en = null
 
 ## Translates text drawn straight onto the screen (labels and buttons do it themselves).
 func t(s: String) -> String:
-	return s if TranslationServer.get_locale() == "ar" else String(TranslationServer.translate(s))
+	return s if _en == null else String(TranslationServer.translate(s))
 
 ## Frame-rate cap. V-sync is off so the cap (not the monitor) decides.
 func apply_fps() -> void:

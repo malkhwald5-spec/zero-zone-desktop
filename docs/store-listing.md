@@ -18,6 +18,7 @@
 👥 فردي، ثنائي، فرقة، و"حرب الفرق": 4 فرق بقلاع وقلب لازم تدافع عنه.
 🎓 تدريب لأول مرة بيعلمك كل شي بدقيقتين.
 📱 مصممة للموبايل: أزرار قابلة للتعديل، ووضع للأجهزة الضعيفة.
+👫 العب مع صحابك على نفس الواي فاي (لحد 8 لاعبين).
 🌐 عربي وإنجليزي. بتشتغل بدون إنترنت.
 
 ## English
@@ -38,6 +39,7 @@ Zero Zone is a battle royale with an Arabic soul: 100 players jump from the plan
 👥 Solo, duo, squad and Team War: 4 teams with forts and a Heart to defend.
 🎓 A first-time training ground teaches you everything in two minutes.
 📱 Built for phones: custom button layouts and a weak-device mode.
+👫 Play with friends on the same Wi-Fi (up to 8 players).
 🌐 Arabic and English. Plays offline.
 
 ## قبل النشر

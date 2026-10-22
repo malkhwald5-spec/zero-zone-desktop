@@ -33,8 +33,12 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().paused = false
 	Game.training = false
+	Net.failed.connect(_on_net_failed)
+	Net.roster_changed.connect(_friends_fill)
+	Net.rooms_changed.connect(_friends_fill)
 	_build_scene()
 	_build_ui()
+	if Net.active: _friends_room.call_deferred()      # back from an online match: the room again
 	if not Game.last_reward.is_empty():
 		# Back from a win: a cheer first.
 		if Game.last_reward.get("won", false) and soldier.ap.has_animation("mx/victory"): soldier.play_action("victory", 3.0, 0.0, 1.67)
@@ -164,7 +168,9 @@ var _exit_box: Control
 
 ## Phone back button: close the open page, else ask before leaving the game.
 func go_back() -> void:
-	if _picker:
+	if _friends:
+		_friends_close()
+	elif _picker:
 		_picker.queue_free()
 		_picker = null
 	elif _more_box:
@@ -977,13 +983,14 @@ func _more_menu() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
 	pc.add_child(v)
-	for it in [["التدريب", "training", "trophy"], ["البريد", "mail", "mail"], ["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"],
+	for it in [["مع صحابك", "friends", "friends"], ["التدريب", "training", "trophy"], ["البريد", "mail", "mail"], ["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"],
 			["العشيرة", "clan", "clan"], ["الصناديق", "crate", "crate"], ["الفعاليات", "events", "trophy"], ["طريقة اللعب", "help", "tasks"]]:
 		var key: String = it[1]
 		var b := _icon_button(it[2], it[0], func():
 			_more_box.queue_free()
 			_more_box = null
 			if key == "training": _start_training()
+			elif key == "friends": _friends_room()
 			else: _open(key), Vector2(240, 44), false, Color(0, 0, 0, 0), Color.WHITE, 8)
 		v.add_child(b)
 	_anchor(pc, Control.PRESET_TOP_LEFT, Vector2(28, 58))
@@ -1200,6 +1207,116 @@ func _start() -> void:
 	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/world.tscn"))
 
 var _starting := false
+
+# ---------- Playing with friends (see Net) ----------
+var _friends: Control
+var _friends_box: VBoxContainer
+var _ip_edit: LineEdit
+
+## The room: open one, find one on this Wi-Fi or type its address, see who
+## is in, and (the host) start.
+func _friends_room() -> void:
+	if _friends: return
+	Net.start_finding()
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.7)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(dim)
+	_friends = dim
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.style(Color(0.04, 0.06, 0.1, 0.97), 16, ACCENT, 2, 24))
+	pc.custom_minimum_size = Vector2(620, 0)
+	dim.add_child(pc)
+	_friends_box = VBoxContainer.new()
+	_friends_box.add_theme_constant_override("separation", 12)
+	pc.add_child(_friends_box)
+	pc.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pc.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_friends_fill()
+
+func _friends_close() -> void:
+	if Net.active and not Net.in_match: Net.leave()
+	Net.stop_finding()
+	if _friends: _friends.queue_free()
+	_friends = null
+	_friends_box = null
+
+func _friends_fill() -> void:
+	if _friends_box == null or not is_instance_valid(_friends_box): return
+	var typed := _ip_edit.text if _ip_edit and is_instance_valid(_ip_edit) else ""
+	for c in _friends_box.get_children(): c.queue_free()
+	var v := _friends_box
+	var head := HBoxContainer.new()
+	v.add_child(head)
+	var title := UiKit.label("العب مع صحابك", 28, ACCENT, UiKit.bold(), 0)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	head.add_child(_small_btn("✕", _friends_close, true, false))
+	if not Net.active:
+		v.add_child(UiKit.label("كلكم على نفس الواي فاي: واحد يفتح غرفة والباقي بينضمّوا.", 16, Color(1, 1, 1, 0.8), null, 0))
+		var host_b := UiKit.yellow_button("افتح غرفة", _f_host, Vector2(260, 52), 22)
+		host_b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(host_b)
+		v.add_child(UiKit.label("الغرف القريبة:", 18, Color.WHITE, UiKit.bold(), 0))
+		if Net.rooms.is_empty():
+			v.add_child(UiKit.label("عم ندوّر…", 15, Color(1, 1, 1, 0.6), null, 0))
+		for ip in Net.rooms:
+			var r: Dictionary = Net.rooms[ip]
+			var row := HBoxContainer.new()
+			var l := UiKit.label("غرفة %s — %d لاعبين" % [r.name, int(r.players)], 17, Color.WHITE, null, 0)
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(l)
+			var addr: String = ip
+			row.add_child(_small_btn("انضم", _f_join.bind(addr)))
+			v.add_child(row)
+		var mrow := HBoxContainer.new()
+		mrow.add_theme_constant_override("separation", 8)
+		_ip_edit = LineEdit.new()
+		_ip_edit.placeholder_text = "أو اكتب عنوان الغرفة (مثل 192.168.1.5)"
+		_ip_edit.text = typed
+		_ip_edit.custom_minimum_size = Vector2(380, 44)
+		_ip_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mrow.add_child(_ip_edit)
+		mrow.add_child(_small_btn("انضم", func(): _f_join(_ip_edit.text)))
+		v.add_child(mrow)
+		return
+	if Net.roster.is_empty():
+		v.add_child(UiKit.label("عم نوصل للغرفة…", 18, Color.WHITE, null, 0))
+	else:
+		v.add_child(UiKit.label("اللاعبين بالغرفة (%d/%d):" % [Net.roster.size(), Net.MAX_PLAYERS], 18, Color.WHITE, UiKit.bold(), 0))
+		for id in Net.roster:
+			var nm: String = Net.roster[id].name
+			v.add_child(UiKit.label(("👑 " if int(id) == 1 else "• ") + nm + ("  (إنت)" if int(id) == Net.me() else ""), 17, Color.WHITE, null, 0))
+	if Net.is_host:
+		var ips := Net.local_addresses()
+		if not ips.is_empty():
+			v.add_child(UiKit.label("عنوان غرفتك: " + ", ".join(ips), 15, Color(1, 1, 1, 0.7), null, 0))
+		var go := UiKit.yellow_button("ابدأ المباراة", func(): Net.start_match(), Vector2(280, 56), 24)
+		go.disabled = Net.roster.size() < 2
+		go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(go)
+		if Net.roster.size() < 2: v.add_child(UiKit.label("بانتظار صحابك ينضمّوا…", 15, Color(1, 1, 1, 0.6), null, 0))
+	elif not Net.roster.is_empty():
+		v.add_child(UiKit.label("بانتظار صاحب الغرفة يبلّش…", 16, Color(1, 1, 1, 0.7), null, 0))
+	v.add_child(_small_btn("اطلع من الغرفة", _f_leave, true, false))
+
+func _f_host() -> void:
+	Net.host()
+	_friends_fill()
+
+func _f_join(address: String) -> void:
+	if address.strip_edges() == "": return
+	Net.join(address)
+	_friends_fill()
+
+func _f_leave() -> void:
+	Net.leave()
+	_friends_fill()
+
+func _on_net_failed(text: String) -> void:
+	_toast(text)
+	_friends_fill()
 
 ## The end of the game's log (errors and warnings) onto the clipboard, to
 ## paste into a message when reporting a problem.

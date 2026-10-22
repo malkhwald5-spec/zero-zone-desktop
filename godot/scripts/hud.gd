@@ -352,7 +352,7 @@ var _ready_btn: Button
 
 ## On the spawn island: "ready" sends the plane off at once.
 func _update_ready_btn() -> void:
-	var show_it: bool = world.spawn != null and world.ready_done and world.spawn.left > 3.0 and not map_open and not bag_open
+	var show_it: bool = world.spawn != null and world.ready_done and world.spawn.left > 3.0 and not map_open and not bag_open and not Net.in_match
 	if show_it and _ready_btn == null:
 		_ready_btn = UiKit.yellow_button("جاهز ✓  يلا نطلع", func():
 			if world.spawn: world.spawn.left = minf(world.spawn.left, 3.0), Vector2(240, 50), 22)
@@ -726,12 +726,19 @@ func _draw_dead(c: Control, sz: Vector2, p: Player) -> void:
 
 ## Straight into another match of the same mode.
 func _play_again() -> void:
+	if Net.active:
+		_to_lobby()       # online: back to the room, the host starts the next one
+		return
 	get_tree().paused = false
 	AudioServer.set_bus_volume_db(0, 0.0)
 	Game.spawn_island = true
 	get_tree().change_scene_to_file("res://scenes/world.tscn")
 
 func _to_lobby() -> void:
+	if Net.in_match:
+		# Leaving mid-match counts as out, for the others.
+		if world.player and world.player.state != "dead": Net.send_died(0)
+		Net.match_over()
 	get_tree().paused = false
 	AudioServer.set_bus_volume_db(0, 0.0)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -823,7 +830,10 @@ func _draw_hud() -> void:
 		# Waiting on the spawn island: how long until the plane leaves.
 		var left := ceili(maxf(world.spawn.left, 0.0))
 		var col := Color("ffd34d") if left <= 10 else Color.WHITE
-		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "الطيارة بتقلع بعد %d ثانية" % left, 28, col, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		if Net.in_match and not world.net_started:
+			_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "بانتظار صحابك يخلّصوا تحميل…", 28, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
+		else:
+			_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "الطيارة بتقلع بعد %d ثانية" % left, 28, col, HORIZONTAL_ALIGNMENT_CENTER, bold)
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21 + 30), "جزيرة الانتظار — جرّب الأسلحة، ما حدا بيتأذى هون", 16, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	_draw_dmg_numbers(c)
 	if world.war: _draw_war(c, sz, p)

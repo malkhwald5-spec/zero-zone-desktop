@@ -1138,6 +1138,7 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 		end = hit2.position
 	world.effects.tracer(muzzle, end)
 	world.bullet_glass(muzzle, end)
+	if Net.in_match: Net.send_shot(muzzle, end, w.cls, String(slots[active].id) if active >= 0 and slots[active] != null else "")
 	if hit:
 		var col: Object = hit.collider
 		if col and col.has_method("take_damage"):
@@ -1234,6 +1235,7 @@ func _die(attacker: Node, _head: bool) -> void:
 	dead_t = 0.0
 	firing = false
 	world.on_actor_killed(self, attacker)
+	if Net.in_match: Net.send_died(attacker.peer if attacker is RemotePlayer else 0)
 	died.emit(attacker.display_name if attacker and "display_name" in attacker else "")
 
 # ---------- Camera and model ----------

@@ -48,6 +48,12 @@ var _shot_stream: AudioStreamWAV
 var loading: LoadingScreen
 var ready_done := false
 var _lava_tick := 0.0
+var puppets := {}                  # online match: peer id -> RemotePlayer (the other people)
+var net_started := false           # online match: everyone has loaded, the countdown runs
+var _nid_on := false               # numbering the loot as it is laid out (same on every machine)
+var _nid := 0
+var _by_nid := {}                  # loot number -> pickup node
+var _net_removing := false
 var training: Training = null     # the training ground (no bots, no zone)
 var spawn: SpawnIsland = null     # the waiting island before the plane (null once everyone boarded)
 
@@ -56,6 +62,10 @@ func _ready() -> void:
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
 	loading.title = "حرب الفرق" if war_mode() else Island.MAP_NAME
 	loading.subtitle = "4 فرق × 25 لاعب" if war_mode() else ("باتل رويال • %s" % ("50 لاعب" if quick else "100 لاعب"))
+	if Net.in_match:
+		Net.world = self
+		loading.title = "مع صحابك"
+		loading.subtitle = "%d لاعبين • %s" % [Net.roster.size(), Island.MAP_NAME]
 	if Game.training:
 		loading.title = "التدريب"
 		loading.subtitle = "تعلّم الأساسيات خطوة خطوة"
@@ -72,16 +82,20 @@ func _build() -> void:
 	var seed_v := randi()
 	if OS.has_feature("debug") and OS.get_cmdline_user_args().has("--fixed-seed"):
 		seed_v = 12345
+	if Net.in_match:
+		seed_v = Net.match_seed
+		seed(seed_v)         # the builder's random touches (trees, rocks, furniture) too
 	island = Island.new(seed_v, Game.MAP_SIZE)
 	island.war = war_mode()
 	island.generate()
 	builder = WorldBuilder.new(island, self)
-	weather = Game.pick_weather()
+	weather = Game.pick_weather() if not Net.in_match else Net.weather
 	builder.weather = weather
 	var steps := builder.steps()
 	for i in steps.size():
 		loading.set_progress(0.1 + 0.6 * i / steps.size(), steps[i][1])
 		await _frame()
+		if Net.in_match: seed(Net.match_seed + 100 + i)    # whatever ran between the frames can't shift it
 		steps[i][0].call()
 	loading.set_progress(0.75, "جاري توزيع الأسلحة")
 	await _frame()
@@ -91,10 +105,17 @@ func _build() -> void:
 	_boom_stream = _make_boom_sound()
 	for k in SOUNDS:
 		_snd[k] = load("res://assets/sounds/%s.ogg" % k)
+	# Online: the loot, the cars and the plane's route come out the same on
+	# every machine (same seed, same order); each pickup gets a number so
+	# taking it can be told to the others.
+	if Net.in_match: seed(Net.match_seed + 7)
+	_nid_on = Net.in_match
 	_spawn_loot()
+	_nid_on = false
 	_build_cover()
 	_spawn_vehicles()
 	_spawn_boats()
+	for i in vehicles.size(): vehicles[i].set_meta("nid", i)
 	_make_plane()
 	loading.set_progress(0.85, "جاري تجهيز اللاعبين")
 	await _frame()
@@ -116,6 +137,16 @@ func _build() -> void:
 	elif Game.training:
 		Game.spawn_island = false
 		team_size = 1
+	elif Net.in_match:
+		team_size = 1
+		for id in Net.roster:
+			if int(id) == Net.me(): continue
+			var rp := RemotePlayer.new()
+			rp.setup(self, int(id), Net.roster[id])
+			add_child(rp)
+			rp.global_position = plane_position()
+			bots.append(rp)
+			puppets[int(id)] = rp
 	else:
 		_spawn_bots()
 	if Game.spawn_island:
@@ -125,9 +156,12 @@ func _build() -> void:
 	zone.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # animated in _process
 	add_child(zone)
 	zone.setup(self)
-	events = MatchEvents.new()
-	add_child(events)
-	events.setup(self)
+	# Online: no surprises (a plane crash or an eruption would have to be the
+	# same for everyone).
+	if not Net.in_match:
+		events = MatchEvents.new()
+		add_child(events)
+		events.setup(self)
 	hud = Hud.new()
 	hud.world = self
 	add_child(hud)
@@ -149,8 +183,68 @@ func _build() -> void:
 		add_child(training)
 		training.setup(self)
 		return
+	if Net.in_match: Net.loaded()
 	Game.stats.games += 1
 	Game.save_data()
+
+# ---------- Online match (see Net) ----------
+## What our player is doing, for the others' games.
+func net_my_state() -> Dictionary:
+	var p := player
+	if p == null: return {}
+	var st := {"p": p.global_position, "y": p.model.rotation.y, "pi": p.pitch + 0.1, "s": p.state, "st": p.stance,
+		"v": p.velocity, "w": String(p.slots[p.active].id) if p.active >= 0 and p.slots[p.active] != null else "", "a": p.model.aiming, "sp": p.model.sprinting,
+		"rl": p.model.reload_p, "h": p.health, "k": p.knocked, "dv": p.dive, "fl": p.is_on_floor() or p.state != "ground",
+		"sw": p.swimming(), "gv": int(p.gear.vest), "gh": int(p.gear.helmet), "gp": int(p.gear.pack)}
+	if p.state == "vehicle" and p.vehicle:
+		st.vn = int(p.vehicle.get_meta("nid", -1))
+		st.vx = p.vehicle.global_transform
+	return st
+
+func net_state(id: int, st: Dictionary) -> void:
+	if puppets.has(id): puppets[id].apply(st)
+
+func net_shot(id: int, from: Vector3, to: Vector3, cls: String, gun: String) -> void:
+	effects.tracer(from, to)
+	sound_shot(cls, from, false, false, gun)
+	if puppets.has(id):
+		puppets[id].model.recoil = 1.0
+		effects.muzzle_flash(from)
+
+## Someone shot us: our armour and health take it.
+func net_hit(id: int, amount: float, head: bool) -> void:
+	if spawn != null or player.state == "dead": return
+	player.take_damage(amount, puppets.get(id), head)
+
+func net_died(id: int, killer: int) -> void:
+	var rp: RemotePlayer = puppets.get(id)
+	if rp == null or rp.dead: return
+	var by: Node = player if killer == Net.me() else puppets.get(killer)
+	if by == player:
+		player.kills += 1
+		player.hit_confirmed.emit(false, true, rp.global_position + Vector3(0, 1.2, 0))
+	rp._die(by)
+
+func net_taken(nid: int) -> void:
+	var it: Node3D = _by_nid.get(nid)
+	if it and is_instance_valid(it):
+		_net_removing = true
+		_remove_pickup(it)
+		_net_removing = false
+
+func net_peer_left(id: int) -> void:
+	var rp: RemotePlayer = puppets.get(id)
+	if rp and not rp.dead: rp._die(null)
+
+## Everyone has loaded: the spawn island's countdown starts for all at once.
+func net_go() -> void:
+	if net_started: return
+	net_started = true
+	if spawn: spawn.left = 20.0
+
+func vehicle_by_nid(nid: int) -> Vehicle:
+	if nid < 0 or nid >= vehicles.size(): return null
+	return vehicles[nid]
 
 # ---------- Queries used by the player and bots ----------
 func ground_height(p: Vector3) -> float:
@@ -209,8 +303,11 @@ func _plane_model() -> Node3D:
 ## leaves (see SpawnIsland). The plane stands still and hidden meanwhile.
 func _start_waiting() -> void:
 	spawn = SpawnIsland.new()
-	var c := Vector3(-650.0, 0.0, island.size * 0.5 + randf_range(-800.0, 800.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = Net.match_seed if Net.in_match else randi()
+	var c := Vector3(-650.0, 0.0, island.size * 0.5 + rng.randf_range(-800.0, 800.0))
 	spawn.setup(self, c)
+	if Net.in_match: spawn.left = 9999.0     # until everyone has loaded (net_go)
 	plane_active = false
 	plane.visible = false
 	player.state = "ground"
@@ -320,6 +417,10 @@ func _add_pickup(data: Dictionary, pos: Vector3) -> Node3D:
 	add_child(n)
 	n.global_position = pos
 	n.rotation.y = randf() * TAU
+	if _nid_on:
+		n.set_meta("nid", _nid)
+		_by_nid[_nid] = n
+		_nid += 1
 	pickups.append(n)
 	var c := _cell(pos)
 	if not _grid.has(c): _grid[c] = []
@@ -972,6 +1073,9 @@ func bot_take(b: Bot, it: Node3D) -> void:
 	_remove_pickup(it)
 
 func _remove_pickup(it: Node3D) -> void:
+	if it.has_meta("nid"):
+		_by_nid.erase(int(it.get_meta("nid")))
+		if Net.in_match and not _net_removing: Net.send_taken(int(it.get_meta("nid")))
 	if it.has_meta("crate"):
 		# The last thing taken out of a loot box: the box goes too.
 		var box = it.get_meta("crate")
@@ -1208,7 +1312,7 @@ func _process(delta: float) -> void:
 	builder.spin(delta, view_position())
 	_update_doors(delta)
 	_perf_governor(delta)
-	_update_airdrops(delta)
+	if not Net.in_match: _update_airdrops(delta)
 	for s in smokes: s.t -= delta
 	smokes = smokes.filter(func(s): return s.t > 0.0)
 	if not fires.is_empty(): _update_fires(delta)

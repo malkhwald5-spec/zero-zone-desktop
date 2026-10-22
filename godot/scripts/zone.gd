@@ -35,6 +35,7 @@ var state := "idle"               # idle | wait | shrink | done
 var time_left := 0.0
 var dps := 0.5
 var speed := 1.0                  # tests can speed the zone up
+var rng := RandomNumberGenerator.new()   # online: seeded alike everywhere, so every game picks the same circles
 var _from_center := Vector2.ZERO
 var _from_radius := 0.0
 var _wall: MeshInstance3D
@@ -47,6 +48,7 @@ var _fog_k := 0.0
 
 func setup(w: Node) -> void:
 	world = w
+	rng.seed = Net.match_seed if Net.in_match else randi()
 	var s: float = world.island.size
 	center = Vector2(s * 0.5, s * 0.5)
 	radius = s * (0.5 if world.quick() else 0.72)
@@ -104,7 +106,7 @@ func _begin_phase(i: int) -> void:
 func _pick_center(c: Vector2, r: float, nr: float) -> Vector2:
 	var best := c
 	for k in 40:
-		var p := c + Vector2(randf() * (r - nr) * 0.95, 0).rotated(randf() * TAU)
+		var p := c + Vector2(rng.randf() * (r - nr) * 0.95, 0).rotated(rng.randf() * TAU)
 		if world.island.is_land(p.x, p.y) and not world.island.is_deep(p.x, p.y):
 			return p
 		best = p
