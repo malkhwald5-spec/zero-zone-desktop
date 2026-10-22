@@ -63,6 +63,14 @@ func _first_run() -> void:
 	v.add_theme_constant_override("separation", 14)
 	pc.add_child(v)
 	v.add_child(UiKit.label("أهلاً بمنطقة الصفر! 👋", 30, ACCENT, UiKit.bold(), 0))
+	# Language first (Arabic by default): English reloads the lobby in English.
+	var lang_b := _small_btn("English" if Game.settings.get("lang", "ar") == "ar" else "العربية", func():
+		Game.settings.lang = "en" if Game.settings.get("lang", "ar") == "ar" else "ar"
+		Game.apply_lang()
+		Game.save_data()
+		get_tree().reload_current_scene())
+	lang_b.size_flags_horizontal = Control.SIZE_SHRINK_END
+	v.add_child(lang_b)
 	v.add_child(UiKit.label("شو بدك يكون اسمك باللعبة؟", 18, Color.WHITE, null, 0))
 	var le := LineEdit.new()
 	le.placeholder_text = "اكتب اسمك"
@@ -1193,6 +1201,18 @@ func _start() -> void:
 
 var _starting := false
 
+## The end of the game's log (errors and warnings) onto the clipboard, to
+## paste into a message when reporting a problem.
+func _copy_log() -> void:
+	var txt := FileAccess.get_file_as_string("user://logs/godot.log")
+	if txt == "":
+		_toast("ما في سجل لسا")
+		return
+	var lines := txt.split("\n")
+	var tail := "\n".join(lines.slice(maxi(0, lines.size() - 300)))
+	DisplayServer.clipboard_set("Zero Zone %s • %s • %s\n%s" % [ProjectSettings.get_setting("application/config/version", ""), OS.get_name(), RenderingServer.get_video_adapter_name(), tail])
+	_toast("انسخ ✓ — الصقه بأي رسالة وابعته")
+
 ## The training ground: the match world with no bots, a step-by-step guide.
 func _start_training() -> void:
 	Game.training = true
@@ -2084,6 +2104,10 @@ func _pct(v: float) -> String:
 func _page_settings(body: VBoxContainer) -> void:
 	match _set_tab:
 		"basic":
+			var lg := _section(body, "اللغة / Language")
+			lg.add_child(_cell("لغة اللعبة", _choice(["ar", "en"], ["العربية", "English"], "lang", func():
+				Game.apply_lang()
+				get_tree().reload_current_scene())))
 			var g := _section(body, "التصويب والإطلاق")
 			g.add_child(_cell("مساعدة التصويب", _onoff("aim_assist")))
 			g.add_child(_cell("القناصات والقوس: الإطلاق", _choice(["tap", "release"], ["ضغطة", "عند الإفلات"], "bolt_fire")))
@@ -2099,6 +2123,8 @@ func _page_settings(body: VBoxContainer) -> void:
 			g = _section(body, "المباراة")
 			g.add_child(_cell("مستوى الخصوم", _choice(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty")))
 			g.add_child(_cell("الطقس", _choice(["random", "clear", "rain", "sunset", "fog"], ["عشوائي", "صافي", "مطر", "غروب", "ضباب"], "weather")))
+			g = _section(body, "المساعدة")
+			g.add_child(_cell("صار عندك خلل؟ انسخ سجل اللعبة وابعته", _small_btn("نسخ السجل", _copy_log)))
 			body.add_child(_row("", _small_btn("الخروج من اللعبة", func(): get_tree().quit(), true, false)))
 		"graphics":
 			var g := _section(body, "الجودة")

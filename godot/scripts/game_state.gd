@@ -60,6 +60,7 @@ var settings := {
 	"fps": 60,                # frame-rate cap: 30 | 60 | 90 | 120
 	"sensitivity": 1.0,
 	"sound": true,
+	"lang": "ar",             # "ar" | "en": the language of the menus and the HUD
 	"narrator": true,         # the radio voice calling out the match (zone, kills, win)
 	"difficulty": "normal",
 	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"
@@ -221,6 +222,7 @@ var spawn_island := false         # the next match starts on the waiting island 
 
 func _ready() -> void:
 	load_data()
+	apply_lang()
 	apply_fps.call_deferred()
 	# The phone's back button must not close the game: the scene decides
 	# (pause in a match, close a page or ask in the lobby).
@@ -553,6 +555,22 @@ const FPS_OPTIONS := [30, 60, 90, 120]
 ## 0 = سلس ... 4 = ألترا HD
 func quality_level() -> int:
 	return max(QUALITIES.find(settings.quality), 0)
+
+var _en: EnTranslation
+
+## Menus and HUD in Arabic (the text in the code) or English (i18n/en.json).
+func apply_lang() -> void:
+	if settings.get("lang", "ar") == "en":
+		if _en == null:
+			_en = EnTranslation.new()
+			TranslationServer.add_translation(_en)
+		TranslationServer.set_locale("en")
+	else:
+		TranslationServer.set_locale("ar")
+
+## Translates text drawn straight onto the screen (labels and buttons do it themselves).
+func t(s: String) -> String:
+	return s if TranslationServer.get_locale() == "ar" else String(TranslationServer.translate(s))
 
 ## Frame-rate cap. V-sync is off so the cap (not the monitor) decides.
 func apply_fps() -> void:

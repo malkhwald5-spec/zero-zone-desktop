@@ -409,7 +409,7 @@ func _draw_bar() -> void:
 	var x0 := sz.x * 0.5 - w * 0.5
 	var y := sz.y - 170.0
 	var f := UiKit.font()
-	bar.draw_string(f, Vector2(x0, y - 44), status + ".".repeat(int(t * 3) % 4), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color("9aa3b5"))
+	bar.draw_string(f, Vector2(x0, y - 44), Game.t(status) + ".".repeat(int(t * 3) % 4), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color("9aa3b5"))
 	bar.draw_string(UiKit.bold(), Vector2(x0, y - 14), "%d%%" % int(progress * 100), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color("ffc23a"))
 	bar.draw_rect(Rect2(x0, y, w, 4), Color("1d2638"))
 	var filled := w * progress
@@ -425,7 +425,7 @@ func _draw_bar() -> void:
 		var tw := 300.0
 		var r := Rect2(sz.x * 0.5 - tw * 0.5, sz.y - 50, tw, 36)
 		bar.draw_rect(r, Color(0.05, 0.07, 0.11, 0.95 * alpha))
-		bar.draw_string(UiKit.bold(), Vector2(r.position.x, r.position.y + 24), toast, HORIZONTAL_ALIGNMENT_CENTER, tw, 14, Color(1, 1, 1, alpha))
+		bar.draw_string(UiKit.bold(), Vector2(r.position.x, r.position.y + 24), Game.t(toast), HORIZONTAL_ALIGNMENT_CENTER, tw, 14, Color(1, 1, 1, alpha))
 
 func _to_loading() -> void:
 	# Outro: the letters scatter outwards and fade, then the loading screen.

@@ -92,6 +92,7 @@ func _process(delta: float) -> void:
 
 func _txt(pos: Vector2, s: String, size: int, col := Color.WHITE, f: Font = null, align := HORIZONTAL_ALIGNMENT_LEFT, w := 600.0, outline := 5) -> void:
 	var fnt: Font = f if f else UiKit.font()
+	s = Game.t(s)
 	if outline > 0:
 		canvas.draw_string_outline(fnt, pos, s, align, w, size, outline, Color(0, 0, 0, 0.5))
 	canvas.draw_string(fnt, pos, s, align, w, size, col)

@@ -181,7 +181,7 @@ func _draw() -> void:
 	draw_circle(joy_center + joy_vec * joy_radius, 30.0, Color(1, 1, 1, 0.45))
 	var sp := joy_center + Vector2(0, -joy_radius - 52)
 	draw_rect(Rect2(sp - Vector2(38, 14), Vector2(76, 28)), Color("f2a900") if sprint_lock else Color(0, 0, 0, 0.4))
-	draw_string(font, sp + Vector2(-38, 7), "ركض ⬆", HORIZONTAL_ALIGNMENT_CENTER, 76, 14, Color.BLACK if sprint_lock else Color(1, 1, 1, 0.8))
+	draw_string(font, sp + Vector2(-38, 7), Game.t("ركض ⬆"), HORIZONTAL_ALIGNMENT_CENTER, 76, 14, Color.BLACK if sprint_lock else Color(1, 1, 1, 0.8))
 	var pressed := {}
 	for t in touches.values():
 		if t.role == "btn": pressed[t.act] = true
@@ -193,7 +193,7 @@ func _draw() -> void:
 			var r := Rect2(b.pos - Vector2(80, 24), Vector2(160, 48))
 			draw_rect(r, Color(0, 0, 0, 0.6))
 			draw_rect(r, Color("ffd34d"), false, 2.0)
-			draw_string(font, Vector2(r.position.x, b.pos.y + 8), label, HORIZONTAL_ALIGNMENT_CENTER, 160, 20, Color.WHITE)
+			draw_string(font, Vector2(r.position.x, b.pos.y + 8), Game.t(label), HORIZONTAL_ALIGNMENT_CENTER, 160, 20, Color.WHITE)
 			continue
 		var down: bool = pressed.has(b.act) or (edit and b.id == selected)
 		var pt: float = 0.0 if edit else hud.world.player.peek_toggle
@@ -202,8 +202,9 @@ func _draw() -> void:
 		draw_arc(b.pos, b.r, 0, TAU, 40, Color(1, 1, 1, 0.6), 1.6)
 		_icon(b.act, b.pos, b.r)
 		if b.label != "":
-			draw_string_outline(font, b.pos + Vector2(-50, b.r + 15), b.label, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, 3, Color(0, 0, 0, 0.6))
-			draw_string(font, b.pos + Vector2(-50, b.r + 15), b.label, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, Color(1, 1, 1, 0.9))
+			var bl := Game.t(b.label)
+			draw_string_outline(font, b.pos + Vector2(-50, b.r + 15), bl, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, 3, Color(0, 0, 0, 0.6))
+			draw_string(font, b.pos + Vector2(-50, b.r + 15), bl, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, Color(1, 1, 1, 0.9))
 
 ## Vector icons in the style of mobile shooters.
 func _icon(act: String, c: Vector2, r: float) -> void:
