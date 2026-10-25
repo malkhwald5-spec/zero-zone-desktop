@@ -838,7 +838,7 @@ func _draw_hud() -> void:
 	for d in dmg_dirs:
 		var rel: float = atan2(d.dir.x, -d.dir.z) + view_yaw
 		var center := sz * 0.5
-		var a := -rel - PI / 2.0
+		var a := rel - PI / 2.0     # straight ahead is up, to your right is right
 		c.draw_arc(center, 120.0, a - 0.3, a + 0.3, 12, Color(1, 0.2, 0.2, minf(1.0, d.t)), 6.0)
 	if p.state in ["ground", "vehicle"]: _draw_sound_marks(c, sz, p, view_yaw)
 	if world.spawn != null:
@@ -984,22 +984,39 @@ func _draw_sound_marks(c: Control, sz: Vector2, p: Player, view_yaw: float) -> v
 		var to: Vector3 = m.pos - p.global_position
 		var d := Vector2(to.x, to.z).length()
 		if d < 1.5: continue
-		var a := -(atan2(to.x, -to.z) + view_yaw) - PI / 2.0
+		var a := atan2(to.x, -to.z) + view_yaw - PI / 2.0
 		var dir := Vector2(cos(a), sin(a))
 		var side := Vector2(-dir.y, dir.x)
 		var near := clampf(1.0 - d / (220.0 if m.kind == "shot" else 40.0), 0.25, 1.0)
-		var alpha := minf(1.0, m.t * 1.4) * (0.45 + 0.55 * near)
-		var at := center + dir * 158.0
+		var alpha := minf(1.0, m.t * 1.4) * (0.5 + 0.5 * near)
+		var shade := Color(0, 0, 0, alpha * 0.45)
 		if m.kind == "shot":
-			var col := Color(1.0, 0.42, 0.2, alpha)
-			c.draw_colored_polygon(PackedVector2Array([at + dir * 13.0, at - dir * 4.0 + side * 6.0, at - dir * 9.0 + side * 6.0, at - dir * 9.0 - side * 6.0, at - dir * 4.0 - side * 6.0]), col)
-			c.draw_arc(center, 158.0, a - 0.09 * (0.6 + near), a + 0.09 * (0.6 + near), 8, col, 2.0 + 2.0 * near)
+			# A short glowing arc on the ring and a bullet pointing out at the shooter.
+			var col := Color(1.0, 0.36, 0.18, alpha)
+			var span := 0.07 + 0.1 * near
+			c.draw_arc(center, 150.0, a - span, a + span, 10, shade, 6.0)
+			c.draw_arc(center, 150.0, a - span, a + span, 10, col, 3.0)
+			var at := center + dir * 172.0
+			var bullet := PackedVector2Array()
+			for i in 7:
+				var k := PI * float(i) / 6.0 - PI / 2.0
+				bullet.append(at + dir * (4.0 + cos(k) * 7.0) + side * sin(k) * 4.5)
+			bullet.append(at - dir * 8.0 + side * 4.5)
+			bullet.append(at - dir * 8.0 - side * 4.5)
+			c.draw_colored_polygon(bullet, col)
+			var edge := bullet.duplicate()
+			edge.append(bullet[0])
+			c.draw_polyline(edge, shade, 1.5)
 		else:
-			var col := Color(1, 1, 1, alpha * 0.9)
-			c.draw_circle(at + side * 4.0 - dir * 3.0, 3.6, col)
-			c.draw_circle(at - side * 4.0 + dir * 3.0, 3.6, col)
-			c.draw_circle(at + side * 4.0 + dir * 2.0, 1.8, col)
-			c.draw_circle(at - side * 4.0 + dir * 8.0, 1.8, col)
+			# Two footprints, one ahead of the other, pointing their way.
+			var col := Color(1, 1, 1, alpha * 0.95)
+			var at := center + dir * 160.0
+			for f in [[side * 5.0 - dir * 4.0], [-side * 5.0 + dir * 4.0]]:
+				var fp: Vector2 = at + f[0]
+				c.draw_circle(fp, 5.2, shade)
+				c.draw_circle(fp, 4.0, col)
+				c.draw_circle(fp + dir * 7.0, 2.6, shade)
+				c.draw_circle(fp + dir * 7.0, 2.0, col)
 
 func _arrow(c: Control, at: Vector2, ang: float, col: Color, s: float) -> void:
 	var f := Vector2(sin(ang), -cos(ang))

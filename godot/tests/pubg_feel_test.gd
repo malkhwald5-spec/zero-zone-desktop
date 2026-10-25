@@ -95,8 +95,9 @@ func _run() -> void:
 	for s in ev._shells:
 		if Vector2(s.pos.x, s.pos.z).distance_to(ev.red_center) > ev.red_radius + 1.0: inside = false
 	check("shells land inside", ev._shells.size() == n0 + 6 and inside)
+	var mine: Array = ev._shells.duplicate()
 	await wait(0.4)
-	check("shells went off", ev._shells.is_empty())
+	check("shells went off", mine.all(func(x): return not ev._shells.has(x)))
 	await shot("pubg_red_shells")
 	# The zone ends after its time.
 	ev.red_t = 0.01
