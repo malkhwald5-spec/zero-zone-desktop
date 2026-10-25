@@ -737,7 +737,7 @@ static var _gear_cache := {}
 ## 3 tactical): Sketchfab models (see README) baked by tools/prep_prop.gd.
 ## [model front turned to +Z (radians about Y), how it is sized, size m].
 const GEAR_MODELS := {
-	"helmet1": [-PI / 2, "max", 0.27], "helmet2": [-PI / 2, "max", 0.28], "helmet3": [-PI / 2, "max", 0.31],
+	"helmet1": [-PI / 2, "max", 0.31], "helmet2": [-PI / 2, "max", 0.28], "helmet3": [-PI / 2, "max", 0.31],
 	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [0.0, "keep", 1.0],
 	"pack1": [PI, "y", 0.46], "pack2": [PI, "y", 0.52], "pack3": [PI, "y", 0.58],
 }

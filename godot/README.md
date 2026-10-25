@@ -151,7 +151,7 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
   - ريمي: شخصية Remy من Mixamo (Adobe)، مسموحة جوا الألعاب حسب شروط Mixamo.
   - الكوماندوز: "Rigged and Textured Mid-Poly Soldier" لـ DenisAlbu — https://sketchfab.com/3d-models/rigged-and-textured-mid-poly-soldier-29883983eddd4808a4f90aec5ca57f16 (رخصة CC-BY-SA-4.0: نسختنا المعدّلة منه `assets/models/chars/albu.glb` تحت نفس الرخصة)
 - العتاد من Sketchfab (رخصة CC-BY-4.0، مخفف بأداة `tools/prep_prop.gd`):
-  - خوذة 1: "off road helmet" لـ Pieter Ferreira (Badboy17Aiden) — https://sketchfab.com/3d-models/off-road-helmet-c9d968e024b749a7a9d0e257277a2d5c
+  - خوذة 1: "Street Rider Helmet – SMK Style" لـ sevai — https://sketchfab.com/3d-models/street-rider-helmet-smk-style-a2e5ceb7492242e0a021bb529e0a60f7 (CC-BY 4.0؛ معدّلة: شلنا عنها علامة الشركة والأرقام والكتابة والملصقات وصار لونها أسود مطفي — `tools/helmet_clean.py`)
   - خوذة 2: "Military Helmet" لـ ED BOX (Elyar) — https://sketchfab.com/3d-models/military-helmet-7b344fdb2ce846539cb420fe4d37fc13
   - خوذة 3: "altyn_helmet" لـ b4_cobra (sultanbaddad3) — https://sketchfab.com/3d-models/altyn-helmet-c1e7126e091f470597b8ea5447e2b15e
   - الدروع 1-3: "Vest Armor Holster LowPoly GameReady Pack" لـ 00amza — https://sketchfab.com/3d-models/vest-armor-holster-lowpoly-gameready-pack-7c41d35e505c4057abe60f89537408bd
