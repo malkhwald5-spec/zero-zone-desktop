@@ -46,6 +46,31 @@ func tracer(from: Vector3, to: Vector3) -> void:
 	tw.tween_property(mi, "global_position", to, dur)
 	tw.tween_callback(mi.queue_free)
 
+## A round in flight: a short glowing streak the shooter moves along with it
+## (and frees when it lands). Bolts are a darker, thicker dart.
+func streak(from: Vector3, at: Vector3, bolt := false) -> Node3D:
+	if _tracer_mesh == null:
+		_tracer_mesh = BoxMesh.new()
+		_tracer_mesh.size = Vector3(0.025, 0.025, 1.0)
+		_tracer_mesh.material = _tracer_mat
+	var mi := MeshInstance3D.new()
+	mi.mesh = _tracer_mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	mi.global_position = at
+	var d := at - from
+	if d.length() > 0.1: mi.look_at(at + d, Vector3.UP if absf(d.normalized().y) < 0.99 else Vector3.RIGHT)
+	mi.scale = Vector3(2.5, 2.5, 0.8) if bolt else Vector3(1, 1, 9.0)
+	if bolt: mi.material_override = _bolt_mat()
+	return mi
+
+var _bolt_m: StandardMaterial3D
+func _bolt_mat() -> StandardMaterial3D:
+	if _bolt_m == null:
+		_bolt_m = StandardMaterial3D.new()
+		_bolt_m.albedo_color = Color(0.25, 0.22, 0.18)
+	return _bolt_m
+
 func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
 	var p := CPUParticles3D.new()
 	p.one_shot = true

@@ -647,6 +647,7 @@ func give_weapon(id: String, mag: int, att := {}) -> void:
 
 # ---------- Physics ----------
 func _physics_process(delta: float) -> void:
+	_fly_bullets(delta)
 	_read_move()
 	match state:
 		"plane":
@@ -1127,6 +1128,16 @@ func _pan_blocks(attacker: Node) -> bool:
 	var fwd := Vector3(-sin(model.rotation.y), 0, -cos(model.rotation.y))
 	return to.length() > 0.5 and fwd.dot(to.normalized()) < -0.7
 
+## How fast each kind of round flies (m/s), as in PUBG: a rifle round is
+## there almost at once up close, but far away it takes a moment and drops,
+## so long shots need leading and aiming a little high.
+const BULLET_SPEED := {"pistol": 360.0, "smg": 380.0, "shotgun": 380.0, "ar": 870.0, "dmr": 850.0, "sr": 760.0, "lmg": 830.0, "crossbow": 160.0}
+const BULLET_GRAVITY := 9.8
+## Up to this far a shot lands at once (the drop there is a few centimetres);
+## past it the round is flown.
+const HITSCAN := 80.0
+var _bullets: Array = []          # rounds in flight: {pos, vel, left, w, muzzle, fx}
+
 func _fire_ray(w: Dictionary, spread: float) -> void:
 	var origin := camera.global_position
 	var dir := -camera.global_basis.z
@@ -1136,10 +1147,28 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 	var muzzle0 := model.gun.global_position
 	origin += dir * maxf(0.0, dir.dot(muzzle0 - origin))
 	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * float(w.range), 1 | 4)
+	var speed: float = BULLET_SPEED.get(w.cls, 0.0)
+	var near: float = float(w.range) if speed <= 0.0 else minf(float(w.range), HITSCAN if w.cls != "crossbow" else 25.0)
+	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * near, 1 | 4)
 	q.exclude = [get_rid()]
 	var hit := space.intersect_ray(q)
-	var end: Vector3 = hit.position if hit else origin + dir * float(w.range)
+	if not hit and near < float(w.range):
+		# Nothing close: the round flies on from here, already falling a little.
+		var t0 := near / speed
+		var at := origin + dir * near + Vector3(0, -0.5 * BULLET_GRAVITY * t0 * t0, 0)
+		var muzzle_f := model.shot_origin()
+		# Something right in front of the barrel (a wall the view looks past) takes it.
+		var qm := PhysicsRayQueryParameters3D.create(muzzle_f, at, 1 | 4)
+		qm.exclude = [get_rid()]
+		var block := space.intersect_ray(qm)
+		if block:
+			world.effects.tracer(muzzle_f, block.position)
+			_round_lands(block, block.position, w, muzzle_f)
+			return
+		_bullets.append({"pos": at, "vel": dir * speed + Vector3(0, -BULLET_GRAVITY * t0, 0), "left": float(w.range) * 1.4 - near,
+			"w": w, "muzzle": muzzle_f, "fx": world.effects.streak(muzzle_f, at, w.cls == "crossbow")})
+		return
+	var end: Vector3 = hit.position if hit else origin + dir * near
 	# The bullet leaves the muzzle; make sure nothing blocks it on the way.
 	var muzzle := model.shot_origin()
 	var q2 := PhysicsRayQueryParameters3D.create(muzzle, end + (end - muzzle).normalized() * 0.1, 1 | 4)
@@ -1149,6 +1178,35 @@ func _fire_ray(w: Dictionary, spread: float) -> void:
 		hit = hit2
 		end = hit2.position
 	world.effects.tracer(muzzle, end)
+	_round_lands(hit, end, w, muzzle)
+
+## Rounds in flight: each step they move on, fall a little and hit whatever
+## lies on the way.
+func _fly_bullets(delta: float) -> void:
+	if _bullets.is_empty(): return
+	var space := get_world_3d().direct_space_state
+	for b in _bullets.duplicate():
+		var vel: Vector3 = b.vel
+		var to: Vector3 = b.pos + vel * delta
+		b.vel = vel + Vector3(0, -BULLET_GRAVITY * delta, 0)
+		var q := PhysicsRayQueryParameters3D.create(b.pos, to, 1 | 4)
+		q.exclude = [get_rid()]
+		var hit := space.intersect_ray(q)
+		b.left = float(b.left) - b.pos.distance_to(to)
+		var fx: Node3D = b.fx
+		if hit or b.left <= 0.0 or to.y < Island.WATER - 2.0:
+			_bullets.erase(b)
+			if is_instance_valid(fx): fx.queue_free()
+			var end: Vector3 = hit.position if hit else to
+			_round_lands(hit, end, b.w, b.muzzle)
+			continue
+		b.pos = to
+		if is_instance_valid(fx):
+			fx.global_position = to
+			if vel.length() > 0.1: fx.look_at(to + vel, Vector3.UP if absf(vel.normalized().y) < 0.99 else Vector3.RIGHT)
+
+## Where a round ends up: glass, the others' games, damage and marks.
+func _round_lands(hit: Dictionary, end: Vector3, w: Dictionary, muzzle: Vector3) -> void:
 	world.bullet_glass(muzzle, end)
 	if Net.in_match: Net.send_shot(muzzle, end, w.cls, String(slots[active].id) if active >= 0 and slots[active] != null else "")
 	if hit:

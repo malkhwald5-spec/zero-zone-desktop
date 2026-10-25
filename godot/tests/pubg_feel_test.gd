@@ -63,6 +63,57 @@ func _run() -> void:
 	p.action("freelook", false)
 	await wait(0.8)
 	check("view swings back", absf(p.look_off.x) < 0.05, "%.3f" % p.look_off.x)
+	# Bullet drop: a sniper round fired level out over open ground is flown,
+	# not landed at once, and falls on its way.
+	p.give_weapon("kar98", 5)
+	p.ammo["762"] = 20
+	p.switch_slot(p.active if p.slots[p.active] != null and p.slots[p.active].id == "kar98" else (1 if p.slots[1] != null and p.slots[1].id == "kar98" else 0))
+	await wait(1.0)
+	p.pitch = 0.3
+	await wait(0.3)
+	p._fire_ray(Game.WEAPONS.kar98, 0.0)
+	var lq := PhysicsRayQueryParameters3D.create(p.camera.global_position, p.camera.global_position - p.camera.global_basis.z * 80.0, 1 | 4)
+	lq.exclude = [p.get_rid()]
+	var lh := p.get_world_3d().direct_space_state.intersect_ray(lq)
+	check("long shot is a round in flight", p._bullets.size() == 1, "%d cam=%s fwd=%s hit=%s %s" % [p._bullets.size(), p.camera.global_position, -p.camera.global_basis.z, lh.get("collider"), lh.get("position")])
+	if p._bullets.size() == 1:
+		var b0: Dictionary = p._bullets[0]
+		var start: Vector3 = b0.pos
+		var dir0: Vector3 = Vector3(b0.vel).normalized()
+		await wait(0.25)
+		if p._bullets.size() == 1:
+			var now: Vector3 = p._bullets[0].pos
+			var along := (now - start).dot(dir0)
+			var line := start + dir0 * along
+			check("it flies about 760 m/s", along > 100.0 and along < 260.0, "%.0f m" % along)
+			check("and drops", line.y - now.y > 0.15, "%.2f m" % (line.y - now.y))
+		else:
+			check("still flying after 0.25 s", false)
+	await wait(1.5)
+	check("rounds don't pile up", p._bullets.is_empty(), str(p._bullets.size()))
+	# Up close it lands at once.
+	var dummy: Bot = world.bots[2]
+	dummy.set_physics_process(false)
+	dummy.state = "ground"
+	dummy.visible = true
+	dummy.shape.disabled = false
+	var fwd0 := Vector3(-sin(p.yaw), 0, -cos(p.yaw))
+	dummy.global_position = p.global_position + fwd0 * 9.0
+	dummy.health = 100.0
+	await wait(0.2)
+	p.pitch = -0.08
+	# The camera sits over the shoulder, so aim from where it ends up (a few passes).
+	for k in 4:
+		var to_d: Vector3 = dummy.global_position + Vector3(0, 1.1, 0) - p.camera.global_position
+		p.yaw = atan2(-to_d.x, -to_d.z)
+		p.pitch = atan2(to_d.y, Vector2(to_d.x, to_d.z).length())
+		await wait(0.2)
+	p._fire_ray(Game.WEAPONS.kar98, 0.0)
+	var dq := PhysicsRayQueryParameters3D.create(p.camera.global_position, dummy.global_position + Vector3(0, 1.1, 0), 1 | 4)
+	dq.exclude = [p.get_rid()]
+	var dh := p.get_world_3d().direct_space_state.intersect_ray(dq)
+	check("close shot lands at once", dummy.health < 100.0 or dummy.dead, "%s dead=%s ray=%s" % [dummy.health, dummy.dead, dh.get("collider")])
+	dummy.global_position = Vector3(5000, 0, 5000)
 	# Sound markers.
 	var fwd := Vector3(-sin(p.yaw), 0, -cos(p.yaw))
 	var rgt := Vector3(cos(p.yaw), 0, -sin(p.yaw))
