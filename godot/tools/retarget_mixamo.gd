@@ -52,15 +52,21 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"salute": "salute", "dance_hiphop": "hip_hop_dancing", "dance_break": "breakdance_freeze_var_4",
 	"rifle_idle": "rifle_idle", "victory": "victory_idle",
 	# Standing about: looking round, an easy relaxed idle.
-	"look_around": "look_around", "happy_idle": "happy_idle"}
+	"look_around": "look_around", "happy_idle": "happy_idle",
+	# Upright rifle locomotion for the blended movement (see LocoBlend):
+	# walking, strafing and running with the gun held up, starts, stops, turns.
+	"r_walk_f": "rifle_walking", "r_walk_b": "backwards_rifle_walk", "r_strafe_l": "strafe_left", "r_strafe_r": "strafe_right",
+	"r_run_f": "rifle_run_upright", "r_run_b": "backwards_rifle_run",
+	"r_start": "rifle_start_walking", "r_stop": "rifle_walk_to_stop", "r_stop2": "rifle_stop_walking",
+	"r_stop_b": "rifle_walk_backwards_stop", "r_turn_l": "rifle_turn_90_left"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
-const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left"}
+const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left", "r_turn_r": "rifle_turn_90_left"}
 ## Played once (not looped).
 const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back", "death_right", "death_head",
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
 	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump",
 	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault", "car_enter",
-	"car_exit", "wall_climb", "swim_edge", "salute"]
+	"car_exit", "wall_climb", "swim_edge", "salute", "r_start", "r_stop", "r_stop2", "r_stop_b", "r_turn_l", "r_turn_r"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
 var OUT := "res://assets/anims/mixamo_anims.res"

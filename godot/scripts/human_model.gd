@@ -44,6 +44,24 @@ var bolt_p := -1.0            # 0..1 through working the bolt after a shot (bolt
 var idle_clip := ""           # standing still: this clip instead of the usual idle (lobby)
 var pickup_t := -1.0          # 0..1 through reaching down for something on the ground (-1 = not)
 const PICKUP_TIME := 0.6
+var detail := true              # near and in view: blended walk / run, eased transitions (owners turn it off far away)
+var _loco: LocoBlend = null    # standing walk / run: continuous phase-synced blend (see LocoBlend)
+var _loco_ready := [-1, -1]     # [empty-handed, armed]: 1 if this character has the clips
+var _loco_on := false
+var _loco_mix: Array = []
+var _loco_vel := Vector2.ZERO   # last ground velocity while moving (the stop steps go by it)
+const XF := 0.25                # seconds to ease from one base pose to the next (idle <-> moving)
+var _xf_t := 0.0
+var _xf_rot: Array = []
+var _xf_pos := Vector3.ZERO
+var _base_rot: Array = []       # last frame's base pose (before hands, lean, feet...)
+var _base_pos := Vector3.ZERO
+## Coming to a halt from a walk: [clip, from (s), to (s)] of its stopping steps.
+const STOPS := {"r_stop": [1.0, 2.4], "r_stop_b": [0.55, 1.37]}
+var _stop_clip := ""
+var _last_yaw := INF
+var _turn_rate := 0.0            # how fast the body is turning (rad/s, smoothed)
+var _stop_t := 0.0
 var _run_set := false         # in the run clips (not walk): kept until well below the switch speed
 var look_yaw := 0.0           # head turned left (+) / right (-) from the body, radians
 var look_pitch := 0.0         # head tilted up (+) / down (-)
@@ -678,6 +696,7 @@ var _action_speed := 1.0
 func play_action(name: String, seconds: float, from := 0.0, to := -1.0) -> void:
 	var a: Animation = ap.get_animation("mx/" + name)
 	if a == null: return
+	_set_loco(false)
 	if to < 0.0: to = a.length
 	_action = name
 	_action_t = seconds
@@ -741,6 +760,7 @@ func _place_can() -> void:
 ## turn is taken out of the hips and handed to the owner as `turn_yaw`, who
 ## turns the whole model by it, so the feet stay planted as they step round.
 func start_turn(d: int) -> void:
+	_set_loco(false)
 	turn_dir = d
 	turn_yaw = 0.0
 	var name := "mx/turn90_l" if d > 0 else "mx/turn90_r"
@@ -857,8 +877,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	# One-shot action (grenade toss) takes over the whole body for a moment.
 	if _action_t > 0.0:
 		_action_t -= delta
+		_set_loco(false)
 		_play("mx/" + _action, _action_speed)
 		ap.advance(delta)
+		_base_blend(delta)
 		if _action == "melee" and _has_weapon:
 			# The pan swings in the right hand (handle along the fingers).
 			var hand: Transform3D = sk.global_transform * sk.get_bone_global_pose(_bone["RightHand"])
@@ -884,6 +906,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		return
 	if pose == "dead":
 		# A death animation plays once by itself (see _process) and stays down.
+		_set_loco(false)
 		if not _dying():
 			# Shot while lying down: dies where he lies.
 			var dn := death_anim
@@ -900,7 +923,31 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	var dir := _dir8()
 	# One-handed guns (pistol, pan) have their own walk, run and idle.
 	var pistol: bool = armed and _cls in ["pistol", "melee"] and ap.has_animation("mx/pidle")
-	if bandaging and pose in ["stand", "crouch"] and speed < 0.3 and ap.has_animation("mx/kneel"):
+	# Turning on the spot quickly (the body follows the camera): small side
+	# steps the way it turns, instead of spinning on planted feet.
+	var yr := clampf(wrapf(global_rotation.y - _last_yaw, -PI, PI) / maxf(delta, 0.001), -8.0, 8.0) if _last_yaw != INF else 0.0
+	if absf(wrapf(global_rotation.y - _last_yaw, -PI, PI)) > 1.0: yr = 0.0      # set round in one go (spawned, teleported)
+	_last_yaw = global_rotation.y
+	_turn_rate = lerpf(_turn_rate, yr, minf(1.0, delta * 10.0))
+	if pose == "stand" and speed <= 0.3 and absf(_turn_rate) > 1.4 and not aiming and reload_p < 0.0:
+		var step := clampf(absf(_turn_rate) * 0.35, 0.6, 1.4)
+		move_local = Vector2(-signf(_turn_rate) * step, 0.0)
+		speed = step
+	# Standing up and on the move (rifle or empty hands): the blended walk / run.
+	var loco := detail and pose == "stand" and speed > 0.3 and not pistol and not swimming and turn_dir == 0 and _loco_ok(armed)
+	if _loco_on and not loco and pose == "stand" and speed <= 0.3 and armed and not pistol and not aiming:
+		# Halting from a walk: the stopping steps (forward or backward).
+		var ls := _loco_vel.length()
+		if ls < 3.4:
+			_stop_clip = "r_stop_b" if _loco_vel.y < -0.5 * ls else "r_stop"
+			if ap.has_animation("mx/" + _stop_clip): _stop_t = float(STOPS[_stop_clip][1]) - float(STOPS[_stop_clip][0])
+	if loco: _stop_t = 0.0
+	_set_loco(loco)
+	if loco:
+		_loco_mix = _loco.mix(move_local if move_local.length() > 0.05 else Vector2(0, speed), armed, sprinting, delta)
+		_loco_vel = move_local
+		_anim = "mx/r_loco" if armed else "mx/u_loco"
+	elif bandaging and pose in ["stand", "crouch"] and speed < 0.3 and ap.has_animation("mx/kneel"):
 		# Down on one knee to patch up: loop the low part of the kneel clip.
 		_play("mx/kneel", 1.0)
 		if ap.current_animation_position < 1.8 or ap.current_animation_position > 6.2: ap.seek(3.2, true)
@@ -978,6 +1025,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/pidle", 1.0)
 	elif pose == "stand" and armed and aiming:
 		_play("mx/fire" if recoil > 0.3 else "mx/idle_aim", 1.0)
+	elif pose == "stand" and _stop_t > 0.0 and not aiming and reload_p < 0.0:
+		if _anim != "mx/" + _stop_clip:
+			_play("mx/" + _stop_clip, 1.0)
+			ap.seek(float(STOPS[_stop_clip][0]), true)
+		_stop_t -= delta
 	elif pose == "stand" and speed < 0.3 and idle_clip != "" and ap.has_animation("mx/" + idle_clip):
 		_play("mx/" + idle_clip, 1.0)
 	elif pose == "stand" and armed:
@@ -993,8 +1045,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/skydive", 1.0)
 	else:
 		_play("Idle", 1.0)
-	ap.advance(delta)
+	if _loco_on: _loco.apply(_loco_mix)
+	else: ap.advance(delta)
 	if turn_dir != 0: _turn_step()
+	_base_blend(delta)
 	if _back_dirty and is_inside_tree(): _place_back()
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
@@ -1086,6 +1140,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	if armed and gun.visible:
 		if pose == "stand" and speed < 0.3 and not aiming and recoil < 0.05: _breathe(t)
 		_place_gun(pose, delta)
+		if _loco_on and not sprinting: _face_chest(1.0)
 		_bend_spine(pose)
 		_hold_gun()
 	else:
@@ -1106,6 +1161,42 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	if _wave > 0.0:
 		_wave -= delta
 		_arm("Right", Vector3(0.45, 1.95 + sin(t * 10.0) * 0.06, -0.1 + sin(t * 10.0) * 0.12), Vector3(1, 0, 0))
+
+## This character has the clips for the blended walk / run (armed or not).
+func _loco_ok(armed: bool) -> bool:
+	if _loco == null: _loco = LocoBlend.new(sk, ap, _cscale, _cycle_phase)
+	var i := 1 if armed else 0
+	if _loco_ready[i] < 0: _loco_ready[i] = 1 if _loco.ready_for(armed) else 0
+	return _loco_ready[i] == 1
+
+## Between the blended walk and the clips the AnimationPlayer plays: the
+## player is switched off while the blend poses the body, and the body eases
+## from the last pose into the new one (see _base_blend).
+func _set_loco(on: bool) -> void:
+	if on == _loco_on: return
+	_loco_on = on
+	ap.active = not on
+	if not _base_rot.is_empty():
+		_xf_rot = _base_rot.duplicate()
+		_xf_pos = _base_pos
+		_xf_t = XF
+
+## Eases the freshly animated pose from the one held when the source changed,
+## then keeps it as the pose to ease from next time.
+func _base_blend(delta: float) -> void:
+	if not detail and _xf_t <= 0.0:
+		_base_rot.clear()        # far away: nothing kept, nothing eased
+		return
+	var n := sk.get_bone_count()
+	if _xf_t > 0.0 and _xf_rot.size() == n:
+		_xf_t -= delta
+		var k := smoothstep(0.0, 1.0, 1.0 - maxf(_xf_t, 0.0) / XF)
+		for i in n:
+			sk.set_bone_pose_rotation(i, (_xf_rot[i] as Quaternion).slerp(sk.get_bone_pose_rotation(i), k))
+		sk.set_bone_pose_position(_hips, _xf_pos.lerp(sk.get_bone_pose_position(_hips), k))
+	_base_rot.resize(n)
+	for i in n: _base_rot[i] = sk.get_bone_pose_rotation(i)
+	_base_pos = sk.get_bone_pose_position(_hips)
 
 ## Walk or run clips for this ground speed, with a gap between the two
 ## switch points so a stick held near the edge does not flick between them.
@@ -1430,6 +1521,27 @@ func _look_head() -> void:
 		var q := Quaternion((inv * up_sk).normalized(), clampf(look_yaw, -1.2, 1.2) * share) \
 			* Quaternion((inv * right_sk).normalized(), clampf(look_pitch, -0.5, 0.5) * share)
 		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
+
+## Moving with a gun up: the legs go the way the body moves (running
+## sideways, the hips turn with them) but the chest, and so the gun, stays
+## facing where the player looks. Turns the spine back by however far the
+## clip has swung the chest away from straight ahead.
+func _face_chest(amount: float) -> void:
+	var i: int = _bone.get("Spine2", -1)
+	if i < 0: return
+	var to_model := _sk_to_model()
+	var cur: Basis = (to_model * sk.get_bone_global_pose(i)).basis.orthonormalized()
+	var rest: Basis = (to_model * sk.get_bone_global_rest(i)).basis.orthonormalized()
+	var f := (cur * rest.inverse()) * Vector3(0, 0, -1)
+	var yaw := atan2(-f.x, -f.z)
+	if absf(yaw) < 0.02: return
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var up_sk := (to_sk.basis * Vector3.UP).normalized()
+	for bn in ["Spine", "Spine1", "Spine2"]:
+		if not _bone.has(bn): continue
+		var b: int = _bone[bn]
+		var inv := sk.get_bone_global_pose(b).basis.inverse()
+		sk.set_bone_pose_rotation(b, sk.get_bone_pose_rotation(b) * Quaternion((inv * up_sk).normalized(), -yaw * amount / 3.0))
 
 ## Upper body follows the aim up/down; the head looks a bit further.
 func _bend_spine(pose: String) -> void:

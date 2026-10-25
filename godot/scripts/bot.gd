@@ -290,6 +290,8 @@ func _ground(delta: float) -> void:
 	var on_screen := d_player < 12.0 or (global_position - vp).dot(cam_f) > d_player * 0.35
 	far = d_player > 280.0 * Game.view_k()
 	model.visible = d_player < 650.0 * Game.view_k()
+	# The blended walk (and its eased transitions) only where it can be seen.
+	model.detail = on_screen and d_player < 35.0
 	fire_cd = maxf(0.0, fire_cd - delta)
 	hurt_t += delta
 	if knocked:
