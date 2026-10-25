@@ -11,6 +11,7 @@ var _to := Vector3.ZERO           # where they are (we ease towards it)
 var _to_yaw := 0.0
 var _ride: Vehicle = null
 var _gear_key := ""
+var hit_by_me_t := -100000        # when you last hit them (ms), for kill credit
 
 func setup(w: Node, id: int, info: Dictionary) -> void:
 	world = w
@@ -61,6 +62,7 @@ func take_damage(amount: float, attacker: Node, head := false) -> bool:
 	if dead: return false
 	if attacker != null and attacker == world.player:
 		Net.send_hit(peer, amount, head)
+		hit_by_me_t = Time.get_ticks_msec()
 		world.player.dmg_dealt += minf(amount, maxf(health, 0.0))
 		if model.visible: model.hit(amount / 40.0)
 	return false
@@ -115,6 +117,8 @@ func _ride_step() -> void:
 	if _ride == null or not is_instance_valid(_ride) or int(_ride.get_meta("nid", -2)) != nid:
 		if _ride: _leave_ride()
 		_ride = world.vehicle_by_nid(nid)
+		# Never the car you are in yourself, nor one far from where they are.
+		if _ride and (_ride == world.player.vehicle or _ride.get_meta("net_driven", false) or _ride.global_position.distance_to(_to) > 12.0): _ride = null
 		if _ride:
 			_ride.freeze = true
 			_ride.set_meta("net_driven", true)

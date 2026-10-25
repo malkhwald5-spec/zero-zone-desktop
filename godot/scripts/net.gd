@@ -30,6 +30,8 @@ var _find: PacketPeerUDP
 var _beacon_t := 0.0
 var _send_t := 0.0
 var _loaded := {}
+var _budget := {}                 # peer id -> [shots, hits, since] they may still send this second
+const MAX_ROOMS := 16
 
 func me() -> int:
 	return multiplayer.get_unique_id() if active else 1
@@ -88,6 +90,7 @@ func _close() -> void:
 	is_host = false
 	roster = {}
 	_loaded = {}
+	_budget = {}
 	if _udp: _udp.close()
 	_udp = null
 
@@ -114,19 +117,28 @@ func _process(delta: float) -> void:
 		_beacon_t -= delta
 		if _beacon_t <= 0.0:
 			_beacon_t = 1.0
-			_udp.put_packet(JSON.stringify({"zz": 1, "name": Game.player_name(), "n": roster.size()}).to_utf8_buffer())
+			_udp.put_packet(JSON.stringify({"zz": 1, "name": clean_name(Game.player_name()), "n": roster.size()}).to_utf8_buffer())
 	if _find:
-		while _find.get_available_packet_count() > 0:
+		# Anyone on the network can send these: only a few a frame, only small
+		# ones, only so many rooms (a flood must not freeze the friends page).
+		var got := 0
+		var changed := false
+		while _find.get_available_packet_count() > 0 and got < 16:
+			got += 1
 			var pkt := _find.get_packet().get_string_from_utf8()
 			var ip := _find.get_packet_ip()
+			if pkt.length() > 512: continue
 			var d = JSON.parse_string(pkt)
-			if typeof(d) == TYPE_DICTIONARY and d.has("zz"):
-				rooms[ip] = {"name": String(d.get("name", "?")), "players": int(d.get("n", 1)), "t": Time.get_ticks_msec()}
-				rooms_changed.emit()
+			if typeof(d) != TYPE_DICTIONARY or not d.has("zz"): continue
+			if not rooms.has(ip) and rooms.size() >= MAX_ROOMS: continue
+			var n = d.get("n", 1)
+			rooms[ip] = {"name": clean_name(d.get("name", "?")), "players": clampi(int(n) if typeof(n) in [TYPE_INT, TYPE_FLOAT] else 1, 0, MAX_PLAYERS), "t": Time.get_ticks_msec()}
+			changed = true
 		for ip in rooms.keys():
 			if Time.get_ticks_msec() - int(rooms[ip].t) > 4000:
 				rooms.erase(ip)
-				rooms_changed.emit()
+				changed = true
+		if changed: rooms_changed.emit()
 	if in_match and world and is_instance_valid(world) and world.ready_done:
 		_send_t -= delta
 		if _send_t <= 0.0:
@@ -137,12 +149,46 @@ func _process(delta: float) -> void:
 func _on_connected() -> void:
 	_hello.rpc_id(1, _my_info())
 
-func _on_peer_connected(_id: int) -> void:
-	pass
+## A connection that never says hello (or is turned away) is dropped, so it
+## can't sit in the room taking a seat or send anything into a match.
+func _on_peer_connected(id: int) -> void:
+	if is_host: get_tree().create_timer(5.0).timeout.connect(_drop_stranger.bind(id))
+
+func _drop_stranger(id: int) -> void:
+	if is_host and active and not roster.has(id) and id in multiplayer.get_peers():
+		multiplayer.multiplayer_peer.disconnect_peer(id)
+
+## A known player in this room (not a stranger who connected without joining).
+func known(id: int) -> bool:
+	return roster.has(id) and id != me()
+
+## Names come from other people's games: no control or direction marks
+## (which could scramble the lists), and short.
+static func clean_name(v: Variant) -> String:
+	var out := ""
+	for ch in str(v).strip_edges():
+		var c := ch.unicode_at(0)
+		if c < 32 or c == 127 or (c >= 0x200B and c <= 0x200F) or (c >= 0x202A and c <= 0x202E) or (c >= 0x2066 and c <= 0x2069): continue
+		out += ch
+		if out.length() >= 16: break
+	return out if out != "" else "لاعب"
+
+## Each player may send only so many shots and hits a second (the fastest
+## gun with every shotgun pellet landing stays well under it).
+func _spend(id: int, kind: int) -> bool:
+	if not known(id): return false
+	var b: Array = _budget.get(id, [])
+	if b.is_empty() or Time.get_ticks_msec() - int(b[2]) > 1000:
+		b = [40, 60, Time.get_ticks_msec()]
+		_budget[id] = b
+	if int(b[kind]) <= 0: return false
+	b[kind] = int(b[kind]) - 1
+	return true
 
 func _on_peer_disconnected(id: int) -> void:
 	roster.erase(id)
 	_loaded.erase(id)
+	_budget.erase(id)
 	roster_changed.emit()
 	if is_host and not in_match: _roster.rpc(roster)
 	if in_match and world and is_instance_valid(world): world.net_peer_left(id)
@@ -154,8 +200,11 @@ func _hello(info: Dictionary) -> void:
 	var id := multiplayer.get_remote_sender_id()
 	if in_match or roster.size() >= MAX_PLAYERS:
 		_refuse.rpc_id(id, "الغرفة بلّشت أو مليانة")
+		get_tree().create_timer(1.0).timeout.connect(_drop_stranger.bind(id))
 		return
-	roster[id] = {"name": String(info.get("name", "لاعب")).left(16), "outfit": int(info.get("outfit", 0))}
+	if roster.has(id): return
+	var o = info.get("outfit", 0)
+	roster[id] = {"name": clean_name(info.get("name", "لاعب")), "outfit": clampi(int(o) if typeof(o) in [TYPE_INT, TYPE_FLOAT] else 0, 0, Game.WARDROBE.size() - 1)}
 	_roster.rpc(roster)
 	roster_changed.emit()
 
@@ -167,7 +216,12 @@ func _refuse(text: String) -> void:
 @rpc("authority", "reliable")
 func _roster(r: Dictionary) -> void:
 	roster = {}
-	for k in r: roster[int(k)] = r[k]
+	for k in r:
+		if roster.size() >= MAX_PLAYERS: break
+		var v = r[k]
+		if typeof(k) not in [TYPE_INT, TYPE_FLOAT] or typeof(v) != TYPE_DICTIONARY: continue
+		var o = v.get("outfit", 0)
+		roster[int(k)] = {"name": clean_name(v.get("name", "لاعب")), "outfit": clampi(int(o) if typeof(o) in [TYPE_INT, TYPE_FLOAT] else 0, 0, Game.WARDROBE.size() - 1)}
 	roster_changed.emit()
 
 # ---------------------------------------------------------------- match
@@ -198,12 +252,16 @@ func loaded() -> void:
 
 @rpc("any_peer", "reliable")
 func _im_loaded() -> void:
-	_loaded[multiplayer.get_remote_sender_id()] = true
+	var id := multiplayer.get_remote_sender_id()
+	if not is_host or not in_match or not roster.has(id) or _loaded.has(id): return
+	_loaded[id] = true
 	_check_all_loaded()
 
 func _check_all_loaded() -> void:
+	if _loaded.has(-1): return       # already started
 	for id in roster:
 		if not _loaded.has(id): return
+	_loaded[-1] = true
 	_go.rpc()
 
 @rpc("authority", "call_local", "reliable")
@@ -212,14 +270,16 @@ func _go() -> void:
 
 @rpc("any_peer", "unreliable_ordered")
 func _state(st: Dictionary) -> void:
-	if world and is_instance_valid(world): world.net_state(multiplayer.get_remote_sender_id(), st)
+	var id := multiplayer.get_remote_sender_id()
+	if known(id) and world and is_instance_valid(world): world.net_state(id, st)
 
 func send_shot(from: Vector3, to: Vector3, cls: String, gun: String) -> void:
 	if in_match: _shot.rpc(from, to, cls, gun)
 
 @rpc("any_peer", "unreliable")
 func _shot(from: Vector3, to: Vector3, cls: String, gun: String) -> void:
-	if world and is_instance_valid(world): world.net_shot(multiplayer.get_remote_sender_id(), from, to, cls, gun)
+	var id := multiplayer.get_remote_sender_id()
+	if _spend(id, 0) and world and is_instance_valid(world): world.net_shot(id, from, to, cls, gun)
 
 ## You hit someone: their game takes off the damage.
 func send_hit(victim: int, amount: float, head: bool) -> void:
@@ -227,24 +287,28 @@ func send_hit(victim: int, amount: float, head: bool) -> void:
 
 @rpc("any_peer", "reliable")
 func _hit(amount: float, head: bool) -> void:
-	if world and is_instance_valid(world): world.net_hit(multiplayer.get_remote_sender_id(), amount, head)
+	var id := multiplayer.get_remote_sender_id()
+	if _spend(id, 1) and world and is_instance_valid(world): world.net_hit(id, amount, head)
 
 func send_died(killer: int) -> void:
 	if in_match: _died.rpc(killer)
 
 @rpc("any_peer", "reliable")
 func _died(killer: int) -> void:
-	if world and is_instance_valid(world): world.net_died(multiplayer.get_remote_sender_id(), killer)
+	var id := multiplayer.get_remote_sender_id()
+	if known(id) and world and is_instance_valid(world): world.net_died(id, killer)
 
 func send_taken(nid: int) -> void:
 	if in_match: _taken.rpc(nid)
 
 @rpc("any_peer", "reliable")
 func _taken(nid: int) -> void:
-	if world and is_instance_valid(world): world.net_taken(nid)
+	var id := multiplayer.get_remote_sender_id()
+	if known(id) and world and is_instance_valid(world): world.net_taken(id, nid)
 
 ## Back to the lobby after a match: the room stays open for the next one.
 func match_over() -> void:
 	in_match = false
 	world = null
 	_loaded = {}
+	_budget = {}

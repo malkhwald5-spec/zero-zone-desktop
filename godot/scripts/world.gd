@@ -202,32 +202,92 @@ func net_my_state() -> Dictionary:
 	return st
 
 func net_state(id: int, st: Dictionary) -> void:
-	if puppets.has(id): puppets[id].apply(st)
+	if not puppets.has(id): return
+	var clean := _net_clean_state(st)
+	if not clean.is_empty(): puppets[id].apply(clean)
+
+const NET_STATES := ["plane", "fall", "chute", "ground", "vehicle", "dead"]
+const NET_STANCES := ["stand", "crouch", "prone"]
+
+## Another game's report, checked field by field: only the fields we know,
+## each of the right kind, finite and in range (a broken or doctored report
+## must not stall the puppet, fling it through the physics, or crash us).
+## Empty when the report is no good at all.
+func _net_clean_state(st: Dictionary) -> Dictionary:
+	var p = st.get("p")
+	if typeof(p) != TYPE_VECTOR3 or not p.is_finite() or absf(p.x) > 20000.0 or absf(p.z) > 20000.0 or absf(p.y) > 5000.0: return {}
+	var out := {"p": p}
+	var v = st.get("v", Vector3.ZERO)
+	out.v = v.limit_length(120.0) if typeof(v) == TYPE_VECTOR3 and v.is_finite() else Vector3.ZERO
+	for k in ["y", "pi", "rl", "h", "dv"]:
+		var f = st.get(k, 0.0)
+		if typeof(f) in [TYPE_FLOAT, TYPE_INT] and is_finite(float(f)): out[k] = float(f)
+	out.y = wrapf(float(out.get("y", 0.0)), -PI, PI)
+	out.pi = clampf(float(out.get("pi", 0.0)), -1.6, 1.6)
+	out.rl = clampf(float(out.get("rl", -1.0)), -1.0, 1.0)
+	out.h = clampf(float(out.get("h", 100.0)), 0.0, 100.0)
+	out.dv = clampf(float(out.get("dv", 0.5)), 0.0, 1.0)
+	for k in ["a", "sp", "k", "fl", "sw"]:
+		out[k] = bool(st[k]) if typeof(st.get(k)) == TYPE_BOOL else k == "fl"
+	var s0 = st.get("s", "ground")
+	out.s = s0 if typeof(s0) == TYPE_STRING and s0 in NET_STATES else "ground"
+	var s1 = st.get("st", "stand")
+	out.st = s1 if typeof(s1) == TYPE_STRING and s1 in NET_STANCES else "stand"
+	var w = st.get("w", "")
+	out.w = w if typeof(w) == TYPE_STRING and (w == "" or Game.WEAPONS.has(w)) else ""
+	for k in ["gv", "gh", "gp"]:
+		var g = st.get(k, 0)
+		out[k] = clampi(int(g), 0, 3) if typeof(g) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(g)) else 0
+	if out.s == "vehicle":
+		var vn = st.get("vn", -1)
+		var vx = st.get("vx")
+		if typeof(vn) != TYPE_INT or typeof(vx) != TYPE_TRANSFORM3D or not vx.is_finite() or absf(vx.basis.determinant()) < 0.01: out.s = "ground"
+		else:
+			out.vn = vn
+			out.vx = Transform3D(vx.basis.orthonormalized(), vx.origin)
+	return out
 
 func net_shot(id: int, from: Vector3, to: Vector3, cls: String, gun: String) -> void:
+	var rp: RemotePlayer = puppets.get(id)
+	# Only from someone alive, from where they stand, and a sane length.
+	if rp == null or rp.dead or not from.is_finite() or not to.is_finite(): return
+	if from.distance_to(rp.global_position) > 8.0 or from.distance_to(to) > 1200.0: return
+	if not Game.WEAPONS.has(gun) or not cls in ["pistol", "smg", "shotgun", "ar", "dmr", "sr", "lmg", "crossbow", "melee"]: gun = ""
 	effects.tracer(from, to)
-	sound_shot(cls, from, false, false, gun)
-	if puppets.has(id):
-		puppets[id].model.recoil = 1.0
-		effects.muzzle_flash(from)
+	if hud and player.global_position.distance_to(from) < 220.0: hud.sound_mark(from, "shot")
+	sound_shot(cls if gun != "" else "ar", from, false, false, gun)
+	rp.model.recoil = 1.0
+	effects.muzzle_flash(from)
+
+## Most one hit can do (a Kar98k to an unprotected head, with room to spare).
+const NET_MAX_HIT := 260.0
 
 ## Someone shot us: our armour and health take it.
 func net_hit(id: int, amount: float, head: bool) -> void:
 	if spawn != null or player.state == "dead": return
-	player.take_damage(amount, puppets.get(id), head)
+	var rp: RemotePlayer = puppets.get(id)
+	# From a living player who could see this far, and never a heal or a NaN.
+	if rp == null or rp.dead or not is_finite(amount) or amount <= 0.0: return
+	if rp.global_position.distance_to(player.global_position) > 1100.0: return
+	player.take_damage(minf(amount, NET_MAX_HIT), rp, head)
 
 func net_died(id: int, killer: int) -> void:
 	var rp: RemotePlayer = puppets.get(id)
 	if rp == null or rp.dead: return
+	# Credit for the kill only if we really hit them a moment ago.
+	if killer == Net.me() and Time.get_ticks_msec() - rp.hit_by_me_t > 8000: killer = 0
 	var by: Node = player if killer == Net.me() else puppets.get(killer)
 	if by == player:
 		player.kills += 1
 		player.hit_confirmed.emit(false, true, rp.global_position + Vector3(0, 1.2, 0))
 	rp._die(by)
 
-func net_taken(nid: int) -> void:
+func net_taken(id: int, nid: int) -> void:
 	var it: Node3D = _by_nid.get(nid)
-	if it and is_instance_valid(it):
+	var rp: RemotePlayer = puppets.get(id)
+	# Only something within reach of whoever says they took it.
+	if rp == null or rp.dead: return
+	if it and is_instance_valid(it) and it.global_position.distance_to(rp.global_position) < 10.0:
 		_net_removing = true
 		_remove_pickup(it)
 		_net_removing = false
@@ -988,6 +1048,8 @@ func notify_shot(pos: Vector3, shooter: Node, suppressed := false) -> void:
 	if spawn != null: return      # fun shots on the spawn island: nobody takes notice
 	var r := 40.0 if suppressed else 130.0
 	if birds and not suppressed: birds.on_noise(pos)
+	if hud and shooter != player and player and player.global_position.distance_to(pos) < (60.0 if suppressed else 220.0):
+		hud.sound_mark(pos, "shot")
 	for b in bots:
 		if b == shooter or b.dead: continue
 		if b.global_position.distance_squared_to(pos) < r * r:
@@ -2243,7 +2305,9 @@ const STEP_SETS := {"concrete": 5, "grass": 8, "wood": 5, "sand": 6, "water": 4}
 
 ## One footstep. own = your own feet (not placed in the world); loud 0..1
 ## (crouching is quiet, sprinting loud). Enemies are heard up to ~40 m away.
-func footstep(pos: Vector3, own: bool, loud: float) -> void:
+func footstep(pos: Vector3, own: bool, loud: float, who: Node = null) -> void:
+	if who != null and hud and player and player.state == "ground" and not same_team(player, who) and pos.distance_to(player.global_position) < 40.0 * maxf(loud, 0.5):
+		hud.sound_mark(pos, "step")
 	if not Game.settings.sound: return
 	if not own and (_sounds_playing >= 14 or pos.distance_to(view_position()) > 40.0): return
 	var surf := surface_at(pos)

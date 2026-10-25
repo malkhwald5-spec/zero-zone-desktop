@@ -153,6 +153,11 @@ func add_look(dx: float, dy: float) -> void:
 		var key := "sens_1x" if z < 1.7 else ("sens_2x" if z < 3.0 else ("sens_4x" if z < 6.0 else "sens_8x"))
 		k *= float(Game.settings.get(key, 1.0 / sqrt(maxf(1.0, z))))
 	if _assist_on: k *= 0.6        # aim assist: the view drags a little over an enemy
+	if free_look and not aiming and not firing:
+		# Free look (the eye): the camera turns, the body and the gun stay put.
+		if Game.settings.get("invert_y", false): dy = -dy
+		look_off = Vector2(clampf(look_off.x - dx * k, -2.4, 2.4), clampf(look_off.y - dy * k, -1.0, 0.8))
+		return
 	_look_t = 0.0
 	# Pulling down against the climb uses it up (no settling past where you aimed).
 	if dy > 0.0: _recoil_debt = maxf(0.0, _recoil_debt - dy * k)
@@ -162,6 +167,8 @@ func add_look(dx: float, dy: float) -> void:
 
 func action(act: String, pressed: bool) -> void:
 	match act:
+		"freelook":
+			free_look = pressed
 		"fire":
 			if throw_ready:
 				if pressed: release_throw()
@@ -279,6 +286,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT: action("fire", event.pressed)
 		elif event.button_index == MOUSE_BUTTON_RIGHT: action("aim", event.pressed)
+	elif event is InputEventKey and not event.echo and event.physical_keycode == Game.key("freelook"):
+		action("freelook", event.pressed)
 	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("throw"):
 		release_throw()
 	elif event is InputEventKey and not event.pressed and event.physical_keycode == Game.key("interact"):
@@ -1311,6 +1320,10 @@ func _update_camera(delta: float) -> void:
 	model.visible = not scoped() and state != "plane" and not (state == "vehicle" and vehicle and vehicle.kind == "apc")
 
 var _cam_offset := Vector3(0, 1.6, 0)
+## Free look (PUBG's eye button / Alt): look around while running one way;
+## let go and the view swings back behind the body.
+var free_look := false
+var look_off := Vector2.ZERO      # how far the view is turned from where you face (yaw, pitch)
 var _coyote := 0.0                # seconds left to jump after running off an edge
 var _jump_buf := 0.0              # a jump pressed just before landing
 var _body_yaw := 0.0            # which way the body faces (lags the camera when standing still)
@@ -1331,13 +1344,16 @@ func _process(delta: float) -> void:
 	var head := body.get_global_transform_interpolated().origin + _cam_offset
 	head.y = maxf(head.y, Island.WATER + 0.6)
 	cam_rig.global_position = cam_rig.global_position.lerp(head, minf(1.0, delta * 20.0)) if state == "ground" else head
-	cam_rig.rotation = Vector3(0, yaw, 0)
+	if not free_look or aiming or firing:
+		look_off = look_off.lerp(Vector2.ZERO, minf(1.0, delta * (14.0 if aiming or firing else 9.0)))
+		if look_off.length() < 0.002: look_off = Vector2.ZERO
+	cam_rig.rotation = Vector3(0, yaw + look_off.x, 0)
 	# High up (plane, freefall, parachute) the whole island is in view.
 	var far := (1100.0 if Game.lite() else 1800.0 if Game.phone() else (4000.0 if not Game.laptop() else 2600.0)) * (2.5 if head.y > 120.0 else 1.0)
 	if camera.far != far: camera.far = far
 	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
 	_update_sway(delta)
-	cam_pivot.rotation = Vector3(pitch + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh
+	cam_pivot.rotation = Vector3(clampf(pitch + look_off.y, -1.35, 1.0) + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh
 	if _cam_low_water:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 

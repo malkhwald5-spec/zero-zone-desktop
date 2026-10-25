@@ -7,6 +7,9 @@ extends Node3D
 ##               for a minute (they explode where they land), ash in the air;
 ## - "quake":    the ground shakes for a few seconds, dust bursts from the
 ##               houses round you.
+## Besides these, every few minutes a red zone (as in PUBG): a circle inside
+## the play area marked on the map, then shelled for half a minute. A roof
+## and walls keep you safe; out in the open you'd better run.
 
 const KINDS := ["crash", "eruption", "quake"]
 ## Zone phases at whose start an event happens.
@@ -38,6 +41,7 @@ func _process(delta: float) -> void:
 		start(_pick())
 	_tick_eruption(delta)
 	_tick_quake(delta)
+	_tick_red(delta)
 
 func _pick() -> String:
 	var left := KINDS.filter(func(k): return not k in _used and (k != "eruption" or not _volcano_spots.is_empty()))
@@ -153,6 +157,61 @@ func _bomb() -> void:
 	world.add_child(rock)
 	rock.global_position = from
 	_bombs.append({"node": rock, "vel": vel})
+
+# ---------- Red zone ----------
+const RED_WARN := 8.0             # seconds marked on the map before the first shell
+const RED_TIME := 24.0            # seconds of shelling
+var red_t := 0.0                  # > 0 while a red zone is on (warning, then shelling)
+var red_center := Vector2.ZERO
+var red_radius := 0.0
+var _red_next := 170.0            # seconds until the next one
+var _shells: Array = []           # {pos, t}: a shell on its way down
+
+func red_on() -> bool:
+	return red_t > 0.0
+
+func in_red(p: Vector3) -> bool:
+	return red_t > 0.0 and Vector2(p.x, p.z).distance_to(red_center) < red_radius
+
+func _tick_red(delta: float) -> void:
+	for s in _shells.duplicate():
+		s.t -= delta
+		if s.t <= 0.0:
+			_shells.erase(s)
+			world.explode(s.pos, null)
+	var z = world.zone
+	if z.phase < 1 or z.state == "done" or z.radius < 120.0 or world.match_over: return
+	if red_t <= 0.0:
+		_red_next -= delta
+		if _red_next <= 0.0:
+			_red_next = randf_range(150.0, 230.0)
+			start_red()
+		return
+	red_t -= delta
+	if red_t < RED_TIME and randf() < delta * 2.4: _shell()
+
+## Marks a red zone somewhere on land inside the current circle.
+func start_red() -> void:
+	var z = world.zone
+	red_radius = clampf(z.radius * 0.35, 60.0, 120.0)
+	for k in 40:
+		var q: Vector2 = z.center + Vector2(randf() * maxf(0.0, z.radius - red_radius), 0).rotated(randf() * TAU)
+		if world.island.is_land(q.x, q.y):
+			red_center = q
+			red_t = RED_WARN + RED_TIME
+			if world.hud:
+				world.hud.show_banner("🔴 منطقة حمراء! قصف بعد ثواني — ادخل بيت أو اطلع منها")
+				world.hud.radio("منطقة حمراء على الخريطة! اللي برّا البيوت يتخبّى")
+			return
+
+## One shell: it lands where a line from the sky meets the first thing in
+## the way (a roof takes it, not the room under it).
+func _shell() -> void:
+	var q := red_center + Vector2(sqrt(randf()) * red_radius, 0).rotated(randf() * TAU)
+	var top := Vector3(q.x, 400.0, q.y)
+	var hit: Dictionary = world.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(top, Vector3(q.x, -50.0, q.y), 1))
+	var at: Vector3 = hit.position if not hit.is_empty() else Vector3(q.x, world.ground_height(Vector3(q.x, 0, q.y)), q.y)
+	_shells.append({"pos": at, "t": 0.0})
 
 # ---------- Earthquake ----------
 func _tick_quake(delta: float) -> void:

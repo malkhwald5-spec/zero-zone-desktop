@@ -329,6 +329,7 @@
 "الميناء الغربي": "West Port",
 "الناجي": "Survivor",
 "النتيجة": "Results",
+"النظرة الحرة": "Free look",
 "الوضع": "Mode",
 "اليوم %d": "Day %d",
 "اليوم: اقضِ على 5 خصوم": "Daily: Eliminate 5 enemies",
@@ -805,6 +806,7 @@
 "من: فريق %s Gaming Studios": "From: The %s Gaming Studios team",
 "منجم الكبريت": "Sulfur Mine",
 "منشّط": "Boost",
+"منطقة حمراء على الخريطة! اللي برّا البيوت يتخبّى": "Red zone on the map! Anyone outside, take cover",
 "منظار": "Scope",
 "مهام اليوم  ›": "Daily Missions  ›",
 "موتور": "Motorbike",
@@ -826,6 +828,8 @@
 "نصر": "Victory",
 "نصيحة": "Tip",
 "نصيحة: اقفز فوق المدينة لغنائم أكتر بس انتبه من الزحمة": "Tip: Drop on the city for more loot, but watch out for the crowd",
+"نظرة حرة": "Free look",
+"نظرة حرة (العين)": "Free look (eye)",
 "نقاط الرتبة: %d     %s": "Rank Points: %d     %s",
 "نقطة الريد دوت والهولو": "Red Dot & Holo Reticle",
 "نمر_EG": "Tiger_EG",
@@ -880,6 +884,8 @@
 "🔒 بدها حصن مستوى %d": "🔒 Requires fort level %d",
 "🔥 المعركة الأخيرة! القلوب انطفت — ما في رجعة، والمنطقة عم تسكّر عالنص": "🔥 Final battle! The Hearts are out — no respawns, and the zone is closing in",
 "🔥 انتقمت من %s! +300 ذهب": "🔥 Revenge on %s! +300 Gold",
+"🔴 أنت بالمنطقة الحمراء — تخبّى!": "🔴 You're in the red zone — take cover!",
+"🔴 منطقة حمراء! قصف بعد ثواني — ادخل بيت أو اطلع منها": "🔴 Red zone! Shelling in seconds — get indoors or get out",
 "🚩 احتلّيت %s! +200": "🚩 You captured %s! +200",
 "🚩 فريقك احتلّ %s": "🚩 Your team captured %s"
 }

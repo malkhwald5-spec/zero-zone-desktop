@@ -141,16 +141,16 @@ func team_size() -> int:
 ## Keyboard actions you can rebind (Settings → الأزرار), their default keys
 ## and names. Esc and 4-8 (heals) stay fixed.
 const KEY_ORDER := ["move_forward", "move_back", "move_left", "move_right", "sprint", "jump", "crouch", "prone",
-	"interact", "reload", "peek_l", "peek_r", "heal", "boost", "throw", "throw_kind", "slot1", "slot2", "slot3", "map", "bag", "cursor", "emote", "inspect"]
+	"interact", "reload", "peek_l", "peek_r", "heal", "boost", "throw", "throw_kind", "slot1", "slot2", "slot3", "map", "bag", "cursor", "emote", "inspect", "freelook"]
 const KEY_DEFAULTS := {"move_forward": KEY_W, "move_back": KEY_S, "move_left": KEY_A, "move_right": KEY_D,
 	"sprint": KEY_SHIFT, "jump": KEY_SPACE, "crouch": KEY_C, "prone": KEY_Z, "interact": KEY_F, "reload": KEY_R,
 	"peek_l": KEY_Q, "peek_r": KEY_E, "heal": KEY_H, "boost": KEY_Y, "throw": KEY_G, "throw_kind": KEY_T,
-	"slot1": KEY_1, "slot2": KEY_2, "slot3": KEY_3, "map": KEY_M, "bag": KEY_B, "cursor": KEY_CTRL, "emote": KEY_N, "inspect": KEY_K}
+	"slot1": KEY_1, "slot2": KEY_2, "slot3": KEY_3, "map": KEY_M, "bag": KEY_B, "cursor": KEY_CTRL, "emote": KEY_N, "inspect": KEY_K, "freelook": KEY_ALT}
 const KEY_NAMES := {"move_forward": "لقدام", "move_back": "لورا", "move_left": "يسار", "move_right": "يمين",
 	"sprint": "ركض", "jump": "قفز / نطّ فوق حيط", "crouch": "انحناء", "prone": "انبطاح", "interact": "التقاط / ركوب / فتح صندوق",
 	"reload": "تلقيم", "peek_l": "ميلان يسار", "peek_r": "ميلان يمين", "heal": "علاج", "boost": "منشّط",
 	"throw": "رمي قنبلة", "throw_kind": "نوع القنبلة", "slot1": "السلاح الأول", "slot2": "السلاح الثاني",
-	"slot3": "المسدس", "map": "الخريطة", "bag": "الحقيبة", "cursor": "إظهار الماوس", "emote": "تحية / رقصة", "inspect": "تفقّد السلاح"}
+	"slot3": "المسدس", "map": "الخريطة", "bag": "الحقيبة", "cursor": "إظهار الماوس", "emote": "تحية / رقصة", "inspect": "تفقّد السلاح", "freelook": "نظرة حرة (العين)"}
 
 ## The physical key for an action.
 func key(action: String) -> int:
@@ -347,7 +347,12 @@ func load_data() -> void:
 		if data.has(key) and typeof(data[key]) == TYPE_DICTIONARY:
 			var target: Dictionary = get(key)
 			for k in data[key]:
-				target[k] = data[key][k]
+				# Only values of the kind the game expects: a hand-edited or
+				# damaged save must not crash it later on.
+				var v = data[key][k]
+				if target.has(k) and typeof(v) != typeof(target[k]) and not (typeof(v) in [TYPE_INT, TYPE_FLOAT] and typeof(target[k]) in [TYPE_INT, TYPE_FLOAT]): continue
+				if typeof(v) == TYPE_FLOAT and not is_finite(v): continue
+				target[k] = v
 	# v3: Lola became the default character; switch older saves to her once.
 	if int(data.get("save_version", 1)) < 3:
 		profile.outfit = LOLA

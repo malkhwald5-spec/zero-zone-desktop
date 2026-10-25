@@ -18,6 +18,17 @@ var flash_t := 0.0                  # flashbang: seconds of white-out left
 var flash_len := 1.0
 var hit_head := false
 var dmg_dirs: Array = []     # [{dir: Vector3, t}]
+var sound_marks: Array = []  # [{pos: Vector3, kind: "shot" | "step", t}]: where you hear someone (PUBG Mobile's sound markers)
+
+## Someone fired or is walking near you: a marker round the crosshair points there.
+func sound_mark(pos: Vector3, kind: String) -> void:
+	for m in sound_marks:
+		if m.kind == kind and m.pos.distance_to(pos) < 5.0:
+			m.pos = pos
+			m.t = 1.6
+			return
+	if sound_marks.size() >= 12: sound_marks.pop_front()
+	sound_marks.append({"pos": pos, "kind": kind, "t": 1.6})
 var _banner_t := 0.0
 
 func _ready() -> void:
@@ -276,6 +287,8 @@ func _process(delta: float) -> void:
 		AudioServer.set_bus_volume_db(0, 0.0 if flash_t <= 0.0 else move_toward(vol, 0.0, delta * 18.0 / flash_len))
 	for d in dmg_dirs: d.t -= delta
 	dmg_dirs = dmg_dirs.filter(func(d): return d.t > 0.0)
+	for m in sound_marks: m.t -= delta
+	sound_marks = sound_marks.filter(func(m): return m.t > 0.0)
 	# On the spawn island the countdown sits where messages go: messages drop below it.
 	banner.position.y = (get_viewport().get_visible_rect().size.y * 0.21 + 112.0) if world.spawn != null else 120.0
 	if _banner_t > 0.0:
@@ -821,11 +834,13 @@ func _draw_hud() -> void:
 		_draw_gauges(c, sz, p)
 	elif p.state == "plane":
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.68), "اضغط F للقفز" if world.plane_over_land() else "الطائرة تقترب من الجزيرة…", 20)
+	var view_yaw: float = p.yaw + p.look_off.x
 	for d in dmg_dirs:
-		var rel: float = atan2(d.dir.x, -d.dir.z) + p.yaw
+		var rel: float = atan2(d.dir.x, -d.dir.z) + view_yaw
 		var center := sz * 0.5
 		var a := -rel - PI / 2.0
 		c.draw_arc(center, 120.0, a - 0.3, a + 0.3, 12, Color(1, 0.2, 0.2, minf(1.0, d.t)), 6.0)
+	if p.state in ["ground", "vehicle"]: _draw_sound_marks(c, sz, p, view_yaw)
 	if world.spawn != null:
 		# Waiting on the spawn island: how long until the plane leaves.
 		var left := ceili(maxf(world.spawn.left, 0.0))
@@ -953,11 +968,38 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	var dist: float = world.zone.distance_to_safe(p.global_position)
 	if dist > 0.0 and world.zone.state != "idle":
 		_text(c, Vector2(r.position.x + size * 0.5, zy + 40), "🏃 %d م للمنطقة الآمنة" % int(dist), 13, Color("9fd0ff"), HORIZONTAL_ALIGNMENT_CENTER, null, size)
+	elif world.events and world.events.in_red(p.global_position):
+		_text(c, Vector2(r.position.x + size * 0.5, zy + 40), "🔴 أنت بالمنطقة الحمراء — تخبّى!", 13, Color("ff7a6a"), HORIZONTAL_ALIGNMENT_CENTER, null, size)
 	_text(c, Vector2(r.end.x - 8, y + 17), "%d ms 📶" % (18 + int(world.time * 3.7) % 9), 12, Color("8ef08e"), HORIZONTAL_ALIGNMENT_RIGHT, null, 90)
 	if bool(Game.settings.get("show_fps", true)):
 		var fps := int(Engine.get_frames_per_second())
 		var fc := Color("8ef08e") if fps >= 55 else (Color("ffd34d") if fps >= 30 else Color("ff6a5a"))
 		_text(c, Vector2(r.position.x + size * 0.5, y + 17), "FPS %d" % fps, 13, fc, HORIZONTAL_ALIGNMENT_CENTER, UiKit.bold(), 90)
+
+## Sound markers on a ring round the crosshair: gunfire as a red-orange
+## bullet, footsteps as two white footprints; nearer ones stand out more.
+func _draw_sound_marks(c: Control, sz: Vector2, p: Player, view_yaw: float) -> void:
+	var center := sz * 0.5
+	for m in sound_marks:
+		var to: Vector3 = m.pos - p.global_position
+		var d := Vector2(to.x, to.z).length()
+		if d < 1.5: continue
+		var a := -(atan2(to.x, -to.z) + view_yaw) - PI / 2.0
+		var dir := Vector2(cos(a), sin(a))
+		var side := Vector2(-dir.y, dir.x)
+		var near := clampf(1.0 - d / (220.0 if m.kind == "shot" else 40.0), 0.25, 1.0)
+		var alpha := minf(1.0, m.t * 1.4) * (0.45 + 0.55 * near)
+		var at := center + dir * 158.0
+		if m.kind == "shot":
+			var col := Color(1.0, 0.42, 0.2, alpha)
+			c.draw_colored_polygon(PackedVector2Array([at + dir * 13.0, at - dir * 4.0 + side * 6.0, at - dir * 9.0 + side * 6.0, at - dir * 9.0 - side * 6.0, at - dir * 4.0 - side * 6.0]), col)
+			c.draw_arc(center, 158.0, a - 0.09 * (0.6 + near), a + 0.09 * (0.6 + near), 8, col, 2.0 + 2.0 * near)
+		else:
+			var col := Color(1, 1, 1, alpha * 0.9)
+			c.draw_circle(at + side * 4.0 - dir * 3.0, 3.6, col)
+			c.draw_circle(at - side * 4.0 + dir * 3.0, 3.6, col)
+			c.draw_circle(at + side * 4.0 + dir * 2.0, 1.8, col)
+			c.draw_circle(at - side * 4.0 + dir * 8.0, 1.8, col)
 
 func _arrow(c: Control, at: Vector2, ang: float, col: Color, s: float) -> void:
 	var f := Vector2(sin(ang), -cos(ang))
@@ -1498,6 +1540,10 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	if z.state != "idle":
 		_clipped_circle(c, r, _w2m(z.center), z.radius * k, Color(0.25, 0.5, 1.0, 0.95), 2.5)
 		_clipped_circle(c, r, _w2m(z.next_center), z.next_radius * k, Color.WHITE, 2.0)
+	if world.events and world.events.red_on():
+		var rc := _w2m(world.events.red_center)
+		if r.has_point(rc): c.draw_circle(rc, world.events.red_radius * k, Color(1, 0.1, 0.05, 0.28))
+		_clipped_circle(c, r, rc, world.events.red_radius * k, Color(1, 0.2, 0.15, 0.95), 2.0)
 	for ad in world.airdrops:
 		var q := _w2m(Vector2(ad.global_position.x, ad.global_position.z))
 		if r.has_point(q): _crate_icon(c, q, ad.landed)
@@ -1605,6 +1651,8 @@ func _draw_zone(c: Control, r: Rect2, pos: Vector3, s: float) -> void:
 	var nxt := ctr + (z.next_center - me) * s
 	_clipped_circle(c, r, cur, z.radius * s, Color(0.25, 0.5, 1.0, 0.95), 2.5)
 	_clipped_circle(c, r, nxt, z.next_radius * s, Color.WHITE, 1.8)
+	if world.events and world.events.red_on():
+		_clipped_circle(c, r, ctr + (world.events.red_center - me) * s, world.events.red_radius * s, Color(1, 0.2, 0.15, 0.95), 2.0)
 	# Line to the safe zone when outside it.
 	if z.distance_to_safe(pos) > 0.0:
 		var dir := (z.next_center - me).normalized()

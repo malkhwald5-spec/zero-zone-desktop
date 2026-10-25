@@ -43,6 +43,7 @@ func defaults(s: Vector2) -> Array:
 		{"id": "bag", "act": "bag", "icon": "", "label": "الحقيبة", "pos": Vector2(40, s.y - 64), "r": 24.0},
 		{"id": "heal", "act": "heal", "icon": "", "label": "علاج", "pos": Vector2(Hud.slot_rect(2, s).end.x + 38, s.y - 82), "r": 24.0},
 		{"id": "boost", "act": "boost", "icon": "", "label": "منشّط", "pos": Vector2(Hud.slot_rect(2, s).end.x + 96, s.y - 82), "r": 24.0},
+		{"id": "freelook", "act": "freelook", "icon": "", "label": "نظرة حرة", "pos": Vector2(s.x - 330, s.y * 0.36), "r": 26.0},
 		{"id": "map", "act": "map", "icon": "⌗", "label": "الخريطة", "pos": Vector2(s.x - 36, 330), "r": 24.0},
 		{"id": "emote", "act": "emote", "icon": "", "label": "رقصة", "pos": Vector2(s.x - 36, 400), "r": 22.0},
 		{"id": "pause", "act": "pause", "icon": "⚙", "label": "", "pos": Vector2(s.x - 245, 34), "r": 22.0},
@@ -145,7 +146,7 @@ func _input(event: InputEvent) -> void:
 		var t: Dictionary = touches[event.index]
 		if t.role == "joy":
 			_joy(event.position)
-		elif t.role == "look" or (t.role == "btn" and t.act == "fire"):
+		elif t.role == "look" or (t.role == "btn" and t.act in ["fire", "freelook"]):
 			p.add_look(event.relative.x * 1.4, event.relative.y * 1.4)
 		get_viewport().set_input_as_handled()
 	p.touch_move = Vector2(joy_vec.x, -joy_vec.y)
@@ -245,6 +246,14 @@ func _icon(act: String, c: Vector2, r: float) -> void:
 			draw_line(c + Vector2(0, -2) * k, c + Vector2(9, -12) * k, w, 3.0 * k)
 			draw_line(c + Vector2(0, 8) * k, c + Vector2(-6, 16) * k, w, 3.0 * k)
 			draw_line(c + Vector2(0, 8) * k, c + Vector2(6, 16) * k, w, 3.0 * k)
+		"freelook":
+			# An eye.
+			var eye := PackedVector2Array()
+			for i in 17:
+				var a := i * TAU / 16.0
+				eye.append(c + Vector2(cos(a) * 14.0, sin(a) * (7.0 if i <= 8 else 7.0)) * k)
+			draw_polyline(eye, w, 2.5 * k)
+			draw_circle(c, 4.5 * k, w)
 		"peek_l", "peek_r":
 			# A figure leaning out to that side.
 			var sd := -1.0 if act == "peek_l" else 1.0

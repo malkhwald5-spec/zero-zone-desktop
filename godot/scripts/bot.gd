@@ -804,7 +804,7 @@ func _move(delta: float) -> void:
 		_step_dist += sp * delta
 		if _step_dist > (1.9 if sp > 5.0 else 1.35):
 			_step_dist = 0.0
-			world.footstep(global_position, false, 0.9 if sp > 5.0 else 0.5)
+			world.footstep(global_position, false, 0.9 if sp > 5.0 else 0.5, self)
 	# Never walk into deep water (bridges are fine).
 	if global_position.y < Island.WATER - 0.3 and world.is_deep(global_position):
 		global_position = Vector3(before.x, global_position.y, before.z)
