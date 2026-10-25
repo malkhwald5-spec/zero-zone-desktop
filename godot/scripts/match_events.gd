@@ -180,7 +180,7 @@ func _tick_red(delta: float) -> void:
 			_shells.erase(s)
 			world.explode(s.pos, null)
 	var z = world.zone
-	if z.phase < 1 or z.state == "done" or z.radius < 120.0 or world.match_over: return
+	if world.war or z.phase < 1 or z.state == "done" or z.radius < 120.0 or world.match_over: return
 	if red_t <= 0.0:
 		_red_next -= delta
 		if _red_next <= 0.0:
