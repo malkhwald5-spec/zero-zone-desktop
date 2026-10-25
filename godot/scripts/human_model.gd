@@ -723,6 +723,11 @@ func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 				# The pack's front face sits against the back (its straps reach
 				# about 9 cm further forward, round the shoulders).
 				mi.position.z = _pack_back - (mi.mesh.get_aabb().size.z * 0.5 - 0.09) * mi.scale.x
+				if vest.visible and vest.mesh:
+					# Worn over a vest: out by however far the vest stands off the back.
+					var u := 1.0 / (_skel_scale * _cscale)
+					var outer: float = vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x
+					mi.position.z -= clampf(float(_measure(u).back1) - outer, 0.0, 0.12 * u)
 	if _back_id != "": _back_dirty = true      # clear of whatever is worn now
 
 static var _gear_cache := {}
@@ -732,9 +737,16 @@ static var _gear_cache := {}
 ## 3 tactical): Sketchfab models (see README) baked by tools/prep_prop.gd.
 ## [model front turned to +Z (radians about Y), how it is sized, size m].
 const GEAR_MODELS := {
-	"helmet1": [-PI / 2, "max", 0.32], "helmet2": [-PI / 2, "max", 0.28], "helmet3": [-PI / 2, "max", 0.31],
+	"helmet1": [-PI / 2, "max", 0.27], "helmet2": [-PI / 2, "max", 0.28], "helmet3": [-PI / 2, "max", 0.31],
 	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [0.0, "keep", 1.0],
-	"pack1": [PI, "y", 0.44], "pack2": [PI, "y", 0.52], "pack3": [PI, "y", 0.56],
+	"pack1": [PI, "y", 0.46], "pack2": [PI, "y", 0.52], "pack3": [PI, "y", 0.58],
+}
+## Fit and colour per model: [scale across, up, front-to-back; colour the
+## texture is multiplied by]. The soft vest hugs the body (dark police
+## blue-black), the small pack is a dark daypack rather than a school bag.
+const GEAR_FIT := {
+	"vest1": [Vector3(0.93, 1.0, 0.72), Color(0.62, 0.66, 0.8)], "vest2": [Vector3(0.97, 1.0, 0.88), Color.WHITE],
+	"vest3": [Vector3(1.0, 1.0, 0.92), Color.WHITE], "pack1": [Vector3(1.0, 1.0, 0.85), Color(0.42, 0.45, 0.4)],
 }
 
 ## Gear model in metres, +Z = the front of the body, centred on its middle.
@@ -752,13 +764,19 @@ static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
 	match cfg[1]:
 		"max": k = cfg[2] / maxf(a.size.x, maxf(a.size.y, a.size.z))
 		"y": k = cfg[2] / a.size.y
-	var xf := Transform3D(rot.scaled(Vector3.ONE * k), -a.get_center() * k)
+	var fit: Array = GEAR_FIT.get(key, [Vector3.ONE, Color.WHITE])
+	var bas := Basis.from_scale(fit[0] * k) * rot
+	var xf := Transform3D(bas, -(Transform3D(bas, Vector3.ZERO) * src.get_aabb()).get_center())
 	var mesh := ArrayMesh.new()
 	for i in src.get_surface_count():
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		st.append_from(src, i, xf)
-		st.set_material(src.surface_get_material(i))
+		var mat := src.surface_get_material(i)
+		if fit[1] != Color.WHITE and mat is BaseMaterial3D:
+			mat = mat.duplicate()
+			(mat as BaseMaterial3D).albedo_color *= fit[1]
+		st.set_material(mat)
 		st.commit(mesh)
 	sc.free()
 	_gear_cache[key] = mesh
@@ -1462,7 +1480,7 @@ func _phase() -> float:
 	return 0.0
 
 const AIM_PIVOT := Vector3(0.0, 1.4, 0.05)     # between the shoulders (model space)
-const WSCALE := 0.85                            # weapons sized to this character's reach
+const WSCALE := 1.0                            # weapons sized to this character's reach
 
 ## Where the weapon should be for this pose (model space), then eased there.
 ## Positions are the pistol grip (right hand); rotations are pitch, yaw, roll.
@@ -1492,13 +1510,14 @@ func _place_gun(pose: String, delta: float) -> void:
 		# Ready: muzzle a little down and inwards; lower and across the body
 		# when running (low ready).
 		# Low ready, as in the mobile shooters: stock under the arm, muzzle well down.
-		# The rifle across the body: stock by the right ribs, muzzle down and
-		# to the left, canted a little, so it shows past the left side from behind.
-		pos = Vector3(0.15, 1.21, -0.2) if not pistol else Vector3(0.12, 1.15, -0.28)
-		rot = Vector3(-0.36, 0.58, 0.22) if not pistol else Vector3(-0.6, 0.2, 0)
+		# The rifle across the chest: stock under the right arm, muzzle down
+		# and to the left, canted a little, so it shows past the left side
+		# from behind.
+		pos = Vector3(0.14, 1.29, -0.22) if not pistol else Vector3(0.12, 1.15, -0.28)
+		rot = Vector3(-0.3, 0.46, 0.2) if not pistol else Vector3(-0.6, 0.2, 0)
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
-			pos = pos.lerp(Vector3(0.15, 1.17, -0.2), low)
+			pos = pos.lerp(Vector3(0.14, 1.24, -0.22), low)
 			rot = rot.lerp(Vector3(-0.48, 0.7, 0.32), low)
 		pitch_with_aim = low < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
