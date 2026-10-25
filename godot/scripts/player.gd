@@ -412,6 +412,7 @@ func strip_for_flight() -> void:
 	if stance != "stand": _force_stance("stand")
 	model.set_weapon("")
 	model.set_back_weapon("")
+	model.set_side_weapon("")
 	_refresh_gear()
 
 func open_chute() -> void:
@@ -467,6 +468,8 @@ func switch_slot(i: int) -> void:
 func _refresh_back() -> void:
 	var other = slots[1 - active] if active in [0, 1] else (slots[0] if active == 2 else null)
 	model.set_back_weapon(other.id if other != null else "")
+	# The pistol in its holster on the thigh when something else is in hand.
+	model.set_side_weapon(slots[2].id if slots[2] != null and active != 2 else "")
 
 var _wkey := ""
 var _wcache := {}

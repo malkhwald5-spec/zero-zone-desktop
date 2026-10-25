@@ -519,10 +519,165 @@ var _back_dirty := false
 ## (worked out in model space once the skeleton is posed).
 func _place_back() -> void:
 	_back_dirty = false
-	if _back_att == null or _back_att.get_child_count() == 0: return
-	var holder: Node3D = _back_att.get_child(_back_att.get_child_count() - 1)
+	if _back_holder == null or not is_instance_valid(_back_holder): return
+	var holder := _back_holder
+	var s2: int = _bone.get("Spine2", 0)
+	var rest := _bone_rest_model(s2)
+	var u := 1.0 / (_skel_scale * _cscale)
+	# How far out from the back: past the shirt, the vest and the backpack
+	# (whatever is worn now), measured in the upper back's bone space.
+	var z := _pack_back - 0.045 * u
+	if vest and vest.visible and vest.mesh:
+		z = minf(z, vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x - 0.03 * u)
+	if pack and pack.visible and pack.mesh:
+		# Against the pack's outside (its middle bulges out; the gun's
+		# magazine sits into the rounded edge).
+		z = minf(z, pack.position.z - pack.mesh.get_aabb().size.z * 0.5 * pack.scale.x + 0.04 * u)
+	var at: Vector3 = rest * Vector3(0, -0.06 * u, z)
+	# Slung diagonally, muzzle up over the left shoulder, top of the gun facing out.
 	var b := Basis.looking_at(Vector3(-0.55, 0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
-	holder.global_transform = global_transform * Transform3D(b, Vector3(0.02, 1.2, 0.2) + b * Vector3(0, 0, 0.25))
+	_back_base = rest.affine_inverse() * Transform3D(b, at + b * Vector3(0, 0, 0.12))
+	holder.transform = _back_base
+	_back_pivot = _back_base * Vector3(0, 0, -0.38)      # up at the shoulder, where the sling holds it
+	_strap(holder)
+	_chest_band()
+
+## A bone's rest pose in model space (the body's tilt and lift left out).
+func _bone_rest_model(b: int) -> Transform3D:
+	return body.transform.affine_inverse() * _sk_to_model() * sk.get_bone_global_rest(b)
+
+var _back_holder: Node3D = null
+var _back_base := Transform3D()
+var _back_pivot := Vector3.ZERO
+var _sway := Vector2.ZERO          # back gun swing: x side to side, y up and down (radians)
+var _sway_v := Vector2.ZERO
+var _chest_prev := Vector3.INF
+var _chest_vel := Vector3.ZERO
+
+## The slung gun lags behind the body and swings back: a damped spring
+## pushed by the chest's acceleration (steps, setting off, stopping, jumps).
+func _sway_back(delta: float) -> void:
+	if _back_holder == null or not is_instance_valid(_back_holder) or delta <= 0.0: return
+	var holder := _back_holder
+	var p := _back_att.global_position
+	var v := (p - _chest_prev) / delta if _chest_prev != Vector3.INF else Vector3.ZERO
+	_chest_prev = p
+	if v.length() > 30.0: v = _chest_vel        # moved in one go (teleported, seated)
+	var acc := ((v - _chest_vel) / delta).limit_length(60.0)
+	_chest_vel = v
+	var a := global_basis.inverse() * acc
+	var force := Vector2(-a.x, a.y) * 0.006
+	_sway_v += (force - _sway * 70.0 - _sway_v * 6.0) * delta
+	_sway = (_sway + _sway_v * delta).limit_length(0.3)
+	# In the upper back's space the back is -Z: swing about it (side to side)
+	# and about the shoulders' line (bouncing), round the sling point.
+	var r := Basis(Vector3(0, 0, 1), _sway.x) * Basis(Vector3(1, 0, 0), _sway.y)
+	holder.transform = Transform3D(r, _back_pivot - r * _back_pivot) * _back_base
+
+## The sling along the slung gun: a dark strap from the stock to the front,
+## bowed out a little from it.
+func _strap(holder: Node3D) -> void:
+	var old := holder.get_node_or_null("Sling")
+	if old:
+		holder.remove_child(old)
+		old.queue_free()
+	var sling := Node3D.new()
+	sling.name = "Sling"
+	holder.add_child(sling)
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color("2b2a24")
+	m.roughness = 0.9
+	var n := 7
+	for i in n:
+		var t0 := float(i) / n
+		var t1 := float(i + 1) / n
+		var p0 := Vector3(0.0, 0.045 + sin(t0 * PI) * 0.035, lerpf(0.28, -0.42, t0))
+		var p1 := Vector3(0.0, 0.045 + sin(t1 * PI) * 0.035, lerpf(0.28, -0.42, t1))
+		var seg := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.028, 0.006, p0.distance_to(p1) + 0.004)
+		seg.mesh = bm
+		seg.material_override = m
+		seg.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		seg.transform = Transform3D(Basis.looking_at((p1 - p0).normalized(), Vector3.UP), (p0 + p1) * 0.5)
+		sling.add_child(seg)
+
+var _band: MeshInstance3D
+
+## The sling's strap across the chest, from the left shoulder down to the
+## right hip (over the vest when one is worn). Only with a gun on the back.
+func _chest_band() -> void:
+	var s1: int = _bone.get("Spine1", 0)
+	if _band == null:
+		var att := BoneAttachment3D.new()
+		att.bone_name = sk.get_bone_name(s1)
+		sk.add_child(att)
+		_band = MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.04, 0.46, 0.006)
+		_band.mesh = bm
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color("3d3a2c")
+		m.roughness = 0.9
+		_band.material_override = m
+		_band.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		att.add_child(_band)
+	var u := 1.0 / (_skel_scale * _cscale)
+	var m1: Dictionary = _measure(u)
+	var rest := _bone_rest_model(s1)
+	var out := 0.055 if vest and vest.visible else 0.03
+	var c: Vector3 = rest * Vector3(0, 0.03 * u, float(m1.front1) + out * u)
+	var y := Vector3(-0.55, 0.83, 0.0).normalized()      # up to the left shoulder
+	var zf := Vector3(0, 0, -1)                          # facing out of the chest
+	var x := y.cross(zf).normalized()
+	_band.transform = rest.affine_inverse() * Transform3D(Basis(x, y, x.cross(y)), c)
+	_band.visible = _back_id != ""
+
+var _side_att: BoneAttachment3D
+var _side_id := ""
+
+## The pistol in a holster on the right thigh (the pan hung on the small of
+## the back) while another gun is in hand ("" = none).
+func set_side_weapon(id: String) -> void:
+	if id == _side_id: return
+	_side_id = id
+	var melee: bool = id != "" and Game.WEAPONS.has(id) and Game.WEAPONS[id].cls == "melee"
+	var bone: int = _bone.get("Spine" if melee else "RightUpLeg", -1)
+	if bone < 0: return
+	if _side_att == null:
+		_side_att = BoneAttachment3D.new()
+		sk.add_child(_side_att)
+	_side_att.bone_name = sk.get_bone_name(bone)
+	for c in _side_att.get_children(): c.queue_free()
+	if id == "": return
+	var holder := Node3D.new()
+	holder.add_child(WeaponModels.build(id))
+	_side_att.add_child(holder)
+	var rest := _bone_rest_model(bone)
+	var k := _cscale / 0.92          # sized like Lola (0.92)
+	var b: Basis
+	var at: Vector3
+	if melee:
+		# Handle down to the right, the pan's face against the back.
+		b = Basis.looking_at(Vector3(0.6, -0.8, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+		at = rest.origin + Vector3(-0.05 * k, 0.05 * k, 0.16 * k)
+	else:
+		# Muzzle down, the grip to the back, the side of the gun against the thigh.
+		b = Basis.looking_at(Vector3(0, -1, 0), Vector3(0, 0, -1)).scaled(Vector3.ONE * WSCALE)
+		at = rest.origin + Vector3(0.1 * k, -0.16 * k, 0.02)
+	holder.transform = rest.affine_inverse() * Transform3D(b, at)
+	if melee: return
+	# A dark holster round it.
+	var hm := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.05, 0.1, 0.2)
+	hm.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color("2a2724")
+	mat.roughness = 0.85
+	hm.material_override = mat
+	hm.position = Vector3(0, -0.01, -0.05)
+	holder.add_child(hm)
 
 ## Weapon slung diagonally across the back ("" = none).
 func set_back_weapon(id: String) -> void:
@@ -533,10 +688,14 @@ func set_back_weapon(id: String) -> void:
 		_back_att.bone_name = sk.get_bone_name(_bone.Spine2)
 		sk.add_child(_back_att)
 	for c in _back_att.get_children(): c.queue_free()
+	_back_holder = null
+	_sway = Vector2.ZERO
+	_sway_v = Vector2.ZERO
+	if _band: _band.visible = id != ""
 	if id == "": return
-	var holder := Node3D.new()
-	holder.add_child(WeaponModels.build(id))
-	_back_att.add_child(holder)
+	_back_holder = Node3D.new()
+	_back_holder.add_child(WeaponModels.build(id))
+	_back_att.add_child(_back_holder)
 	_back_dirty = true
 
 ## World position of the muzzle (bullets and flashes start here).
@@ -564,6 +723,7 @@ func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 				# The pack's front face sits against the back (its straps reach
 				# about 9 cm further forward, round the shoulders).
 				mi.position.z = _pack_back - (mi.mesh.get_aabb().size.z * 0.5 - 0.09) * mi.scale.x
+	if _back_id != "": _back_dirty = true      # clear of whatever is worn now
 
 static var _gear_cache := {}
 
@@ -1050,6 +1210,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	if turn_dir != 0: _turn_step()
 	_base_blend(delta)
 	if _back_dirty and is_inside_tree(): _place_back()
+	if detail and _back_id != "": _sway_back(delta)
 	body.position = Vector3.ZERO
 	body.rotation = Vector3.ZERO
 	_gun_drop = 0.0
