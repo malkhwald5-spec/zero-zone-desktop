@@ -33,15 +33,24 @@ func _run() -> void:
 	# The lobby first.
 	tree.change_scene_to_file("res://scenes/lobby.tscn")
 	await wait(5.0)
-	tree.current_scene = null
-	tree.change_scene_to_file("res://scenes/world.tscn")
-	await wait(0.3)
-	var world = tree.current_scene
-	for i in 2000:
-		if world.ready_done: break
+	print("REEL lobby done f=", Engine.get_process_frames())
+	# Press start, as a player would: matchmaking, the loading screen, the match.
+	tree.current_scene._start()
+	var world = null
+	for i in 3000:
+		world = tree.current_scene
+		if world and world.get("ready_done"): break
 		await wait(0.1)
+	print("REEL world ready f=", Engine.get_process_frames())
 	var p: Player = world.player
 	p.health = 1e9
+	# A look round the spawn island, then the countdown runs out and all board.
+	if world.spawn != null:
+		await pan(p, 1.2, 4.0)
+		world.spawn.left = 0.5
+		for i in 300:
+			if world.spawn == null and p.state == "plane": break
+			await wait(0.1)
 	# Riding the plane, then out.
 	await pan(p, 0.8, 3.0)
 	p.jump_from_plane()
