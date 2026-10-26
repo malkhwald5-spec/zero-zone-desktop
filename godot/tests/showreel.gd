@@ -14,6 +14,29 @@ func _ready() -> void:
 	Game.wallet.login_date = Game.today()
 	_run.call_deferred()
 
+var _p: Player = null
+
+## The hero of the video doesn't die in it.
+func _process(_d: float) -> void:
+	if _p and is_instance_valid(_p) and _p.state != "dead": _p.health = 100.0
+
+## The way along the ground with the most open space ahead (no running into walls).
+func open_yaw(world: Node, p: Player) -> float:
+	var best := p.yaw
+	var best_d := -1.0
+	var space := p.get_world_3d().direct_space_state
+	for i in 24:
+		var y := p.yaw + TAU * float(i) / 24.0
+		var d := Vector3(-sin(y), 0, -cos(y))
+		var from := p.global_position + Vector3(0, 1.0, 0)
+		var q := PhysicsRayQueryParameters3D.create(from, from + d * 60.0, 1, [p.get_rid()])
+		var h := space.intersect_ray(q)
+		var free: float = 60.0 if h.is_empty() else from.distance_to(h.position)
+		if free > best_d:
+			best_d = free
+			best = y
+	return best
+
 ## Turns the view smoothly by `by` radians over `sec` seconds.
 func pan(p: Player, by: float, sec: float, pitch_to := INF) -> void:
 	var y0 := p.yaw
@@ -43,7 +66,7 @@ func _run() -> void:
 		await wait(0.1)
 	print("REEL world ready f=", Engine.get_process_frames())
 	var p: Player = world.player
-	p.health = 1e9
+	_p = p
 	# A look round the spawn island, then the countdown runs out and all board.
 	if world.spawn != null:
 		await pan(p, 1.2, 4.0)
@@ -74,16 +97,20 @@ func _run() -> void:
 	p.equip("helmet", 2, 150.0)
 	p.equip("pack", 2, 0.0)
 	p.pitch = -0.1
-	await wait(1.0)
+	await wait(0.5)
+	await pan(p, wrapf(open_yaw(world, p) - p.yaw, -PI, PI), 1.0)
+	await wait(0.3)
 	# Run down the street.
 	p.touch_move = Vector2(0, 1)
 	p.sprinting = true
-	await pan(p, 0.7, 3.0)
+	await pan(p, 0.25, 3.0)
 	p.sprinting = false
 	p.touch_move = Vector2(1, 0.3)
 	await wait(1.5)
 	p.touch_move = Vector2.ZERO
-	await wait(0.6)
+	await wait(0.4)
+	await pan(p, wrapf(open_yaw(world, p) - p.yaw, -PI, PI), 0.8)
+	await wait(0.4)
 	# A target in front: aim and fire.
 	var dummy: Bot = null
 	for b in world.bots:
@@ -136,8 +163,10 @@ func _run() -> void:
 	if ev:
 		world.zone.phase = 1
 		ev.start_red()
-		ev.red_center = Vector2(p.global_position.x, p.global_position.z) + Vector2(fwd.x, fwd.z) * 40.0
-		ev.red_radius = 45.0
+		# Close enough to watch, far enough to live.
+		var f2 := Vector3(-sin(p.yaw), 0, -cos(p.yaw))
+		ev.red_center = Vector2(p.global_position.x, p.global_position.z) + Vector2(f2.x, f2.z) * 60.0
+		ev.red_radius = 28.0
 		await wait(2.5)
 		ev.red_t = MatchEvents.RED_TIME
 		for k in 10:
@@ -161,5 +190,5 @@ func _run() -> void:
 		await wait(2.5)
 		p.touch_move = Vector2.ZERO
 		await wait(1.0)
-	print("REEL DONE")
+	print("REEL DONE state=", p.state)
 	tree.quit()
