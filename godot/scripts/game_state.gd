@@ -223,6 +223,7 @@ var spawn_island := false         # the next match starts on the waiting island 
 func _ready() -> void:
 	load_data()
 	apply_lang()
+	_master_limiter()
 	apply_fps.call_deferred()
 	# The phone's back button must not close the game: the scene decides
 	# (pause in a match, close a page or ask in the lobby).
@@ -242,6 +243,17 @@ func _notification(what: int) -> void:
 		if sc and sc.has_method("app_paused"): sc.app_paused()
 
 var _ui_snd := {}
+
+## Gunfire, explosions and a car all at once must not clip into crackle:
+## a gentle limiter at the end of everything holds the peaks under 0 dB.
+func _master_limiter() -> void:
+	for i in AudioServer.get_bus_effect_count(0):
+		if AudioServer.get_bus_effect(0, i) is AudioEffectHardLimiter: return
+	var lim := AudioEffectHardLimiter.new()
+	lim.ceiling_db = -1.0
+	lim.pre_gain_db = -3.0
+	lim.release = 0.12
+	AudioServer.add_bus_effect(0, lim)
 
 ## A menu sound (assets/sounds/<name>.ogg), played even while paused.
 func ui_sound(name: String, pitch := 1.0, volume := -6.0, delay := 0.0) -> void:
