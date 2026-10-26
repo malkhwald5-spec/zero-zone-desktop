@@ -29,6 +29,7 @@ func pan(p: Player, by: float, sec: float, pitch_to := INF) -> void:
 func _run() -> void:
 	var tree := get_tree()
 	reparent(tree.root)
+	tree.current_scene = null
 	# The lobby first.
 	tree.change_scene_to_file("res://scenes/lobby.tscn")
 	await wait(5.0)
