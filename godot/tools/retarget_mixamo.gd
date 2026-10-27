@@ -36,7 +36,9 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"prun_f": "pistol_run", "prun_b": "pistol_run_backward", "prun_fr": "pistol_run_arc", "prun_fl": "pistol_run_arc_2",
 	"prun_bl": "pistol_run_backward_arc", "prun_br": "pistol_run_backward_arc_2", "pstrafe_l": "pistol_strafe", "pstrafe_r": "pistol_strafe_2",
 	# Empty hands (Mixamo Locomotion Pack and single clips, files renamed u_*).
-	"u_walk": "u_walking", "u_run": "u_running", "u_sprint": "u_fast_run", "u_idle": "u_idle", "u_back": "u_walking_backwards",
+	# Walking, running and sprinting empty-handed: real people (CMU motion
+	# capture, one whole stride each, see tools/bvh2glb.py "loop").
+	"u_walk": "cmu_16_21", "u_run": "cmu_16_46", "u_sprint": "cmu_09_06", "u_idle": "u_idle", "u_back": "u_walking_backwards",
 	"u_walk_l": "u_strafe_walk_left", "u_walk_r": "u_strafe_walk_right", "u_run_l": "u_strafe_run_left", "u_run_r": "u_strafe_run_right",
 	"u_jump": "u_jump",
 	# Weapon switching, pistol, prone death, door, second throw, vault.

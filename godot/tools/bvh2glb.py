@@ -59,6 +59,9 @@ def main():
 	src, dst = sys.argv[1], sys.argv[2]
 	t0 = float(sys.argv[3]) if len(sys.argv) > 3 else 0.0
 	t1 = float(sys.argv[4]) if len(sys.argv) > 4 else 1e9
+	# "loop": cut one whole gait cycle (two steps) out of [t0, t1] whose last
+	# pose runs back into its first, so the clip repeats without a jump.
+	loop = len(sys.argv) > 5 and sys.argv[5] == "loop"
 	joints, vals, ft = parse(src)
 	nj = len(joints)
 	nf = vals.shape[0]
@@ -89,11 +92,34 @@ def main():
 	src_fps = 1.0 / ft
 	step = max(1, int(round(src_fps / 30.0)))
 	idx = [f for f in range(1, nf, step) if t0 <= (f - 1) * ft <= t1]
+	if loop:
+		# Pose of each frame: every joint's rotation (the hips' without its
+		# heading), plus the hips' height; find the closest pair 0.55..1.6 s apart.
+		def feat(f):
+			q = rots[f].copy()
+			hr = R.from_quat(q[0]).as_euler("YXZ")
+			q[0] = R.from_euler("YXZ", [0.0, hr[1], hr[2]]).as_quat()
+			q = q * np.sign(q[:, 3:4] + 1e-9)
+			return np.concatenate([q.flatten(), [root_pos[f, 1] * scale * 4.0]])
+		F = {f: feat(f) for f in idx}
+		best = (1e9, idx[0], idx[-1])
+		for a_i, fa in enumerate(idx):
+			for fb in idx[a_i + 1:]:
+				dt = (fb - fa) * ft
+				if dt < 0.55: continue
+				if dt > 1.6: break
+				d = float(np.sum((F[fa] - F[fb]) ** 2))
+				if d < best[0]: best = (d, fa, fb)
+		idx = [f for f in idx if best[1] <= f < best[2]]
+		print("loop %.2f-%.2fs err %.3f" % ((best[1] - 1) * ft, (best[2] - 1) * ft, best[0]))
 	times = np.array([(f - idx[0]) * ft for f in idx], dtype=np.float32)
 	# Turn the whole clip so the actor starts out facing +Z (the way the T-pose
 	# faces, toes forward), starting at the origin; leave the hips height.
 	hips_r = R.from_quat(rots[idx[0]:idx[0] + 6, 0])
 	fwd = hips_r.apply([0.0, 0.0, 1.0]).mean(axis=0)
+	if loop:
+		# A stride cycle: the way it travels (the hips swing about inside it).
+		fwd = root_pos[idx[-1]] - root_pos[idx[0]]
 	yaw = math.atan2(fwd[0], fwd[2])
 	turn = R.from_euler("Y", -yaw)
 	for f in range(1, nf):
