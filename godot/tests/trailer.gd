@@ -3,8 +3,11 @@ extends Node
 ## at a time (each part is its own recording; the edit puts them together):
 ## godot --path godot --write-movie air.avi --fixed-fps 30 res://tests/trailer.tscn -- --part=air
 ## Parts: air (opening lines, the island, the plane, the jump, the title),
-## ground (push-off, sprint, a hurdle, a kill) and war (the shelling, a car
-## chase, the last look over the island, the end card). Free cinematic cameras
+## ground (push-off, sprint, a hurdle, a kill), urban (up an apartment block's
+## stairs, a fight from its roof, the warehouse gallery) and war (the
+## shelling, a car chase, the last look over the island, the end card).
+## Ground-level shots are hand-held (a slow drift plus kicks on blasts and
+## shots) with a shallow focus, like a film camera. Free cinematic cameras
 ## over a real match: HUD off, film bars. "TRAILER" lines give the timeline;
 ## "TRAILER_START <frame>" is the movie frame where the part begins.
 
@@ -20,6 +23,9 @@ var _t0 := 0.0           # when the current shot began
 var _clock := 0.0        # film time of this part
 var _frames := 0         # frames written so far (the movie writer writes one per frame)
 const GOLD := Color("ffb321")
+var shake := 0.0         # hand-held drift for the current shot (0 = on a tripod)
+var _kick := 0.0         # a jolt that dies away (a blast, a shot)
+var _dof: CameraAttributesPractical
 
 func wait(sec: float) -> void:
 	await get_tree().create_timer(sec, true, false, true).timeout
@@ -44,7 +50,29 @@ func _process(delta: float) -> void:
 	_frames += 1
 	_clock += delta / maxf(Engine.time_scale, 0.01)
 	if p and is_instance_valid(p) and p.state != "dead": p.health = 100.0
-	if _upd.is_valid() and cam and is_instance_valid(cam): _upd.call(_clock - _t0)
+	if _upd.is_valid() and cam and is_instance_valid(cam):
+		_upd.call(_clock - _t0)
+		_handheld(delta / maxf(Engine.time_scale, 0.01))
+
+## Operator drift (a few slow, unrelated waves) and the jolt of a kick.
+func _handheld(dt: float) -> void:
+	var c := _clock
+	var a := shake * 0.0045
+	var k := _kick * _kick * 0.03
+	cam.rotate_object_local(Vector3.RIGHT, a * (sin(c * 1.7) * 0.6 + sin(c * 4.1 + 1.0) * 0.3 + sin(c * 9.3) * 0.1) + k * sin(c * 41.0))
+	cam.rotate_object_local(Vector3.UP, a * (sin(c * 1.3 + 2.0) * 0.6 + sin(c * 3.7) * 0.3) + k * sin(c * 33.0 + 1.3))
+	cam.rotate_object_local(Vector3.FORWARD, a * 0.5 * sin(c * 0.9 + 0.5) + k * 0.5 * sin(c * 27.0))
+	_kick = move_toward(_kick, 0.0, dt * 2.2)
+
+func kick(k := 1.0) -> void:
+	_kick = maxf(_kick, k)
+
+## Focus: things past `far` metres go soft (0 = all sharp, for the wide shots).
+func focus(far: float) -> void:
+	_dof.dof_blur_far_enabled = far > 0.0
+	_dof.dof_blur_far_distance = maxf(far, 1.0)
+	_dof.dof_blur_far_transition = maxf(far, 1.0) * 1.5
+	_dof.dof_blur_amount = 0.08
 
 ## A new shot: the camera follows `f(t)` (t = seconds into the shot).
 func shot(f: Callable, name: String) -> void:
@@ -164,12 +192,16 @@ func _run() -> void:
 	cam = Camera3D.new()
 	cam.fov = 55.0
 	cam.far = 4000.0
+	_dof = CameraAttributesPractical.new()
+	_dof.dof_blur_far_enabled = false
+	cam.attributes = _dof
 	world.add_child(cam)
 	cam.current = true
 	match part:
 		"air": await _air()
 		"ground": await _ground()
 		"war": await _war()
+		"urban": await _urban()
 	print("TRAILER %.2f end" % _clock)
 	print("TRAILER DONE")
 	tree.quit()
@@ -252,6 +284,8 @@ func _ground() -> void:
 	p.equip("pack", 2, 0.0)
 	await wait(1.5)
 	_start()
+	shake = 1.0
+	focus(25.0)
 	# 1: standing start, she pushes off straight at the camera, which backs away low.
 	var f := Vector3(-sin(p.yaw), 0, -cos(p.yaw))
 	var r := f.cross(Vector3.UP)
@@ -363,7 +397,9 @@ func _ground() -> void:
 		cam.look_at(e_at, Vector3.UP), "aim")
 	await wait(0.8)
 	p.action("fire", true)
-	await wait(0.9)
+	for k in 6:
+		kick(0.25)
+		await wait(0.15)
 	p.action("fire", false)
 	enemy.take_damage(999.0, p)
 	enemy.set_physics_process(true)      # so he goes down (his body is posed there)
@@ -408,8 +444,10 @@ func _war() -> void:
 		var o: Vector3 = rr - f * 58.0 + side * 24.0 + Vector3(0, 13.0 - t * 1.0, 0)
 		cam.global_position = o
 		cam.look_at(rr + Vector3(0, 4.0, 0), Vector3.UP), "shelling")
+	shake = 0.7
 	fade_to(0.0, 0.3)
 	for k in 8:
+		if k % 2 == 0: kick(0.35)
 		ev._shell()
 		if k % 3 == 1: ev._shell()
 		await wait(0.3)
@@ -422,6 +460,7 @@ func _war() -> void:
 		cam.look_at(near + Vector3(0, 2.0, 0), Vector3.UP), "impact")
 	await wait(0.35)
 	world.explode(near, null)
+	kick(1.0)
 	slow(0.3)
 	await wait(1.6)
 	slow(1.0)
@@ -449,6 +488,7 @@ func _war() -> void:
 		var boom: Vector3 = car.global_position - car.global_basis.z * -6.0 + car.global_basis.x * 7.0
 		boom.y = ground(boom)
 		world.explode(boom, null)
+		kick(0.8)
 		p.touch_move = Vector2(0.35, 1.0)
 		await wait(2.2)
 		p.touch_move = Vector2.ZERO
@@ -485,6 +525,8 @@ func _war() -> void:
 		ev._shell()
 		ev._shell()
 		await wait(0.75)
+	shake = 0.4
+	focus(0.0)
 	# End card.
 	fade_to(1.0, 0.5)
 	await wait(0.6)
@@ -492,3 +534,201 @@ func _war() -> void:
 	print("TRAILER %.2f endcard" % _clock)
 	text("ZERO ZONE", "حمّلها هلأ • كمبيوتر وأندرويد", 4.5, 100, GOLD)
 	await wait(4.8)
+
+# ------------------------------------------------------------------ urban
+## A man standing still at `at`, facing `yaw`, ready to be shot.
+func enemy_at(at: Vector3, yaw: float, skip: Array = []) -> Bot:
+	for b in world.bots:
+		if b.dead or b in skip: continue
+		b.set_physics_process(false)
+		b.state = "ground"
+		b.visible = true
+		b.shape.disabled = false
+		b.health = 70.0
+		b.global_position = Vector3(at.x, ground(at) + 0.05, at.z)
+		b.yaw = yaw
+		b.model.rotation.y = yaw + PI
+		return b
+	return null
+
+## Stair flight `lv` of an apartment block: [foot, top, along] in world space.
+func flight(blk: Dictionary, lv: int) -> Array:
+	var hx: float = blk.size.x * 0.5
+	var hz: float = blk.size.y * 0.5
+	var w: int = blk.stair if lv % 2 == 1 else (int(blk.stair) + 2) % 4
+	var along_x := w == 0 or w == 2
+	var length: float = blk.size.x if along_x else blk.size.y
+	var band: float = [-hz + WorldBuilder.WALL_T + WorldBuilder.STAIR_W * 0.5, hx - WorldBuilder.WALL_T - WorldBuilder.STAIR_W * 0.5,
+		hz - WorldBuilder.WALL_T - WorldBuilder.STAIR_W * 0.5, -hx + WorldBuilder.WALL_T + WorldBuilder.STAIR_W * 0.5][w]
+	var start := -length * 0.5 + WorldBuilder.WALL_T + 1.2
+	var y0 := float(blk.floor) + (lv - 1) * WorldBuilder.STOREY_H
+	var c: Vector2 = blk.pos
+	var foot := Vector3(c.x + start - 0.6, y0, c.y + band) if along_x else Vector3(c.x + band, y0, c.y + start - 0.6)
+	var dir := Vector3(1, 0, 0) if along_x else Vector3(0, 0, 1)
+	return [foot, foot + dir * (WorldBuilder.STAIR_RUN + 1.2) + Vector3(0, WorldBuilder.STOREY_H, 0), dir]
+
+func _urban() -> void:
+	# The apartment block nearest the biggest town.
+	var big: Dictionary = world.island.towns[0]
+	for tw in world.island.towns:
+		if tw.kind != "fort" and float(tw.r) > float(big.r): big = tw
+	var blk: Dictionary = {}
+	for b in world.island.buildings:
+		if b.get("kind", "") == "apartment" and (blk.is_empty() or b.pos.distance_to(big.pos) < blk.pos.distance_to(big.pos)): blk = b
+	var storeys: int = blk.storeys
+	var c: Vector2 = blk.pos
+	var roof_y := float(blk.floor) + storeys * WorldBuilder.STOREY_H
+	put(c + Vector2(blk.size.x, 0))
+	p.give_weapon("m416", 30)
+	p.ammo["556"] = 240
+	p.equip("vest", 2, 200.0)
+	p.equip("helmet", 2, 150.0)
+	p.equip("pack", 2, 0.0)
+	await wait(1.5)
+	# Up the stairs: the camera low behind her on the steps.
+	var fl: Array = flight(blk, 1)
+	p.global_position = fl[0] + Vector3(0, 0.3, 0)
+	p.velocity = Vector3.ZERO
+	var d1: Vector3 = fl[2]
+	p.yaw = atan2(-d1.x, -d1.z)
+	await wait(0.6)
+	_start()
+	shake = 1.2
+	focus(9.0)
+	shot(func(t: float):
+		var b: Vector3 = p.get_global_transform_interpolated().origin
+		cam.fov = 62.0
+		cam.global_position = b - d1 * 1.9 + Vector3(0, 0.75, 0)
+		cam.look_at(b + d1 * 2.0 + Vector3(0, 1.7, 0), Vector3.UP), "stairs")
+	fade_to(0.0, 0.3)
+	p.touch_move = Vector2(0, 1)
+	await wait(2.3)
+	p.touch_move = Vector2.ZERO
+	# Out onto the roof: the camera waits by the parapet as she comes up out of
+	# the stairwell into the light.
+	fl = flight(blk, storeys)
+	var dl: Vector3 = fl[2]
+	p.global_position = fl[0] + dl * 1.6 + Vector3(0, WorldBuilder.STOREY_H * 0.35, 0)
+	p.velocity = Vector3.ZERO
+	p.yaw = atan2(-dl.x, -dl.z)
+	var top: Vector3 = fl[1]
+	var across := dl.cross(Vector3.UP)
+	if (Vector2(top.x, top.z) - c).dot(Vector2(across.x, across.z)) > 0.0: across = -across
+	shake = 0.8
+	focus(14.0)
+	shot(func(t: float):
+		var b: Vector3 = p.get_global_transform_interpolated().origin
+		cam.fov = 50.0
+		cam.global_position = top + dl * 2.4 + across * 2.6 + Vector3(0, 0.35 + t * 0.1, 0)
+		cam.look_at(b + Vector3(0, 1.2, 0), Vector3.UP), "roof_up")
+	p.touch_move = Vector2(0, 1)
+	await wait(2.4)
+	p.touch_move = Vector2.ZERO
+	# To the parapet over the street; a man down there; she leans over and fires.
+	var hx: float = blk.size.x * 0.5
+	var hz: float = blk.size.y * 0.5
+	var out := Vector3(1, 0, 0)
+	var best := -1.0
+	for o in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+		var reach: float = (hx if o.x != 0.0 else hz) + 26.0
+		var q := Vector3(c.x, 0, c.y) + o * reach
+		if world.building_at(Vector2(q.x, q.z), 3.0) < 0 and not world.island.is_deep(q.x, q.z):
+			var free := 1.0 + randf() * 0.1
+			if free > best:
+				best = free
+				out = o
+	var edge: float = (hx if out.x != 0.0 else hz) - 0.9
+	p.global_position = Vector3(c.x, roof_y + 0.3, c.y) + out * edge
+	p.velocity = Vector3.ZERO
+	var e_pos := Vector3(c.x, 0, c.y) + out * (edge + 24.0) + out.cross(Vector3.UP) * 4.0
+	var enemy := enemy_at(e_pos, atan2(out.x, out.z))
+	await wait(0.2)
+	var e_at: Vector3 = enemy.global_position + Vector3(0, 1.2, 0)
+	for k in 3:
+		var to_e: Vector3 = e_at + Vector3(0, 0.05, 0) - p.camera.global_position
+		p.yaw = atan2(-to_e.x, -to_e.z)
+		p.pitch = atan2(to_e.y, Vector2(to_e.x, to_e.z).length())
+		await get_tree().process_frame
+	p.action("aim", true)
+	var side := out.cross(Vector3.UP)
+	shake = 1.0
+	focus(0.0)
+	shot(func(t: float):
+		var b: Vector3 = p.get_global_transform_interpolated().origin
+		cam.fov = 42.0 - t * 4.0
+		cam.global_position = b - out * 1.8 + side * 1.1 + Vector3(0, 1.75, 0)
+		cam.look_at(e_at, Vector3.UP), "roof_aim")
+	await wait(0.9)
+	p.action("fire", true)
+	for k in 5:
+		kick(0.25)
+		await wait(0.15)
+	p.action("fire", false)
+	enemy.take_damage(999.0, p)
+	enemy.set_physics_process(true)
+	# From the street: looking up at her on the roof edge against the sky,
+	# a grenade going off down by the wall.
+	var es: Vector3 = enemy.global_position
+	var low := es - out * 6.0 + side * 5.0
+	low.y = ground(low)
+	shake = 1.1
+	focus(0.0)
+	shot(func(t: float):
+		cam.fov = 52.0
+		cam.global_position = low + Vector3(0, 0.6 + t * 0.15, 0) + out * t * 0.6
+		cam.look_at(p.global_position + Vector3(0, 1.0, 0), Vector3.UP), "from_street")
+	slow(0.5)
+	await wait(0.9)
+	var gp := Vector3(c.x, 0, c.y) + out * (edge + 4.0) - side * 3.0
+	gp.y = ground(gp)
+	world.explode(gp, null)
+	kick(1.0)
+	await wait(1.4)
+	slow(1.0)
+	p.action("aim", false)
+	# The warehouse gallery: she runs along it, seen from the floor through the rail.
+	var wh: Dictionary = {}
+	for b in world.island.buildings:
+		if WorldBuilder.has_mezzanine(b) and (wh.is_empty() or b.pos.distance_to(c) < wh.pos.distance_to(c)): wh = b
+	if not wh.is_empty():
+		var wc: Vector2 = wh.pos
+		var whx: float = wh.size.x * 0.5
+		var whz: float = wh.size.y * 0.5
+		var gy := float(wh.floor) + WorldBuilder.STOREY_H
+		p.global_position = Vector3(wc.x - whx + 2.0, gy + 0.3, wc.y - whz + 2.2)
+		p.velocity = Vector3.ZERO
+		p.yaw = PI      # facing +z
+		await wait(0.3)
+		var e2 := enemy_at(Vector3(wc.x + 3.0, 0, wc.y + whz - 3.0), PI * 0.5, [enemy])
+		shake = 1.0
+		focus(12.0)
+		shot(func(t: float):
+			var b: Vector3 = p.get_global_transform_interpolated().origin
+			cam.fov = 55.0
+			cam.global_position = Vector3(wc.x - whx + WorldBuilder.MEZZ_D + 3.2, float(wh.floor) + 1.2, b.z - 1.5)
+			cam.look_at(b + Vector3(0, 1.2, 0), Vector3.UP), "gallery")
+		p.touch_move = Vector2(0, 1)
+		p.sprinting = true
+		await wait(2.0)
+		p.touch_move = Vector2.ZERO
+		p.sprinting = false
+		if e2:
+			var e2_at: Vector3 = e2.global_position + Vector3(0, 1.2, 0)
+			for k in 3:
+				var to_e: Vector3 = e2_at - p.camera.global_position
+				p.yaw = atan2(-to_e.x, -to_e.z)
+				p.pitch = atan2(to_e.y, Vector2(to_e.x, to_e.z).length())
+				await get_tree().process_frame
+			p.action("aim", true)
+			await wait(0.5)
+			p.action("fire", true)
+			for k in 5:
+				kick(0.2)
+				await wait(0.15)
+			p.action("fire", false)
+			e2.take_damage(999.0, p)
+			e2.set_physics_process(true)
+			await wait(1.0)
+			p.action("aim", false)
+	fade_to(1.0, 0.3)
+	await wait(0.35)

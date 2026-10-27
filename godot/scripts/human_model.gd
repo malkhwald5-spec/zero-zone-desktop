@@ -1565,8 +1565,16 @@ func _place_gun(pose: String, delta: float) -> void:
 	if absf(_turn_lean) > 0.002 or absf(_go_lean) > 0.002:
 		# The gun leans with the body (it turns about the feet).
 		target = Transform3D(Basis.from_euler(Vector3(_go_lean, 0.0, _turn_lean)), Vector3.ZERO) * target
-	target.origin += target.basis * Vector3(0, 0.01, 0.06) * recoil
-	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.07)
+	if pose != "prone" and _speed > 0.4 and not sprinting:
+		# Step bob: the gun dips on each footfall (twice a stride) and rolls a
+		# little with the shoulders; much less with the stock in the shoulder.
+		var ph := (_loco.phase if _loco_on and _loco else _phase() / TAU) * TAU
+		var amp := clampf(_speed / 4.5, 0.0, 1.0) * (0.3 if aiming else 1.0)
+		target.origin += Vector3(sin(ph) * 0.01, 0.012 - absf(cos(ph)) * 0.024, 0) * amp
+		target.basis = Basis(Vector3.BACK, sin(ph) * 0.035 * amp) * target.basis
+	# Kick: back into the shoulder and the muzzle up.
+	target.origin += target.basis * Vector3(0, 0.015, 0.085) * recoil
+	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.12)
 	var k2 := minf(1.0, delta * 14.0)
 	_gun_xf = Transform3D(_gun_xf.basis.slerp(target.basis.orthonormalized(), k2).orthonormalized(), _gun_xf.origin.lerp(target.origin, k2)) if _gun_xf.origin != Vector3.ZERO else target
 	gun.transform = _gun_xf

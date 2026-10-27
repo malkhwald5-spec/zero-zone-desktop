@@ -564,6 +564,10 @@ func _buildings() -> void:
 		var tcol: Color = Color("5c5f58") if b.military else trims[(b.tint * 3 + b.roof) % trims.size()]
 		var doors: Array = b.doors
 		var storeys: int = b.get("storeys", 1)
+		var ruin := kind == "ruin"
+		if ruin:
+			_ruin(st, sts, body, b, col)
+			storeys = 0
 		for lv in storeys:
 			var y0 := lv * STOREY_H
 			# Doors only on the ground floor.
@@ -573,17 +577,20 @@ func _buildings() -> void:
 			_wall(st, sts.glass, sts.trim, body, Vector3(-hx + WALL_T * 0.5, y0, -hz), false, sz, sz * 0.5 if dr.has(3) else -1.0, col, tcol)
 			_wall(st, sts.glass, sts.trim, body, Vector3(hx - WALL_T * 0.5, y0, -hz), false, sz, sz * 0.5 if dr.has(1) else -1.0, col, tcol)
 		var top_y := (storeys - 1) * STOREY_H + WALL_H
-		# Floor slab (wooden boards inside)
-		_add_box(sts.floor, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz), Color("b09070") if not b.military else Color("8a8a84"))
+		# Floor slab (wooden boards inside, burnt black in a ruin)
+		_add_box(sts.floor, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz), Color("3a3430") if ruin else (Color("b09070") if not b.military else Color("8a8a84")))
 		_shape(body, Vector3(0, -0.15, 0), Vector3(sx, 0.3, sz))
-		if storeys > 1:
-			_upper_floor(sts, body, b, col, tcol)
-		if not b.military:
+		var apartment := kind == "apartment"
+		for lv in range(1, storeys + (1 if apartment else 0)):
+			_upper_floor(sts, body, b, col, tcol, lv)
+		if not b.military and not ruin:
 			for lv in storeys:
 				_furnish(sts, body, b, lv, kind == "shop")
-		# Ceiling slab under the roof
-		_add_box(sts.wall, Vector3(0, top_y + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2), Color("d8d0c0") if brick else col.darkened(0.25))
-		_shape(body, Vector3(0, top_y + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2))
+		# Ceiling slab under the roof (an apartment block's roof slab, with the
+		# stairwell up onto it, was made with the floors).
+		if not apartment and not ruin:
+			_add_box(sts.wall, Vector3(0, top_y + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2), Color("d8d0c0") if brick else col.darkened(0.25))
+			_shape(body, Vector3(0, top_y + 0.1, 0), Vector3(sx + 0.2, 0.2, sz + 0.2))
 		# Stone foundation down into the ground (hides gaps on slopes) and a
 		# half-metre stone base course on the outside of the walls.
 		_add_box(sts.stone, Vector3(0, -1.08, 0), Vector3(sx + 0.14, 2.1, sz + 0.14), Color.WHITE)
@@ -602,7 +609,9 @@ func _buildings() -> void:
 				else:
 					_add_box(sts.stone, Vector3(sgn * (hx + 0.04), 0.25, m), Vector3(0.08, 0.56, l), Color.WHITE)
 		# Gable roof (houses) or parapet (military)
-		if kind == "shop":
+		if ruin:
+			pass
+		elif kind == "shop":
 			for side in [-1, 1]:
 				_add_box(st, Vector3(0, top_y + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
 				_add_box(st, Vector3(side * hx, top_y + 0.45, 0), Vector3(0.2, 0.5, sz + 0.2), col.darkened(0.15))
@@ -614,6 +623,18 @@ func _buildings() -> void:
 		elif b.military:
 			for side in [-1, 1]:
 				_add_box(st, Vector3(0, top_y + 0.45, side * hz), Vector3(sx + 0.2, 0.5, 0.2), col.darkened(0.15))
+		elif apartment:
+			# Flat roof you can walk on: a waist-high parapet all round (with
+			# collision), water tanks and an air-conditioning box.
+			for side in [-1, 1]:
+				_add_box(st, Vector3(0, top_y + 0.75, side * (hz - 0.1)), Vector3(sx + 0.2, 1.1, 0.22), col.darkened(0.1))
+				_shape(body, Vector3(0, top_y + 0.75, side * (hz - 0.1)), Vector3(sx + 0.2, 1.1, 0.22))
+				_add_box(st, Vector3(side * (hx - 0.1), top_y + 0.75, 0), Vector3(0.22, 1.1, sz + 0.2), col.darkened(0.1))
+				_shape(body, Vector3(side * (hx - 0.1), top_y + 0.75, 0), Vector3(0.22, 1.1, sz + 0.2))
+			_add_box(sts.trim, Vector3(-hx * 0.5, top_y + 0.85, hz * 0.45), Vector3(1.1, 1.3, 1.1), Color("e8e8e8"))
+			_shape(body, Vector3(-hx * 0.5, top_y + 0.85, hz * 0.45), Vector3(1.1, 1.3, 1.1))
+			_add_box(sts.trim, Vector3(hx * 0.55, top_y + 0.6, hz * 0.5), Vector3(1.3, 0.8, 0.9), Color("9aa0a6"))
+			_shape(body, Vector3(hx * 0.55, top_y + 0.6, hz * 0.5), Vector3(1.3, 0.8, 0.9))
 		elif style == "desert" or (style == "volcano" and b.roof % 2 == 0):
 			# Flat roof behind a parapet, with roof-top water tanks and wooden beam ends.
 			for side in [-1, 1]:
@@ -684,17 +705,19 @@ func _furnish(sts: Dictionary, body: StaticBody3D, b: Dictionary, lv: int, shop:
 	rng.seed = int(b.pos.x * 31.0 + b.pos.y * 17.0) + lv * 101
 	var pool: Array = ["counter", "shelf", "shelf", "fridge"] if shop else \
 		(["bed", "wardrobe", "bed", "shelf", "sofa"] if lv == 1 else ["sofa", "table", "kitchen", "fridge", "shelf", "wardrobe", "table"])
+	# An apartment block's flights run along two opposite walls.
+	var sw: int = b.get("stair", -1)
+	var sw2: int = (sw + 2) % 4 if b.get("kind", "") == "apartment" and sw >= 0 else sw
 	for w in 4:
-		if b.get("stair", -1) == w: continue
+		if sw == w or sw2 == w: continue
 		var along_x := w == 0 or w == 2
 		var half := hx if along_x else hz
 		var spans := [[-half + 0.5, half - 0.5]]
 		if lv == 0 and b.doors.has(w):
 			spans = [[-half + 0.5, -DOOR_W * 0.5 - 0.7], [DOOR_W * 0.5 + 0.7, half - 0.5]]
 		# Keep the end next to the staircase free (its foot and its landing).
-		var sw: int = b.get("stair", -1)
-		var trim_hi := (along_x and sw == 1) or (not along_x and sw == 2)
-		var trim_lo := (along_x and sw == 3) or (not along_x and sw == 0)
+		var trim_hi := (along_x and 1 in [sw, sw2]) or (not along_x and 2 in [sw, sw2])
+		var trim_lo := (along_x and 3 in [sw, sw2]) or (not along_x and 0 in [sw, sw2])
 		for sp in spans:
 			if trim_hi: sp[1] = minf(sp[1], half - WorldBuilder.STAIR_W - 1.3)
 			if trim_lo: sp[0] = maxf(sp[0], -half + WorldBuilder.STAIR_W + 1.3)
@@ -722,6 +745,49 @@ func _furnish(sts: Dictionary, body: StaticBody3D, b: Dictionary, lv: int, shop:
 				hi = hi.max(c + size * 0.5)
 			# One collision box round the whole piece (low pieces you can step over stay low).
 			_shape(body, (lo + hi) * 0.5, hi - lo)
+
+## A burnt-out house: broken walls of uneven height with gaps where the
+## doors and windows were, no roof, and rubble heaped along the walls.
+func _ruin(st: SurfaceTool, sts: Dictionary, body: StaticBody3D, b: Dictionary, col: Color) -> void:
+	var sx: float = b.size.x
+	var sz: float = b.size.y
+	var hx := sx * 0.5
+	var hz := sz * 0.5
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(b.pos.x * 11.0 + b.pos.y * 29.0)
+	var dark := col.darkened(0.35)
+	for w in 4:
+		var along_x := w % 2 == 0
+		var length := sx if along_x else sz
+		var off := (-hz if w == 0 else hz) if along_x else (hx if w == 1 else -hx)
+		var inset := -signf(off) * WALL_T * 0.5
+		var n := int(ceil(length / 1.0))
+		var seg := length / n
+		var h := rng.randf_range(1.2, WALL_H)
+		for i in n:
+			var u := -length * 0.5 + (i + 0.5) * seg
+			if b.doors.has(w) and absf(u) < DOOR_W * 0.5 + 0.2: continue
+			# Heights wander along the wall with jagged steps; now and then a gap.
+			h = clampf(h + rng.randf_range(-1.1, 1.0), 0.4, WALL_H)
+			if rng.randf() < 0.08: continue
+			var c := Vector3(u, h * 0.5, off + inset) if along_x else Vector3(off + inset, h * 0.5, u)
+			var size := Vector3(seg + 0.01, h, WALL_T) if along_x else Vector3(WALL_T, h, seg + 0.01)
+			_add_box(st, c, size, col.lerp(dark, rng.randf_range(0.0, 0.6)))
+			_shape(body, c, size)
+			# Soot along the broken top.
+			_add_box(sts.stone, c + Vector3(0, h * 0.5 - 0.05, 0), size * Vector3(1.0, 0.0, 1.05) + Vector3(0, 0.1, 0), Color("2a2624"))
+	# Rubble heaps: blocks of wall and broken beams lying about inside and out.
+	for k in rng.randi_range(8, 14):
+		var p := Vector3(rng.randf_range(-hx - 1.5, hx + 1.5), 0.0, rng.randf_range(-hz - 1.5, hz + 1.5))
+		if absf(p.x) < hx - 2.2 and absf(p.z) < hz - 2.2: continue    # the middle stays clear for loot
+		var bs := Vector3(rng.randf_range(0.4, 1.2), rng.randf_range(0.25, 0.7), rng.randf_range(0.4, 1.2))
+		p.y = bs.y * 0.5 - 0.05
+		_add_box(st if rng.randf() < 0.6 else sts.stone, p, bs, col.lerp(dark, rng.randf()))
+		if bs.y > 0.45: _shape(body, p, bs)
+	for k in rng.randi_range(2, 4):
+		var p := Vector3(rng.randf_range(-hx + 1.0, hx - 1.0), 0.12, rng.randf_range(-hz + 1.0, hz - 1.0))
+		var len := rng.randf_range(2.0, 4.0)
+		_add_box(sts.floor, p, Vector3(len, 0.18, 0.2) if rng.randf() < 0.5 else Vector3(0.2, 0.18, len), Color("2e2620"))
 
 ## Warehouse (corrugated metal, concrete floor, crates inside) or barn (red
 ## boards, hay inside): tall walls, wide doors, open roof space.
@@ -785,12 +851,15 @@ func _big_shed(node: Node3D, body: StaticBody3D, b: Dictionary) -> void:
 	_roof_shape(body, Vector3(0, wall_h, 0), sx + 0.6, sz + 0.6, rh, sx >= sz)
 	# Gable ends closed with boards / sheets.
 	sts.roof.generate_normals()
+	var mezz := has_mezzanine(b)
+	if mezz: _mezzanine(sts, body, b)
 	# Cover inside: crate stacks in the warehouse, hay bales in the barn.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(b.pos.x * 7.0 + b.pos.y * 13.0)
 	for k in 5:
 		var p := Vector3(rng.randf_range(-hx + 2.0, hx - 2.0), 0, rng.randf_range(-hz + 2.0, hz - 2.0))
 		if absf(p.x) < door_w * 0.5 + 1.0: continue     # keep the doorway lane clear
+		if mezz and p.x < -hx + MEZZ_D + STAIR_RUN + 2.5: continue   # the stairs and under the gallery
 		if barn:
 			for j in rng.randi_range(1, 3):
 				var hb := Vector3(1.2, 0.9, 2.2)
@@ -815,6 +884,61 @@ func _big_shed(node: Node3D, body: StaticBody3D, b: Dictionary) -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
 		node.add_child(mi)
+
+const MEZZ_D := 4.5     # depth of a warehouse's gallery from its end wall
+
+## Long warehouses with doors only on their long sides get a gallery.
+static func has_mezzanine(b: Dictionary) -> bool:
+	return b.get("kind", "") == "warehouse" and b.size.x >= 18.0 and b.size.x >= b.size.y and not b.doors.has(1) and not b.doors.has(3)
+
+## Steel gallery across the -x end of a warehouse, one storey up (so loot of
+## level 1 lies on it), with a straight stair up along the -z wall and a rail.
+func _mezzanine(sts: Dictionary, body: StaticBody3D, b: Dictionary) -> void:
+	var hx: float = b.size.x * 0.5
+	var hz: float = b.size.y * 0.5
+	var y := STOREY_H
+	var x1 := -hx + MEZZ_D
+	var deck := Vector3(MEZZ_D, 0.2, hz * 2.0 - WALL_T * 2.0)
+	var dc := Vector3(-hx + MEZZ_D * 0.5, y - 0.1, 0)
+	_add_box(sts.trim, dc, deck, Color("6a6e70"))
+	_shape(body, dc, deck)
+	_add_box(sts.trim, dc + Vector3(MEZZ_D * 0.5 - 0.1, -0.25, 0), Vector3(0.2, 0.3, deck.z), Color("c8a020"))
+	# Posts.
+	for z in [-hz + 1.0, 0.0, hz - 1.0]:
+		_add_box(sts.trim, Vector3(x1 - 0.15, y * 0.5, z), Vector3(0.2, y, 0.2), Color("4a4e50"))
+		_shape(body, Vector3(x1 - 0.15, y * 0.5, z), Vector3(0.2, y, 0.2))
+	# Stair: from the floor at x1 + STAIR_RUN up to the gallery edge, along -z.
+	var band := -hz + WALL_T + STAIR_W * 0.5
+	var steps := 16
+	var tread := STAIR_RUN / steps
+	var rise := y / steps
+	for i in steps:
+		var hgt := (i + 1) * rise
+		_add_box(sts.trim, Vector3(x1 + STAIR_RUN - (i + 0.5) * tread, hgt - 0.05, band), Vector3(tread, 0.1, STAIR_W), Color("7a7e80"))
+	_add_box(sts.trim, Vector3(x1 + STAIR_RUN * 0.5, y * 0.5 - 0.1, band + STAIR_W * 0.5), Vector3(STAIR_RUN + 0.2, 0.12, 0.08), Color("c8a020"))
+	var pts := PackedVector3Array()
+	for c in [band - STAIR_W * 0.5, band + STAIR_W * 0.5]:
+		pts.append(Vector3(x1 + STAIR_RUN, 0.0, c))
+		pts.append(Vector3(x1, y, c))
+		pts.append(Vector3(x1, 0.0, c))
+	var cps := ConvexPolygonShape3D.new()
+	cps.points = pts
+	var cs := CollisionShape3D.new()
+	cs.shape = cps
+	body.add_child(cs)
+	# Rail along the gallery edge, open where the stair arrives.
+	var r0 := band + STAIR_W * 0.5 + 0.1
+	var rl := hz - WALL_T - r0
+	var rc := Vector3(x1 - 0.05, y + 0.5, r0 + rl * 0.5)
+	_add_box(sts.trim, rc + Vector3(0, 0.45, 0), Vector3(0.08, 0.08, rl), Color("c8a020"))
+	_add_box(sts.trim, rc, Vector3(0.05, 0.05, rl), Color("c8a020"))
+	for k in int(rl / 1.5) + 1:
+		_add_box(sts.trim, Vector3(x1 - 0.05, y + 0.5, r0 + k * 1.5), Vector3(0.06, 1.0, 0.06), Color("c8a020"))
+	_shape(body, rc, Vector3(0.08, 1.0, rl))
+	# Shelving and a few crates up there.
+	for z in [-hz * 0.3, hz * 0.4]:
+		_add_box(sts.crate, Vector3(-hx + 1.2, y + 0.6, z), Vector3(1.2, 1.2, 1.2), Color.WHITE)
+		_shape(body, Vector3(-hx + 1.2, y + 0.6, z), Vector3(1.2, 1.2, 1.2))
 
 var _hay_mat_cache: ShaderMaterial
 func _hay_material() -> ShaderMaterial:
@@ -1305,7 +1429,7 @@ func _doors() -> void:
 	var extras := []
 	for bi in island.buildings.size():
 		var b: Dictionary = island.buildings[bi]
-		if b.get("kind", "house") in ["warehouse", "barn"]: continue
+		if b.get("kind", "house") in ["warehouse", "barn", "ruin"]: continue
 		var hx: float = b.size.x * 0.5
 		var hz: float = b.size.y * 0.5
 		for w in b.doors:
@@ -1495,15 +1619,19 @@ static func stair_points(b: Dictionary) -> Array:
 	var c: Vector2 = b.pos
 	return [Vector3(c.x + near.x, b.floor, c.y + near.y), Vector3(c.x + foot.x, b.floor, c.y + foot.y), Vector3(c.x + top.x, b.floor + STOREY_H, c.y + top.y)]
 
-## Second floor of a two-storey house: the floor slab with a stairwell hole,
-## a wooden staircase (ramp collision) along a wall without a door, a railing
-## round the stairwell and a ledge on the outside between the storeys.
-func _upper_floor(sts: Dictionary, body: StaticBody3D, b: Dictionary, col: Color, tcol: Color) -> void:
+## The floor `lv` of a house of several storeys (1 = the first floor up; the
+## top one of an apartment block is its flat roof): the floor slab with a
+## stairwell hole, a wooden staircase (ramp collision) up from the floor
+## below, a railing round the stairwell and a ledge on the outside. The
+## flights take turns along two opposite walls, so each has head room under
+## the next.
+func _upper_floor(sts: Dictionary, body: StaticBody3D, b: Dictionary, col: Color, tcol: Color, lv := 1) -> void:
 	var sx: float = b.size.x
 	var sz: float = b.size.y
 	var hx := sx * 0.5
 	var hz := sz * 0.5
-	var w: int = b.stair
+	var w: int = b.stair if lv % 2 == 1 else (int(b.stair) + 2) % 4
+	var y_base := (lv - 1) * STOREY_H
 	var along_x := w == 0 or w == 2
 	var length := sx if along_x else sz
 	var band := (-hz + WALL_T + STAIR_W * 0.5) if w == 0 else (hz - WALL_T - STAIR_W * 0.5) if w == 2 \
@@ -1519,19 +1647,19 @@ func _upper_floor(sts: Dictionary, body: StaticBody3D, b: Dictionary, col: Color
 	var rise := STOREY_H / steps
 	for i in steps:
 		var hgt := (i + 1) * rise
-		_add_box(sts.floor, at.call(start + (i + 0.5) * tread, hgt * 0.5, 0.0), size.call(tread, hgt, STAIR_W), Color("a08060"))
+		_add_box(sts.floor, at.call(start + (i + 0.5) * tread, y_base + hgt * 0.5, 0.0), size.call(tread, hgt, STAIR_W), Color("a08060"))
 	var pts := PackedVector3Array()
 	for c in [-STAIR_W * 0.5, STAIR_W * 0.5]:
-		pts.append(at.call(start, 0.0, c))
-		pts.append(at.call(start + STAIR_RUN, STOREY_H, c))
-		pts.append(at.call(start + STAIR_RUN, 0.0, c))
+		pts.append(at.call(start, y_base, c))
+		pts.append(at.call(start + STAIR_RUN, y_base + STOREY_H, c))
+		pts.append(at.call(start + STAIR_RUN, y_base, c))
 	var cps := ConvexPolygonShape3D.new()
 	cps.points = pts
 	var cs := CollisionShape3D.new()
 	cs.shape = cps
 	body.add_child(cs)
 	# Floor slab with the stairwell cut out (head room from 1.8 m along the stairs).
-	var y := STOREY_H - 0.1
+	var y := y_base + STOREY_H - 0.1
 	var h0 := start + 1.8
 	var h1 := start + STAIR_RUN
 	var c0 := -STAIR_W * 0.5 - 0.05
@@ -1542,25 +1670,26 @@ func _upper_floor(sts: Dictionary, body: StaticBody3D, b: Dictionary, col: Color
 	var cmin := -across - band
 	var cmax := across - band
 	var pieces := [[lo, h0, cmin, cmax], [h1, hi, cmin, cmax], [h0, h1, cmin, c0], [h0, h1, c1, cmax]]
+	var roof: bool = lv >= int(b.get("storeys", 1))   # an apartment block's flat concrete roof
 	for pc in pieces:
 		if pc[1] - pc[0] < 0.01 or pc[3] - pc[2] < 0.01: continue
 		var ctr: Vector3 = at.call((pc[0] + pc[1]) * 0.5, y, (pc[2] + pc[3]) * 0.5)
 		var sz3: Vector3 = size.call(pc[1] - pc[0], 0.2, pc[3] - pc[2])
-		_add_box(sts.floor, ctr + Vector3(0, 0.001, 0), sz3, Color("b09070"))
+		_add_box(sts.stone if roof else sts.floor, ctr + Vector3(0, 0.001, 0), sz3, Color("b8b4ac") if roof else Color("b09070"))
 		_shape(body, ctr, sz3)
 	# Railing on the open side of the stairwell.
 	var side_c := c1 if absf(band + c1) < absf(band + c0) else c0
-	var rail_c: Vector3 = at.call((h0 + h1) * 0.5, STOREY_H + 0.5, side_c)
+	var rail_c: Vector3 = at.call((h0 + h1) * 0.5, y_base + STOREY_H + 0.5, side_c)
 	var rail_s: Vector3 = size.call(h1 - h0, 1.0, 0.06)
 	_add_box(sts.trim, rail_c + Vector3(0, 0.45, 0), size.call(h1 - h0, 0.08, 0.1), tcol)
 	for k in 5:
-		_add_box(sts.trim, at.call(h0 + (h1 - h0) * k / 4.0, STOREY_H + 0.5, side_c), size.call(0.06, 1.0, 0.06), tcol)
+		_add_box(sts.trim, at.call(h0 + (h1 - h0) * k / 4.0, y_base + STOREY_H + 0.5, side_c), size.call(0.06, 1.0, 0.06), tcol)
 	_shape(body, rail_c, rail_s)
 	# Ledge between the storeys on the outside.
-	_add_box(sts.stone, Vector3(0, STOREY_H - 0.05, -hz - 0.02), Vector3(sx + 0.2, 0.16, 0.16), Color.WHITE)
-	_add_box(sts.stone, Vector3(0, STOREY_H - 0.05, hz + 0.02), Vector3(sx + 0.2, 0.16, 0.16), Color.WHITE)
-	_add_box(sts.stone, Vector3(-hx - 0.02, STOREY_H - 0.05, 0), Vector3(0.16, 0.16, sz + 0.2), Color.WHITE)
-	_add_box(sts.stone, Vector3(hx + 0.02, STOREY_H - 0.05, 0), Vector3(0.16, 0.16, sz + 0.2), Color.WHITE)
+	_add_box(sts.stone, Vector3(0, y_base + STOREY_H - 0.05, -hz - 0.02), Vector3(sx + 0.2, 0.16, 0.16), Color.WHITE)
+	_add_box(sts.stone, Vector3(0, y_base + STOREY_H - 0.05, hz + 0.02), Vector3(sx + 0.2, 0.16, 0.16), Color.WHITE)
+	_add_box(sts.stone, Vector3(-hx - 0.02, y_base + STOREY_H - 0.05, 0), Vector3(0.16, 0.16, sz + 0.2), Color.WHITE)
+	_add_box(sts.stone, Vector3(hx + 0.02, y_base + STOREY_H - 0.05, 0), Vector3(0.16, 0.16, sz + 0.2), Color.WHITE)
 
 ## Collision for a gable roof, so you can land on it instead of inside it.
 func _roof_shape(body: StaticBody3D, base: Vector3, w: float, d: float, h: float, along_x: bool) -> void:

@@ -619,22 +619,27 @@ func _add_building(c: Vector2, sz: Vector2, military: bool, storeys := 1, kind :
 	flatten(c, sz * 0.5, 14.0, floor_h - 0.12)
 	# Door on one or two sides: 0 = -z, 1 = +x, 2 = +z, 3 = -x
 	var doors := [rng.randi_range(0, 3)]
-	if rng.randf() < 0.5:
+	if rng.randf() < 0.5 and kind != "apartment":
 		doors.append((doors[0] + 2) % 4)
 	# Two-storey houses: the staircase runs along a wall without a door.
 	var stair := -1
 	if storeys > 1:
 		var free := [0, 1, 2, 3].filter(func(w): return not doors.has(w))
 		stair = free[rng.randi() % free.size()]
+		# Apartment blocks: the flights take turns along two opposite walls,
+		# both without a door.
+		if kind == "apartment": stair = (doors[0] + 1 + 2 * rng.randi_range(0, 1)) % 4
 	_fp_add(c, sz * 0.5)
 	buildings.append({"pos": c, "size": sz, "floor": floor_h, "military": military, "doors": doors,
 		"tint": rng.randi_range(0, 4), "roof": rng.randi_range(0, 4), "storeys": storeys, "stair": stair, "kind": kind,
 		"style": "plains" if military else region_at(c.x, c.y)})
 	for k in rng.randi_range(2, 5 if military else 4):
 		loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.35, sz.x * 0.35), rng.randf_range(-sz.y * 0.35, sz.y * 0.35)), "military": military})
-	if storeys > 1:
+	for lv in range(1, storeys):
 		for k in rng.randi_range(2, 3):
-			loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.25, sz.x * 0.25), rng.randf_range(-sz.y * 0.25, sz.y * 0.25)), "military": false, "level": 1})
+			loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.25, sz.x * 0.25), rng.randf_range(-sz.y * 0.25, sz.y * 0.25)), "military": false, "level": lv})
+	if kind == "apartment":
+		loot_spots.append({"pos": c + Vector2(rng.randf_range(-sz.x * 0.2, sz.x * 0.2), rng.randf_range(-sz.y * 0.2, sz.y * 0.2)), "military": rng.randf() < 0.5, "level": storeys})
 
 func _structure(kind: String, p: Vector2, half: Vector2, extra := {}) -> void:
 	var d := {"kind": kind, "pos": p, "rot": 0, "level": 0, "col": rng.randi_range(0, 4)}
@@ -651,6 +656,9 @@ func _industrial(t: Dictionary) -> void:
 		var bc := c + Vector2(-17.0 + k * 34.0, -14.0)
 		_add_building(bc, Vector2(24, 14), false, 1, "warehouse")
 		buildings[-1].doors = [0, 2]
+		# Up on the gallery (WorldBuilder._mezzanine) at the -x end.
+		for j in 2:
+			loot_spots.append({"pos": bc + Vector2(-12.0 + 2.6, rng.randf_range(-3.5, 4.5)), "military": rng.randf() < 0.4, "level": 1})
 	for row in 2:
 		for i in 5:
 			var p := c + Vector2(-22.0 + i * 8.5, 10.0 + row * 7.0)
@@ -760,7 +768,13 @@ func _buildings() -> void:
 			if _overlaps(c, half, 7.0): continue
 			if near_road(c, half.length() + 2.0): continue
 			var storeys := 2 if not t.military and sz.x >= 10.0 and sz.y >= 8.5 and rng.randf() < 0.45 else 1
-			_add_building(c, sz, t.military, storeys)
+			if storeys == 2 and sz.x >= 10.5 and sz.y >= 9.0 and rng.randf() < 0.5:
+				# Apartment block: three or four storeys and a flat roof to fight from.
+				_add_building(c, sz, false, rng.randi_range(3, 4), "apartment")
+			elif storeys == 1 and not t.military and rng.randf() < 0.12:
+				_add_building(c, sz, false, 1, "ruin")
+			else:
+				_add_building(c, sz, t.military, storeys)
 			placed += 1
 	_model_buildings()
 	_gas_stations()
@@ -781,7 +795,7 @@ func _buildings() -> void:
 		if near_town: continue
 		if _overlaps(c, sz * 0.5, 60.0): continue
 		if near_road(c, 10.0): continue
-		_add_building(c, sz, false)
+		_add_building(c, sz, false, 1, "ruin" if rng.randf() < 0.12 else "house")
 		lone += 1
 
 ## Metres to the nearest lava flow or pool.

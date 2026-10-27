@@ -414,7 +414,7 @@ func _spawn_loot() -> void:
 		var y := island.height_at(p.x, p.y)
 		for b in island.buildings:
 			if absf(p.x - b.pos.x) < b.size.x * 0.5 and absf(p.y - b.pos.y) < b.size.y * 0.5:
-				y = b.floor + (WorldBuilder.STOREY_H if spot.get("level", 0) == 1 else 0.0)
+				y = b.floor + WorldBuilder.STOREY_H * int(spot.get("level", 0))
 		if spot.get("ray", false):
 			# Inside a model building: on the floor under the spot.
 			var hit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(p.x, y + 1.6, p.y), Vector3(p.x, y - 1.0, p.y)))
@@ -817,6 +817,16 @@ func building_at(p: Vector2, pad := 0.0) -> int:
 		if absf(p.x - bl.pos.x) < bl.size.x * 0.5 + pad and absf(p.y - bl.pos.y) < bl.size.y * 0.5 + pad:
 			return i
 	return -1
+
+## Like building_at, but only under a roof: not in a ruin, and not up on an
+## apartment block's flat roof.
+func roofed_at(p: Vector3) -> int:
+	var i := building_at(Vector2(p.x, p.z))
+	if i < 0: return -1
+	var bl: Dictionary = island.buildings[i]
+	if bl.get("kind", "house") == "ruin": return -1
+	if bl.get("kind", "house") == "apartment" and p.y > float(bl.floor) + WorldBuilder.STOREY_H * int(bl.storeys) - 0.3: return -1
+	return i
 
 ## Door positions of a building: [outside point, inside point] per door.
 func _doors(i: int) -> Array:
@@ -1992,7 +2002,7 @@ func _update_interior_air(delta: float) -> void:
 	if _air_t <= 0.0:
 		_air_t = 0.25
 		var vp := view_position()
-		var idx := building_at(Vector2(vp.x, vp.z)) if player.state in ["ground", "dead"] else -1
+		var idx := roofed_at(vp) if player.state in ["ground", "dead"] else -1
 		if idx != _air_building:
 			_air_building = idx
 			if idx >= 0 and Game.quality_level() >= 1: _place_dust(island.buildings[idx])
@@ -2072,7 +2082,7 @@ func _update_ambience(delta: float) -> void:
 	var target := -60.0
 	match player.state:
 		"ground":
-			target = -24.0 if building_at(Vector2(player.global_position.x, player.global_position.z)) >= 0 else -15.0
+			target = -24.0 if roofed_at(player.global_position) >= 0 else -15.0
 			if weather == "rain": target -= 14.0      # birds keep quiet in the rain
 		"vehicle":
 			target = -26.0
@@ -2112,7 +2122,7 @@ func _update_rain(delta: float) -> void:
 		_rain.local_coords = false
 		add_child(_rain)
 	_rain.global_position = cam.global_position + Vector3(0, 14, 0) + Vector3(cam.global_basis.z.x, 0, cam.global_basis.z.z) * -8.0
-	var inside := player.state == "ground" and building_at(Vector2(player.global_position.x, player.global_position.z)) >= 0
+	var inside := player.state == "ground" and roofed_at(player.global_position) >= 0
 	if not Game.settings.sound: return
 	if _rain_snd == null:
 		_rain_snd = AudioStreamPlayer.new()
