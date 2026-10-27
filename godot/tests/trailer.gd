@@ -627,16 +627,14 @@ func _urban() -> void:
 	# To the parapet over the street; a man down there; she leans over and fires.
 	var hx: float = blk.size.x * 0.5
 	var hz: float = blk.size.y * 0.5
+	# The first side with open ground (no house, no water) where the man stands.
 	var out := Vector3(1, 0, 0)
-	var best := -1.0
-	for o in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
-		var reach: float = (hx if o.x != 0.0 else hz) + 26.0
-		var q := Vector3(c.x, 0, c.y) + o * reach
+	for o: Vector3 in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+		var reach: float = (hx if o.x != 0.0 else hz) + 24.0
+		var q: Vector3 = Vector3(c.x, 0, c.y) + o * reach
 		if world.building_at(Vector2(q.x, q.z), 3.0) < 0 and not world.island.is_deep(q.x, q.z):
-			var free := 1.0 + randf() * 0.1
-			if free > best:
-				best = free
-				out = o
+			out = o
+			break
 	var edge: float = (hx if out.x != 0.0 else hz) - 0.9
 	p.global_position = Vector3(c.x, roof_y + 0.3, c.y) + out * edge
 	p.velocity = Vector3.ZERO

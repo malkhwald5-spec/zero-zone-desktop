@@ -5,7 +5,10 @@ sheet of cut times and run through a hall reverb.
 Usage: python3 trailer_score.py out.wav cues.json
 cues.json: {"length": s, "intro": [t...], "aerial": t, "plane": t, "skydive": t,
  "chute": t, "title": t, "action": t, "slowmo": [t...], "aim": t, "kill": t,
- "war": t, "impact": t, "car": t, "last": t, "end": t}"""
+ "war": t, "impact": t, "car": t, "last": t, "end": t}
+Optional: "urban": t (the drums come back after the kill's gap here, not at
+"war") and "hits": [t...] (extra impacts: a blast, a body falling).
+"""
 import sys, wave, json
 import numpy as np
 from scipy.signal import fftconvolve, butter, sosfilt
@@ -226,6 +229,7 @@ def main():
 	# Action: driving drums, hats, the ostinato, strings underneath.
 	beat = 60.0 / 120.0
 	slow = sorted(c.get("slowmo", []))
+	back = c.get("urban", c["war"])     # the drums come back after the kill
 	def in_slow(tt):
 		return any(s <= tt < s + 1.6 for s in slow)
 	t = c["action"]
@@ -236,11 +240,11 @@ def main():
 	k = 0
 	while c["action"] + k * bar < c["last"]:
 		bt = c["action"] + k * bar
-		if not in_slow(bt) and not (c["kill"] <= bt < c["war"]):
+		if not in_slow(bt) and not (c["kill"] <= bt < back):
 			m.add(bt, strings(prog[k % 4], bar + 0.4, 0.15, 0.4, 3000), 0.8)
 		k += 1
 	while t < c["last"]:
-		if in_slow(t) or c["kill"] <= t < c["war"] - 0.1:
+		if in_slow(t) or c["kill"] <= t < back - 0.1:
 			t += beat / 2
 			i += 1
 			continue
@@ -263,6 +267,12 @@ def main():
 	m.add(c["kill"] - 1.4, riser(1.4), 0.9)
 	m.add(c["kill"], impact(3.0, 1.2), 1.0)
 	m.add(c["kill"] + 0.2, choir([NOTE["A3"], NOTE["C4"]], 2.0, 0.4, 1.2), 0.5)
+	if "urban" in c:
+		m.add(c["urban"] - 0.9, whoosh(1.0), 0.8)
+		m.add(c["urban"], braam(3.0, 0.9), 1.0)
+		m.add(c["urban"], choir([NOTE["A2"], NOTE["C3"], NOTE["E3"]], 3.0, 0.3, 1.2), 0.5)
+	for h in c.get("hits", []):
+		m.add(h, impact(2.5, 1.0), 1.0)
 	# War: braams over the drums, the near impact in slow motion.
 	m.add(c["war"], braam(3.5, 1.1), 1.0)
 	m.add(c["war"], choir([NOTE["A2"], NOTE["E3"], NOTE["C4"]], c["impact"] - c["war"] + 1.0, 0.3, 1.0), 0.7)
