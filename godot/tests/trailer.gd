@@ -4,7 +4,7 @@ extends Node
 ## godot --path godot --write-movie air.avi --fixed-fps 30 res://tests/trailer.tscn -- --part=air
 ## Parts: air (opening lines, the island, the plane, the jump, the title),
 ## ground (push-off, sprint, a hurdle, a kill), urban (up an apartment block's
-## stairs, a fight from its roof, the warehouse gallery) and war (the
+## stairs, a fight from its roof) and war (the
 ## shelling, a car chase, the last look over the island, the end card).
 ## Ground-level shots are hand-held (a slow drift plus kicks on blasts and
 ## shots) with a shallow focus, like a film camera. Free cinematic cameras
@@ -597,8 +597,8 @@ func _urban() -> void:
 	focus(9.0)
 	shot(func(t: float):
 		var b: Vector3 = p.get_global_transform_interpolated().origin
-		cam.fov = 62.0
-		cam.global_position = b - d1 * 1.9 + Vector3(0, 0.75, 0)
+		cam.fov = 68.0
+		cam.global_position = b - d1 * 2.3 + Vector3(0, 0.8, 0)
 		cam.look_at(b + d1 * 2.0 + Vector3(0, 1.7, 0), Vector3.UP), "stairs")
 	fade_to(0.0, 0.3)
 	p.touch_move = Vector2(0, 1)
@@ -618,9 +618,10 @@ func _urban() -> void:
 	focus(14.0)
 	shot(func(t: float):
 		var b: Vector3 = p.get_global_transform_interpolated().origin
-		cam.fov = 50.0
-		cam.global_position = top + dl * 2.4 + across * 2.6 + Vector3(0, 0.35 + t * 0.1, 0)
-		cam.look_at(b + Vector3(0, 1.2, 0), Vector3.UP), "roof_up")
+		# Craning up above the stairwell as she climbs out of it.
+		cam.fov = 55.0
+		cam.global_position = top + dl * 3.0 + across * 3.5 + Vector3(0, 3.2 + t * 0.5, 0)
+		cam.look_at(b + Vector3(0, 1.0, 0), Vector3.UP), "roof_up")
 	p.touch_move = Vector2(0, 1)
 	await wait(2.4)
 	p.touch_move = Vector2.ZERO
@@ -653,8 +654,8 @@ func _urban() -> void:
 	focus(0.0)
 	shot(func(t: float):
 		var b: Vector3 = p.get_global_transform_interpolated().origin
-		cam.fov = 42.0 - t * 4.0
-		cam.global_position = b - out * 1.8 + side * 1.1 + Vector3(0, 1.75, 0)
+		cam.fov = 44.0 - t * 4.0
+		cam.global_position = b - out * 1.3 + side * 0.9 + Vector3(0, 2.5, 0)
 		cam.look_at(e_at, Vector3.UP), "roof_aim")
 	await wait(0.9)
 	p.action("fire", true)
@@ -667,7 +668,7 @@ func _urban() -> void:
 	# From the street: looking up at her on the roof edge against the sky,
 	# a grenade going off down by the wall.
 	var es: Vector3 = enemy.global_position
-	var low := es - out * 6.0 + side * 5.0
+	var low := es + out * 6.0 + side * 6.0
 	low.y = ground(low)
 	shake = 1.1
 	focus(0.0)
@@ -684,49 +685,5 @@ func _urban() -> void:
 	await wait(1.4)
 	slow(1.0)
 	p.action("aim", false)
-	# The warehouse gallery: she runs along it, seen from the floor through the rail.
-	var wh: Dictionary = {}
-	for b in world.island.buildings:
-		if WorldBuilder.has_mezzanine(b) and (wh.is_empty() or b.pos.distance_to(c) < wh.pos.distance_to(c)): wh = b
-	if not wh.is_empty():
-		var wc: Vector2 = wh.pos
-		var whx: float = wh.size.x * 0.5
-		var whz: float = wh.size.y * 0.5
-		var gy := float(wh.floor) + WorldBuilder.STOREY_H
-		p.global_position = Vector3(wc.x - whx + 2.0, gy + 0.3, wc.y - whz + 2.2)
-		p.velocity = Vector3.ZERO
-		p.yaw = PI      # facing +z
-		await wait(0.3)
-		var e2 := enemy_at(Vector3(wc.x + 3.0, 0, wc.y + whz - 3.0), PI * 0.5, [enemy])
-		shake = 1.0
-		focus(12.0)
-		shot(func(t: float):
-			var b: Vector3 = p.get_global_transform_interpolated().origin
-			cam.fov = 55.0
-			cam.global_position = Vector3(wc.x - whx + WorldBuilder.MEZZ_D + 3.2, float(wh.floor) + 1.2, b.z - 1.5)
-			cam.look_at(b + Vector3(0, 1.2, 0), Vector3.UP), "gallery")
-		p.touch_move = Vector2(0, 1)
-		p.sprinting = true
-		await wait(2.0)
-		p.touch_move = Vector2.ZERO
-		p.sprinting = false
-		if e2:
-			var e2_at: Vector3 = e2.global_position + Vector3(0, 1.2, 0)
-			for k in 3:
-				var to_e: Vector3 = e2_at - p.camera.global_position
-				p.yaw = atan2(-to_e.x, -to_e.z)
-				p.pitch = atan2(to_e.y, Vector2(to_e.x, to_e.z).length())
-				await get_tree().process_frame
-			p.action("aim", true)
-			await wait(0.5)
-			p.action("fire", true)
-			for k in 5:
-				kick(0.2)
-				await wait(0.15)
-			p.action("fire", false)
-			e2.take_damage(999.0, p)
-			e2.set_physics_process(true)
-			await wait(1.0)
-			p.action("aim", false)
 	fade_to(1.0, 0.3)
 	await wait(0.35)

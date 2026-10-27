@@ -567,7 +567,7 @@ func _update_loot_labels(delta: float) -> void:
 			add_child(lb)
 			_loot_labels.append(lb)
 	var near := []
-	if player.state == "ground":
+	if player.state == "ground" and hud.visible:     # none in a cinematic (HUD off)
 		for it in pickups_near(player.global_position, 7.0):
 			if is_instance_valid(it) and not it.has_meta("crate"): near.append(it)
 		var pp := player.global_position
