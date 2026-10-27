@@ -424,7 +424,8 @@ func _war() -> void:
 		await wait(0.1)
 		p.enter_vehicle(car)
 		p.touch_move = Vector2(0.0, 1.0)
-		await wait(0.4)
+		await wait(1.2)
+		print("TRAILER car state=%s speed=%.1f" % [p.state, car.linear_velocity.length()])
 		shot(func(t: float):
 			var cb: Vector3 = car.get_global_transform_interpolated().origin
 			var cf: Vector3 = -car.global_basis.z
@@ -447,7 +448,7 @@ func _war() -> void:
 	# The highest open ground 150-400 m out from the town, clear of buildings.
 	var best := Vector3(rr.x, 0, rr.z) - f * 200.0
 	var best_h := -1e9
-	for ring in [150.0, 220.0, 300.0, 400.0]:
+	for ring in [130.0, 170.0, 220.0]:
 		for i in 32:
 			var q: Vector3 = Vector3(rr.x, 0, rr.z) + Vector3(cos(i * TAU / 32.0), 0, sin(i * TAU / 32.0)) * float(ring)
 			var h: float = ground(q)
@@ -463,11 +464,12 @@ func _war() -> void:
 		ev._shell()
 	shot(func(t: float):
 		var b: Vector3 = p.get_global_transform_interpolated().origin
-		var ang := -0.9 + t * 0.22
-		var off := Basis(Vector3.UP, ang) * (-to_town * 4.2)
-		cam.fov = 50.0
-		cam.global_position = b + off + Vector3(0, 1.0, 0)
-		cam.look_at(b + to_town * 30.0 + Vector3(0, 2.5, 0), Vector3.UP), "lastlook")
+		# Up behind her shoulder, over the grass, the town ahead; slowly round.
+		var ang := -0.7 + t * 0.16
+		var off := Basis(Vector3.UP, ang) * (-to_town * 5.5)
+		cam.fov = 46.0
+		cam.global_position = b + off + Vector3(0, 2.3 + t * 0.12, 0)
+		cam.look_at(b + to_town * 60.0 + Vector3(0, -2.0, 0), Vector3.UP), "lastlook")
 	# The town still burning in the distance.
 	for k in 6:
 		ev._shell()
