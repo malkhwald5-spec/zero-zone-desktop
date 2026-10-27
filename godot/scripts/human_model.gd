@@ -871,6 +871,10 @@ var _action_speed := 1.0
 
 ## Plays a whole-body action once ("toss" = grenade throw) for `seconds`.
 ## `from`/`to` pick part of a longer clip (seconds into it).
+## Moves from the CMU motion capture (empty-handed people): with a gun the
+## hands stay on it (see set_pose).
+const MOCAP_MOVES := ["c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll"]
+
 func play_action(name: String, seconds: float, from := 0.0, to := -1.0) -> void:
 	var a: Animation = ap.get_animation("mx/" + name)
 	if a == null: return
@@ -1077,10 +1081,23 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var h := hp.dot(up)
 			var keep := minf(h, _action_y0) if _action_rise > 0.0 else maxf(h, _action_y0)
 			sk.set_bone_pose_position(_hips, hp + up * (keep - h))
-		gun.visible = _action == "melee" and _has_weapon
 		body.position = Vector3.ZERO
 		body.rotation = Vector3.ZERO
 		canopy.visible = false
+		if _action in MOCAP_MOVES and armed and _has_weapon:
+			# The motion-captured runs are empty-handed: the legs and body do the
+			# move, the rifle rides with the chest and both hands keep hold of it.
+			_place_gun("stand", delta)
+			var ch: int = _bone.get("Spine2", -1)
+			if ch >= 0:
+				var carry := (gun.get_parent() as Node3D).global_transform * _gun_xf
+				var now := sk.global_transform * sk.get_bone_global_pose(ch)
+				var rest := sk.global_transform * sk.get_bone_global_rest(ch)
+				gun.global_transform = now * rest.affine_inverse() * carry
+			gun.visible = true
+			_hold_gun()
+			return
+		gun.visible = _action == "melee" and _has_weapon
 		return
 	if pose == "dead":
 		# A death animation plays once by itself (see _process) and stays down.

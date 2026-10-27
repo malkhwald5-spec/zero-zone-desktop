@@ -57,6 +57,12 @@ var chute_turn := 0.0             # smoothed -1..1 steering under the canopy
 var chute_swing := 0.0            # pitch swing under the canopy (radians)
 var land_t := 0.0                 # short landing crouch
 var hard_land_t := 0.0            # hard landing after a long fall: rolling back up, can't move
+## Real people's starts, stops and rolls (CMU motion capture, see tools/bvh2glb.py):
+var _sprint_t := 0.0              # how long you've been sprinting flat out
+var _brake_t := 0.0               # braking out of a sprint: leaning back over a couple of strides
+var _start_t := 0.0               # pushing off into a sprint from standing
+var _stand_t := 0.0               # how long you've been standing still (a push-off needs a standing start)
+var _roll_t := 0.0                # rolling out of a fall that was carrying you forward
 var _fall_vy := 0.0               # fastest downward speed in the current fall
 var is_sprinting := false
 var _wind: AudioStreamPlayer
@@ -821,6 +827,7 @@ func _ground(delta: float) -> void:
 		var up := -Vector3(n.x, 0, n.z).dot(wish.normalized())
 		speed *= clampf(1.0 - up * 0.9, 0.7, 1.08)
 	var target := wish * speed
+	_mocap_moves(delta, wish, sprint)
 	if _slide_t > 0.0:
 		# Sliding: carried along the run, slowing down, steering a little.
 		_slide_t -= delta
@@ -831,6 +838,11 @@ func _ground(delta: float) -> void:
 	var hv := Vector2(velocity.x, velocity.z)
 	var tv := Vector2(target.x, target.z)
 	var k := (14.0 if tv.length() > hv.length() else 18.0) if is_on_floor() else 2.5
+	if _brake_t > 0.0: k = 3.0          # the brake carries you on a couple of strides
+	elif _start_t > 0.0: k = 6.0        # pushing off takes a stride or two
+	if _roll_t > 0.0:
+		k = 2.0
+		tv = hv.normalized() * maxf(hv.length(), 3.0)
 	hv = hv.lerp(tv, 1.0 - exp(-k * delta))
 	velocity.x = hv.x
 	velocity.z = hv.y
@@ -869,7 +881,14 @@ func _ground(delta: float) -> void:
 	_step_up(wish)
 	if was_air and is_on_floor():
 		# A long drop (off a roof, a cliff): a hard landing that takes a moment.
-		if _fall_vy < -11.0 and not knocked and not swimming():
+		if _fall_vy < -11.0 and not knocked and not swimming() and Vector2(velocity.x, velocity.z).length() > 3.0 \
+				and model.ap.has_animation("mx/c_dive_roll"):
+			# Coming down while running on: tuck and roll through it, still moving.
+			_roll_t = 0.95
+			hard_land_t = 0.0
+			model.play_action("c_dive_roll", 0.95, 1.05, 2.0)
+			world.footstep(global_position, true, 1.0)
+		elif _fall_vy < -11.0 and not knocked and not swimming():
 			hard_land_t = 1.1
 			model.play_action("hard_land", 1.1)
 			world.footstep(global_position, true, 1.0)
@@ -895,6 +914,36 @@ func _ground(delta: float) -> void:
 	if firing and not throw_ready:
 		if heal_id != "": cancel_heal()
 		_try_fire()
+
+## Starting a sprint from standing and letting go of one: the motion-captured
+## push-off and brake (the body leans in, the feet dig in) instead of the run
+## cycle simply switching on and off.
+func _mocap_moves(delta: float, wish: Vector3, sprint: bool) -> void:
+	var hs := Vector2(velocity.x, velocity.z).length()
+	_roll_t = maxf(0.0, _roll_t - delta)
+	_stand_t = _stand_t + delta if hs < 0.3 and wish.length() < 0.05 else (_stand_t if hs < 0.3 else 0.0)
+	if sprint and hs > 5.5: _sprint_t += delta
+	elif not sprint: _sprint_t = maxf(0.0, _sprint_t - delta * 3.0)
+	var free := is_on_floor() and stance == "stand" and not aiming and not firing and not knocked and vault_t < 0.0 \
+		and heal_id == "" and _roll_t <= 0.0 and not swimming()
+	if _brake_t > 0.0:
+		_brake_t -= delta
+		if wish.length() > 0.3 or not free:
+			_brake_t = 0.0
+			model.stop_action()
+	elif free and wish.length() < 0.05 and hs > 5.0 and _sprint_t > 0.5 and model.ap.has_animation("mx/c_run_stop"):
+		_brake_t = 0.8
+		_sprint_t = 0.0
+		model.play_action("c_run_stop", 0.95, 0.75, 2.05)
+	if _start_t > 0.0:
+		_start_t -= delta
+		if not sprint or not free:
+			_start_t = 0.0
+			model.stop_action()
+	elif free and sprint and hs < 0.6 and _stand_t > 0.3 and wish.length() > 0.5 and model.ap.has_animation("mx/c_run_start"):
+		_start_t = 0.5
+		_stand_t = 0.0
+		model.play_action("c_run_start", 0.55, 0.8, 1.45)
 
 ## Q / E (held) or the touch buttons: lean out to the side. Not while
 ## prone, sprinting or running.
@@ -988,6 +1037,10 @@ func try_vault() -> bool:
 	elif to.y < base.y - 0.8:
 		_vault_time = 0.9
 		model.play_action("drop_down", _vault_time)
+	elif is_sprinting and model.ap.has_animation("mx/c_run_vault"):
+		# At a run: hurdle it in stride, as a real runner does.
+		_vault_time = maxf(_vault_time, 0.62)
+		model.play_action("c_run_vault", _vault_time, 0.35, 1.25)
 	else:
 		# Over a low wall: the hop of the jump-over clip.
 		model.play_action("vault", _vault_time, 1.75, 3.0)

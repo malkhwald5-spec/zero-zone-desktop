@@ -287,71 +287,90 @@ func _ball(col: Color, emit: float) -> SphereMesh:
 
 ## Fireball, flash, debris and a dark smoke puff.
 func explosion(pos: Vector3) -> void:
+	# A shell or a grenade: a white flash, a rolling fireball, dirt thrown up
+	# and a dark column of smoke that hangs on (less of all of it on phones).
+	var lite := Game.lite()
+	var m := 0.5 if lite else 1.0
+	var flash := MeshInstance3D.new()
+	flash.mesh = _ball(Color(1.0, 0.92, 0.7), 6.0)
+	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(flash)
+	flash.global_position = pos + Vector3(0, 0.8, 0)
+	flash.scale = Vector3.ONE * 0.5
+	var ft := flash.create_tween()
+	ft.tween_property(flash, "scale", Vector3.ONE * 6.5, 0.12)
+	ft.tween_property(flash, "scale", Vector3.ONE * 0.1, 0.1)
+	ft.tween_callback(flash.queue_free)
 	var fire := CPUParticles3D.new()
 	fire.one_shot = true
 	fire.emitting = true
-	fire.amount = 26
-	fire.lifetime = 0.6
-	fire.explosiveness = 1.0
+	fire.amount = int(40 * m)
+	fire.lifetime = 0.85
+	fire.explosiveness = 0.95
 	fire.spread = 180.0
-	fire.initial_velocity_min = 3.0
-	fire.initial_velocity_max = 9.0
-	fire.gravity = Vector3(0, 2.0, 0)
-	fire.scale_amount_min = 0.6
-	fire.scale_amount_max = 1.6
+	fire.initial_velocity_min = 4.0
+	fire.initial_velocity_max = 12.0
+	fire.damping_min = 6.0
+	fire.damping_max = 10.0
+	fire.gravity = Vector3(0, 3.0, 0)
+	fire.scale_amount_min = 1.4
+	fire.scale_amount_max = 3.6
 	var ramp := Gradient.new()
-	ramp.set_color(0, Color(1.0, 0.85, 0.4, 1.0))
-	ramp.set_color(1, Color(0.6, 0.15, 0.05, 0.0))
+	ramp.offsets = PackedFloat32Array([0.0, 0.25, 0.6, 1.0])
+	ramp.colors = PackedColorArray([Color(1.0, 0.95, 0.7, 1.0), Color(1.0, 0.6, 0.15, 1.0), Color(0.7, 0.2, 0.05, 0.7), Color(0.15, 0.1, 0.08, 0.0)])
 	fire.color_ramp = ramp
 	fire.mesh = _ball(Color.WHITE, 3.0)
 	add_child(fire)
-	fire.global_position = pos
+	fire.global_position = pos + Vector3(0, 0.6, 0)
 	var smoke := CPUParticles3D.new()
 	smoke.one_shot = true
 	smoke.emitting = true
-	smoke.amount = 18
-	smoke.lifetime = 2.2
-	smoke.explosiveness = 0.9
-	smoke.spread = 180.0
-	smoke.initial_velocity_min = 1.0
-	smoke.initial_velocity_max = 3.0
-	smoke.gravity = Vector3(0, 1.2, 0)
-	smoke.scale_amount_min = 1.2
-	smoke.scale_amount_max = 2.6
+	smoke.amount = int(34 * m)
+	smoke.lifetime = 4.5
+	smoke.explosiveness = 0.8
+	smoke.direction = Vector3.UP
+	smoke.spread = 35.0
+	smoke.initial_velocity_min = 2.0
+	smoke.initial_velocity_max = 6.0
+	smoke.damping_min = 1.0
+	smoke.damping_max = 2.0
+	smoke.gravity = Vector3(0.4, 1.4, 0)
+	smoke.scale_amount_min = 2.4
+	smoke.scale_amount_max = 6.0
 	var sramp := Gradient.new()
-	sramp.set_color(0, Color(0.15, 0.13, 0.12, 0.8))
-	sramp.set_color(1, Color(0.3, 0.3, 0.3, 0.0))
+	sramp.offsets = PackedFloat32Array([0.0, 0.15, 1.0])
+	sramp.colors = PackedColorArray([Color(0.12, 0.1, 0.09, 0.0), Color(0.16, 0.14, 0.13, 0.85), Color(0.42, 0.4, 0.38, 0.0)])
 	smoke.color_ramp = sramp
 	smoke.mesh = _ball(Color.WHITE, 0.0)
 	add_child(smoke)
-	smoke.global_position = pos
+	smoke.global_position = pos + Vector3(0, 1.0, 0)
 	var dirt := CPUParticles3D.new()
 	dirt.one_shot = true
 	dirt.emitting = true
-	dirt.amount = 24
-	dirt.lifetime = 1.0
+	dirt.amount = int(44 * m)
+	dirt.lifetime = 1.4
 	dirt.explosiveness = 1.0
 	dirt.direction = Vector3.UP
-	dirt.spread = 70.0
-	dirt.initial_velocity_min = 5.0
-	dirt.initial_velocity_max = 12.0
+	dirt.spread = 55.0
+	dirt.initial_velocity_min = 7.0
+	dirt.initial_velocity_max = 17.0
 	dirt.gravity = Vector3(0, -9.8, 0)
-	dirt.scale_amount_min = 0.06
-	dirt.scale_amount_max = 0.16
-	dirt.mesh = _ball(Color(0.35, 0.3, 0.25), 0.0)
+	dirt.scale_amount_min = 0.08
+	dirt.scale_amount_max = 0.3
+	dirt.mesh = _ball(Color(0.33, 0.27, 0.2), 0.0)
 	add_child(dirt)
 	dirt.global_position = pos
 	var l := OmniLight3D.new()
-	l.light_color = Color(1.0, 0.7, 0.35)
-	l.light_energy = 10.0
-	l.omni_range = 14.0
+	l.light_color = Color(1.0, 0.68, 0.32)
+	l.light_energy = 16.0
+	l.omni_range = 26.0
 	add_child(l)
-	l.global_position = pos + Vector3(0, 0.5, 0)
+	l.global_position = pos + Vector3(0, 1.5, 0)
 	var tw := l.create_tween()
-	tw.tween_property(l, "light_energy", 0.0, 0.35)
+	tw.tween_property(l, "light_energy", 0.0, 0.5)
 	tw.tween_callback(l.queue_free)
 	for n in [fire, smoke, dirt]:
-		n.create_tween().tween_callback(n.queue_free).set_delay(2.5)
+		n.create_tween().tween_callback(n.queue_free).set_delay(5.0)
 
 ## Molotov: low flames over a round patch, black smoke above and a
 ## flickering orange light, for `duration` seconds.

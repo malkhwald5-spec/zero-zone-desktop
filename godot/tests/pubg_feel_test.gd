@@ -70,6 +70,13 @@ func _run() -> void:
 	p.switch_slot(p.active if p.slots[p.active] != null and p.slots[p.active].id == "kar98" else (1 if p.slots[1] != null and p.slots[1].id == "kar98" else 0))
 	await wait(1.0)
 	p.pitch = 0.3
+	# A way with nothing within 80 m (poles, trees) up the line of fire.
+	for k in 16:
+		await wait(0.15)
+		var cq := PhysicsRayQueryParameters3D.create(p.camera.global_position, p.camera.global_position - p.camera.global_basis.z * 90.0, 1 | 4)
+		cq.exclude = [p.get_rid()]
+		if p.get_world_3d().direct_space_state.intersect_ray(cq).is_empty(): break
+		p.yaw += TAU / 16.0
 	await wait(0.3)
 	p._fire_ray(Game.WEAPONS.kar98, 0.0)
 	var lq := PhysicsRayQueryParameters3D.create(p.camera.global_position, p.camera.global_position - p.camera.global_basis.z * 80.0, 1 | 4)

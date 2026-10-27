@@ -58,7 +58,12 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	"r_walk_f": "rifle_walking", "r_walk_b": "backwards_rifle_walk", "r_strafe_l": "strafe_left", "r_strafe_r": "strafe_right",
 	"r_run_f": "rifle_run_upright", "r_run_b": "backwards_rifle_run",
 	"r_start": "rifle_start_walking", "r_stop": "rifle_walk_to_stop", "r_stop2": "rifle_stop_walking",
-	"r_stop_b": "rifle_walk_backwards_stop", "r_turn_l": "rifle_turn_90_left"}
+	"r_stop_b": "rifle_walk_backwards_stop", "r_turn_l": "rifle_turn_90_left",
+	# Motion capture from the CMU Graphics Lab database (BVH converted to GLB by
+	# tools/bvh2glb.py; free for any use): real people starting, stopping and
+	# turning at a run, vaulting and diving.
+	"c_run_start": "cmu_104_53", "c_run_stop": "cmu_104_56", "c_quick_stop": "cmu_127_05",
+	"c_run_vault": "cmu_127_25", "c_dive_roll": "cmu_127_23"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left", "r_turn_r": "rifle_turn_90_left"}
 ## Played once (not looped).
@@ -66,9 +71,11 @@ const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back
 	"death_back_head", "death_crouch", "death_walk", "prone_stop", "hard_land", "climb", "drop_down",
 	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump",
 	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault", "car_enter",
-	"car_exit", "wall_climb", "swim_edge", "salute", "r_start", "r_stop", "r_stop2", "r_stop_b", "r_turn_l", "r_turn_r"]
+	"car_exit", "wall_climb", "swim_edge", "salute", "r_start", "r_stop", "r_stop2", "r_stop_b", "r_turn_l", "r_turn_r",
+	"c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll"]
 ## Old names replaced by the 8-way set.
-const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left"]
+const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left",
+	"c_run_turn_l", "c_run_turn_r", "c_jog_start", "c_jog_stop", "c_sudden_stop"]
 var OUT := "res://assets/anims/mixamo_anims.res"
 ## Character to retarget onto (-- --target=res://... --out=res://... [--only=key1,key2]).
 var TARGET := "res://assets/models/soldier.glb"
@@ -116,6 +123,7 @@ func _init() -> void:
 	for key in SRC.keys() + MIRROR.keys():
 		var mirror := MIRROR.has(key)
 		var path := "res://assets/incoming/%s.fbx" % (MIRROR[key] if mirror else SRC[key])
+		if not ResourceLoader.exists(path): path = path.get_basename() + ".glb"
 		if not ResourceLoader.exists(path) or (only.size() > 0 and not key in only): continue
 		if lib.has_animation(key): lib.remove_animation(key)
 		var sc: Node3D = load(path).instantiate()
