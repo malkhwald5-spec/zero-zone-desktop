@@ -259,7 +259,7 @@ func _ground() -> void:
 	shot(func(t: float):
 		var b: Vector3 = p.get_global_transform_interpolated().origin
 		cam.fov = 50.0
-		var back := maxf(5.5, (b - b0).dot(f) + 5.5 - t * 0.6)
+		var back := maxf(3.6, (b - b0).dot(f) + 3.6 - t * 0.3)
 		cam.global_position = b0 + f * back + r * 0.9 + Vector3(0, 0.45, 0)
 		cam.global_position.y = ground(cam.global_position) + 0.45
 		cam.look_at(b + Vector3(0, 1.1, 0), Vector3.UP), "pushoff")
@@ -287,7 +287,9 @@ func _ground() -> void:
 	var bm := BoxMesh.new()
 	bm.size = bx.size
 	var wm := StandardMaterial3D.new()
-	wm.albedo_color = Color(0.55, 0.52, 0.48)
+	wm.albedo_color = Color(0.8, 0.78, 0.75)
+	wm.albedo_texture = load("res://assets/textures/concrete_col.jpg") if ResourceLoader.exists("res://assets/textures/concrete_col.jpg") else null
+	wm.uv1_scale = Vector3(4, 1, 1)
 	wm.roughness = 0.95
 	bm.material = wm
 	mi.mesh = bm
@@ -348,7 +350,7 @@ func _ground() -> void:
 		fe = fe.normalized()
 		var re := fe.cross(Vector3.UP)
 		cam.fov = 40.0 - t * 5.0
-		cam.global_position = b - fe * 2.3 + re * 0.75 + Vector3(0, 1.75, 0)
+		cam.global_position = b - fe * 2.0 + re * 1.5 + Vector3(0, 1.6, 0)
 		cam.look_at(e_at, Vector3.UP), "aim")
 	await wait(0.8)
 	p.action("fire", true)

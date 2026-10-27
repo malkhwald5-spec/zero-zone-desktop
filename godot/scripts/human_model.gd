@@ -1067,7 +1067,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			# The pan swings in the right hand (handle along the fingers).
 			var hand: Transform3D = sk.global_transform * sk.get_bone_global_pose(_bone["RightHand"])
 			gun.global_transform = Transform3D(hand.basis.orthonormalized() * Basis(Vector3.RIGHT, PI / 2.0), hand.origin)
-		if _action == "vault":
+		if _action in ["vault", "c_run_vault"]:
 			# Jumping over a low wall: the owner carries the body over it, so
 			# the clip's own hop is taken out of the hips.
 			var upv := _skeleton_up()
