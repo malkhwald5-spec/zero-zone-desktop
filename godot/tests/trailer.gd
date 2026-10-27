@@ -444,15 +444,16 @@ func _war() -> void:
 		p.exit_vehicle(true)
 		await wait(0.3)
 	# 4: the last look: on high ground, the smoke rising over the town behind her.
-	var hill := Vector3(rr.x, 0, rr.z) - f * 120.0
-	var best := hill
+	# The highest open ground 150-400 m out from the town, clear of buildings.
+	var best := Vector3(rr.x, 0, rr.z) - f * 200.0
 	var best_h := -1e9
-	for i in 16:
-		var q := hill + Vector3(cos(i * TAU / 16.0), 0, sin(i * TAU / 16.0)) * 40.0
-		var h := ground(q)
-		if h > best_h and not world.island.is_deep(q.x, q.z):
-			best_h = h
-			best = q
+	for ring in [150.0, 220.0, 300.0, 400.0]:
+		for i in 32:
+			var q: Vector3 = Vector3(rr.x, 0, rr.z) + Vector3(cos(i * TAU / 32.0), 0, sin(i * TAU / 32.0)) * float(ring)
+			var h: float = ground(q)
+			if h > best_h and not world.island.is_deep(q.x, q.z) and world.building_at(Vector2(q.x, q.z), 14.0) < 0:
+				best_h = h
+				best = q
 	p.global_position = Vector3(best.x, best_h + 1.0, best.z)
 	p.velocity = Vector3.ZERO
 	await wait(0.2)
@@ -467,7 +468,11 @@ func _war() -> void:
 		cam.fov = 50.0
 		cam.global_position = b + off + Vector3(0, 1.0, 0)
 		cam.look_at(b + to_town * 30.0 + Vector3(0, 2.5, 0), Vector3.UP), "lastlook")
-	await wait(4.5)
+	# The town still burning in the distance.
+	for k in 6:
+		ev._shell()
+		ev._shell()
+		await wait(0.75)
 	# End card.
 	fade_to(1.0, 0.5)
 	await wait(0.6)
