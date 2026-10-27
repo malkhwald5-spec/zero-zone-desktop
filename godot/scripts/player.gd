@@ -1040,6 +1040,7 @@ func try_vault() -> bool:
 	elif is_sprinting and model.ap.has_animation("mx/c_run_vault"):
 		# At a run: hurdle it in stride, as a real runner does.
 		_vault_time = maxf(_vault_time, 0.62)
+		_vault_top = base.y + h + 0.05     # a hurdle skims the top (the legs fold up over it)
 		model.play_action("c_run_vault", _vault_time, 0.35, 1.25)
 	else:
 		# Over a low wall: the hop of the jump-over clip.

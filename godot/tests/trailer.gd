@@ -343,6 +343,15 @@ func _ground() -> void:
 		await get_tree().process_frame
 	p.action("aim", true)
 	var e_at: Vector3 = enemy.global_position + Vector3(0, 1.2, 0)
+	# Over whichever shoulder has nothing in the way of the lens.
+	var sh := 1.5
+	var pb := p.global_position + Vector3(0, 1.6, 0)
+	var fe0 := (e_at - pb)
+	fe0.y = 0.0
+	fe0 = fe0.normalized()
+	var space := p.get_world_3d().direct_space_state
+	if not space.intersect_ray(PhysicsRayQueryParameters3D.create(pb, pb - fe0 * 2.2 + fe0.cross(Vector3.UP) * 2.0, 1, [p.get_rid()])).is_empty():
+		sh = -1.5
 	shot(func(t: float):
 		var b: Vector3 = p.get_global_transform_interpolated().origin
 		var fe := (e_at - b)
@@ -350,13 +359,14 @@ func _ground() -> void:
 		fe = fe.normalized()
 		var re := fe.cross(Vector3.UP)
 		cam.fov = 40.0 - t * 5.0
-		cam.global_position = b - fe * 2.0 + re * 1.5 + Vector3(0, 1.6, 0)
+		cam.global_position = b - fe * 2.0 + re * sh + Vector3(0, 1.6, 0)
 		cam.look_at(e_at, Vector3.UP), "aim")
 	await wait(0.8)
 	p.action("fire", true)
 	await wait(0.9)
 	p.action("fire", false)
 	enemy.take_damage(999.0, p)
+	enemy.set_physics_process(true)      # so he goes down (his body is posed there)
 	var es: Vector3 = enemy.global_position
 	shot(func(t: float):
 		cam.fov = 50.0
