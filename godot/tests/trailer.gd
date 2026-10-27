@@ -26,6 +26,11 @@ func _ready() -> void:
 	Game.spawn_island = false
 	Game.wallet.login_date = Game.today()
 	Game.settings.weather = "sunset"
+	# Best picture, and no automatic stepping down (the movie writer's fixed
+	# frame rate would look like a slow machine to it).
+	Game.settings.quality = "ultra"
+	Game.settings.lite = false
+	Game.settings.auto_perf = false
 	_run.call_deferred()
 
 func _process(delta: float) -> void:
