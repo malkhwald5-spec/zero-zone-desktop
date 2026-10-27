@@ -62,6 +62,11 @@ def main():
 	# "loop": cut one whole gait cycle (two steps) out of [t0, t1] whose last
 	# pose runs back into its first, so the clip repeats without a jump.
 	loop = len(sys.argv) > 5 and sys.argv[5] == "loop"
+	# "land": a drop onto lower ground; lift the hips so it ends standing at
+	# its starting height (the floor of the clip is where it lands).
+	land = len(sys.argv) > 5 and sys.argv[5] == "land"
+	lmin = float(sys.argv[6]) if len(sys.argv) > 6 else 0.55   # loop length range (s)
+	lmax = float(sys.argv[7]) if len(sys.argv) > 7 else 1.6
 	joints, vals, ft = parse(src)
 	nj = len(joints)
 	nf = vals.shape[0]
@@ -106,18 +111,20 @@ def main():
 		for a_i, fa in enumerate(idx):
 			for fb in idx[a_i + 1:]:
 				dt = (fb - fa) * ft
-				if dt < 0.55: continue
-				if dt > 1.6: break
+				if dt < lmin: continue
+				if dt > lmax: break
 				d = float(np.sum((F[fa] - F[fb]) ** 2))
 				if d < best[0]: best = (d, fa, fb)
 		idx = [f for f in idx if best[1] <= f < best[2]]
 		print("loop %.2f-%.2fs err %.3f" % ((best[1] - 1) * ft, (best[2] - 1) * ft, best[0]))
 	times = np.array([(f - idx[0]) * ft for f in idx], dtype=np.float32)
+	if land:
+		root_pos[1:, 1] += root_pos[0, 1] - root_pos[idx[-1], 1]
 	# Turn the whole clip so the actor starts out facing +Z (the way the T-pose
 	# faces, toes forward), starting at the origin; leave the hips height.
 	hips_r = R.from_quat(rots[idx[0]:idx[0] + 6, 0])
 	fwd = hips_r.apply([0.0, 0.0, 1.0]).mean(axis=0)
-	if loop:
+	if loop and np.linalg.norm((root_pos[idx[-1]] - root_pos[idx[0]])[[0, 2]]) > 0.5 / scale:
 		# A stride cycle: the way it travels (the hips swing about inside it).
 		fwd = root_pos[idx[-1]] - root_pos[idx[0]]
 	yaw = math.atan2(fwd[0], fwd[2])

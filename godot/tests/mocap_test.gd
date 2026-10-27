@@ -163,5 +163,10 @@ func _run() -> void:
 	await shot("mocap_roll")
 	check("keeps moving through it", Vector2(p.velocity.x, p.velocity.z).length() > 1.5, "%.1f" % Vector2(p.velocity.x, p.velocity.z).length())
 	p.touch_move = Vector2.ZERO
+	# Coming down under the canopy: feet first, knees give.
+	await wait(1.5)
+	p.state = "chute"
+	p._land()
+	check("canopy landing plays", p.model._action == "c_land", p.model._action)
 	print("MOCAP TEST %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 	tree.quit(1 if fails > 0 else 0)

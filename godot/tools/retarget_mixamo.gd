@@ -38,7 +38,7 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	# Empty hands (Mixamo Locomotion Pack and single clips, files renamed u_*).
 	# Walking, running and sprinting empty-handed: real people (CMU motion
 	# capture, one whole stride each, see tools/bvh2glb.py "loop").
-	"u_walk": "cmu_16_21", "u_run": "cmu_16_46", "u_sprint": "cmu_09_06", "u_idle": "u_idle", "u_back": "u_walking_backwards",
+	"u_walk": "cmu_16_21", "u_run": "cmu_16_46", "u_sprint": "cmu_09_06", "u_idle": "cmu_111_28", "u_back": "u_walking_backwards",
 	"u_walk_l": "u_strafe_walk_left", "u_walk_r": "u_strafe_walk_right", "u_run_l": "u_strafe_run_left", "u_run_r": "u_strafe_run_right",
 	"u_jump": "u_jump",
 	# Weapon switching, pistol, prone death, door, second throw, vault.
@@ -65,7 +65,9 @@ const SRC := {"aim_idle": "rifle_aiming_idle", "fire": "firing_rifle", "reload":
 	# tools/bvh2glb.py; free for any use): real people starting, stopping and
 	# turning at a run, vaulting and diving.
 	"c_run_start": "cmu_104_53", "c_run_stop": "cmu_104_56", "c_quick_stop": "cmu_127_05",
-	"c_run_vault": "cmu_127_25", "c_dive_roll": "cmu_127_23"}
+	"c_run_vault": "cmu_127_25", "c_dive_roll": "cmu_127_23",
+	# Touching down off a drop (the canopy landing), and standing at ease.
+	"c_land": "cmu_82_02"}
 ## Made by mirroring a clip left <-> right (there is no right-hand version).
 const MIRROR := {"turn90_r": "turn_90_left", "turn_r": "turn_left", "r_turn_r": "rifle_turn_90_left"}
 ## Played once (not looped).
@@ -74,10 +76,10 @@ const ONCE := ["jump_up", "jump_down", "toss", "hit", "death_front", "death_back
 	"kneel", "prone_to_kneel", "kneel_to_prone", "turn90_l", "turn90_r", "turn_l", "turn_r", "melee", "pickup", "u_jump",
 	"draw", "holster", "preload", "pfire", "pgunplay", "prone_death", "door", "toss2", "vault", "car_enter",
 	"car_exit", "wall_climb", "swim_edge", "salute", "r_start", "r_stop", "r_stop2", "r_stop_b", "r_turn_l", "r_turn_r",
-	"c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll"]
+	"c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll", "c_land"]
 ## Old names replaced by the 8-way set.
 const DROP := ["strafe_a", "strafe_b", "crouch_fwd", "crouch_right", "crouch_left",
-	"c_run_turn_l", "c_run_turn_r", "c_jog_start", "c_jog_stop", "c_sudden_stop"]
+	"c_run_turn_l", "c_run_turn_r", "c_jog_start", "c_jog_stop", "c_sudden_stop", "c_hang"]
 var OUT := "res://assets/anims/mixamo_anims.res"
 ## Character to retarget onto (-- --target=res://... --out=res://... [--only=key1,key2]).
 var TARGET := "res://assets/models/soldier.glb"

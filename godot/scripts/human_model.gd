@@ -873,7 +873,7 @@ var _action_speed := 1.0
 ## `from`/`to` pick part of a longer clip (seconds into it).
 ## Moves from the CMU motion capture (empty-handed people): with a gun the
 ## hands stay on it (see set_pose).
-const MOCAP_MOVES := ["c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll"]
+const MOCAP_MOVES := ["c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll", "c_land"]
 
 func play_action(name: String, seconds: float, from := 0.0, to := -1.0) -> void:
 	var a: Animation = ap.get_animation("mx/" + name)

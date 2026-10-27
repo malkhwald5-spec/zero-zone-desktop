@@ -755,6 +755,8 @@ func _land() -> void:
 	if state == "chute":
 		world.drop_canopy(model, velocity)
 		land_t = 0.45
+		# Feet first, knees give, back up (motion capture of a drop).
+		if model.ap.has_animation("mx/c_land"): model.play_action("c_land", 0.6, 0.38, 1.05)
 	state = "ground"
 	jump_queued = false
 	stance = "stand"
