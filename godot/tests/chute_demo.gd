@@ -60,17 +60,29 @@ func _run() -> void:
 	for k in 2:
 		var dive := k == 1
 		# Over open land, 260 m up.
-		var c: Vector3 = Vector3(world.island.size * 0.5, 0, world.island.size * 0.5)
+		# The flattest open ground just outside the biggest town.
+		var big: Dictionary = world.island.towns[0]
 		for tw in world.island.towns:
-			if tw.kind != "fort":
-				c = Vector3(tw.pos.x + 160.0 + k * 90.0, 0, tw.pos.y)
-				break
+			if tw.kind != "fort" and float(tw.r) > float(big.r): big = tw
+		var c := Vector3(big.pos.x, 0, big.pos.y)
+		var best := INF
+		for i in 48:
+			var q := Vector3(big.pos.x, 0, big.pos.y) + Vector3(float(big.r) + 60.0 + (i % 3) * 40.0, 0, 0).rotated(Vector3.UP, i * TAU / 16.0)
+			if world.island.is_deep(q.x, q.z): continue
+			var h0: float = world.ground_height(q)
+			var bump := 0.0
+			for d in [Vector3(25, 0, 0), Vector3(-25, 0, 0), Vector3(0, 0, 25), Vector3(0, 0, -25), Vector3(0, 0, -60)]:
+				bump += absf(world.ground_height(q + d) - h0)
+			if bump < best:
+				best = bump
+				c = q
+		c += Vector3(0, 0, 70.0 * k)
 		p.jump_from_plane()
 		p.global_position = Vector3(c.x, world.ground_height(c) + 260.0, c.z)
 		p.velocity = Vector3(0, -40, 0)
 		p.yaw = 0.0
 		cam.global_position = p.global_position + Vector3(6, 2, 8)
-		follow(6.0, 9.0, 1.0)
+		follow(3.5, 6.5, 0.6)
 		print("DEMO %s jump" % ("dive" if dive else "soft"))
 		await wait(1.2)
 		p.open_chute()
@@ -78,7 +90,7 @@ func _run() -> void:
 		await wait(3.0)
 		if not dive:
 			# Turns: left, right, then straight with the wind.
-			follow(-7.0, 8.0, 0.5)
+			follow(-4.0, 5.5, 0.4)
 			p.touch_move = Vector2(-1, 0)
 			await wait(3.0)
 			p.touch_move = Vector2(1, 0)
@@ -88,7 +100,7 @@ func _run() -> void:
 		# Down to the last 40 m, then the camera low and to the side for the touch-down.
 		p.global_position.y = world.ground_height(p.global_position) + 40.0
 		p.touch_move = Vector2(0, 1) if dive else Vector2.ZERO
-		follow(9.0, 4.0, -1.5)
+		follow(5.5, 3.0, -1.2)
 		var touched := false
 		for i in 1500:
 			await get_tree().physics_frame
