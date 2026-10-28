@@ -1597,6 +1597,52 @@ func _cyl_shape(body: StaticBody3D, pos: Vector3, r: float, h: float) -> void:
 	cs.position = pos
 	body.add_child(cs)
 
+## The highest floor a bot can walk up to: the upper storeys of a house, an
+## apartment block's flat roof, a warehouse's gallery.
+static func top_level(b: Dictionary) -> int:
+	if has_mezzanine(b): return 1
+	var n: int = b.get("storeys", 1)
+	return n if b.get("kind", "") == "apartment" else n - 1
+
+## Which floor a height is on (0 = the ground floor).
+static func level_at(b: Dictionary, y: float) -> int:
+	return clampi(roundi((y - float(b.floor)) / STOREY_H), 0, top_level(b))
+
+## World-space waypoints of flight `lv` (from floor lv-1 up to floor lv), the
+## same layout as _upper_floor / _mezzanine: [beside the first steps, the
+## foot, the top, a step on from the top into the room clear of the
+## stairwell].
+static func flight_points(b: Dictionary, lv: int) -> Array:
+	var c: Vector2 = b.pos
+	var hx: float = b.size.x * 0.5
+	var hz: float = b.size.y * 0.5
+	var y0: float = float(b.floor) + (lv - 1) * STOREY_H
+	if has_mezzanine(b):
+		var x1 := -hx + MEZZ_D
+		var bz := -hz + WALL_T + STAIR_W * 0.5
+		return [Vector3(c.x + x1 + STAIR_RUN + 1.3, y0, c.y + bz + 1.1), Vector3(c.x + x1 + STAIR_RUN + 0.6, y0, c.y + bz),
+			Vector3(c.x + x1 - 0.8, y0 + STOREY_H, c.y + bz), Vector3(c.x + x1 - 1.8, y0 + STOREY_H, c.y + bz + 1.6)]
+	var w: int = b.stair if lv % 2 == 1 else (int(b.stair) + 2) % 4
+	var along_x := w == 0 or w == 2
+	var length: float = b.size.x if along_x else b.size.y
+	var band: float = [-hz + WALL_T + STAIR_W * 0.5, hx - WALL_T - STAIR_W * 0.5, hz - WALL_T - STAIR_W * 0.5, -hx + WALL_T + STAIR_W * 0.5][w]
+	var start := -length * 0.5 + WALL_T + 1.2
+	var into := -signf(band)
+	var at := func(a: float, y: float, across: float) -> Vector3:
+		return Vector3(c.x + a, y, c.y + across) if along_x else Vector3(c.x + across, y, c.y + a)
+	return [at.call(start + 0.4, y0, band + into * 1.05), at.call(start - 0.6, y0, band),
+		at.call(start + STAIR_RUN + 0.9, y0 + STOREY_H, band), at.call(start + STAIR_RUN + 0.9, y0 + STOREY_H, band + into * 2.2)]
+
+## Waypoints from floor `from` to floor `to` of one building (up or down).
+static func climb_path(b: Dictionary, from: int, to: int) -> Array:
+	var lo := mini(from, to)
+	var hi := maxi(from, to)
+	var pts := []
+	for lv in range(lo + 1, hi + 1):
+		pts.append_array(flight_points(b, lv))
+	if from > to: pts.reverse()
+	return pts
+
 ## World-space approach, foot and top of a two-storey house's staircase (same layout
 ## as _upper_floor), for bots walking up and down. [] for other buildings.
 static func stair_points(b: Dictionary) -> Array:

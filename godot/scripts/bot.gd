@@ -74,6 +74,8 @@ var _buddy_off := Vector3.ZERO
 var _buddy_jump_t := -1.0
 var _last_pp := Vector3.ZERO     # your position last frame (to match your speed in the air)
 var _face := 0.0             # quick turn towards a shot or a hit
+var perch_until := 0.0       # up on a roof watching the streets until then (ms)
+var _perch_next := 0.0       # not before then again (ms)
 var _face_t := 0.0
 
 ## Turn round quickly but not in one frame (a hit, a heard shot).
@@ -260,8 +262,16 @@ func _air(delta: float) -> void:
 	var need := dist / maxf(alt / vs, 0.5)
 	var v := to.normalized() * minf(hs, need) if dist > 1.0 else Vector3.ZERO
 	global_position += Vector3(v.x, -vs, v.z) * delta
+	var yaw0 := yaw
 	if dist > 1.0:
 		yaw = lerp_angle(yaw, atan2(-to.x, -to.z), minf(1.0, delta * 2.0))
+	if state == "chute":
+		# On the toggles like a player: the turning hand pulls, both come
+		# down for the touch-down.
+		model.steer = lerpf(model.steer, clampf(-wrapf(yaw - yaw0, -PI, PI) / maxf(delta, 0.001) * 0.8, -1.0, 1.0), minf(1.0, delta * 4.0))
+		model.brake = move_toward(model.brake, clampf(inverse_lerp(9.0, 3.0, alt), 0.0, 1.0), delta * 1.6)
+		vs = lerpf(vs, 2.6, model.brake)
+		global_position.y += (6.5 - vs) * delta * float(not buddy)
 	model.rotation.y = yaw
 	if not far or _frame % 4 == 0:
 		model.set_pose(state, 0.0, false, delta, world.time)
@@ -271,6 +281,10 @@ func _air(delta: float) -> void:
 func _land() -> void:
 	if state == "chute" and not far:
 		world.drop_canopy(model, Vector3(-sin(yaw), 0, -cos(yaw)) * 8.0)
+		# Feet first, knees give, back up.
+		if model.ap.has_animation("mx/c_land"): model.play_action("c_land", 0.6, 0.38, 1.05)
+	model.brake = 0.0
+	model.steer = 0.0
 	global_position = world.safe_landing(global_position)
 	state = "ground"
 	shape.disabled = false
@@ -476,7 +490,7 @@ func _think() -> void:
 			mode = "alert"
 			_go(pp + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25)))
 			return
-	if _wants_loot():
+	if _wants_loot() and not (mode == "perch" and Time.get_ticks_msec() < perch_until):
 		if loot_item and (not is_instance_valid(loot_item) or not world.pickups.has(loot_item) or global_position.distance_to(loot_item.global_position) > 90.0):
 			loot_item = null
 		if loot_item == null:
@@ -503,6 +517,31 @@ func _think() -> void:
 			for it in world.pickups_near(ad.global_position + Vector3(0, 0.95, 0), 1.5):
 				if _useful(it): world.bot_take(self, it)
 		return
+	# Snipers (and now and then anyone well armed) climb an apartment block
+	# and watch the streets from a corner of its roof for a while.
+	var now := float(Time.get_ticks_msec())
+	if mode == "perch":
+		if now < perch_until and global_position.distance_to(goal) < 40.0:
+			if global_position.distance_to(goal) < 1.5:
+				# Looking out over the parapet, slowly scanning.
+				var out := Vector3(goal.x, 0, goal.z) - Vector3(home.x, 0, home.z)
+				yaw = atan2(-out.x, -out.z) + sin(now / 2600.0 + get_instance_id()) * 0.9
+			return
+		mode = "roam"
+		_perch_next = now + 120000.0
+	elif armed() and now > _perch_next and not buddy and not world.war \
+			and (persona == "sniper" or String(Game.WEAPONS[weapon_id].cls) in ["sr", "dmr"] or randf() < 0.04):
+		_perch_next = now + 30000.0
+		var roof: Vector3 = world.roof_spot(global_position, 160.0)
+		if roof != Vector3.INF:
+			mode = "perch"
+			perch_until = now + randf_range(35000.0, 70000.0)
+			var bi: int = world.building_at(Vector2(roof.x, roof.z))
+			if bi >= 0:
+				var bp: Vector2 = world.island.buildings[bi].pos
+				home = Vector3(bp.x, home.y, bp.y)      # the middle of the block: look away from it
+			_go(roof)
+			return
 	if mode != "roam" or global_position.distance_to(goal) < 3.0:
 		mode = "roam"
 		var a := randf() * TAU
@@ -523,10 +562,14 @@ func _wants_loot() -> bool:
 func _useful(it: Node3D) -> bool:
 	if buddy and world.player.state != "dead" and it.global_position.distance_to(world.player.global_position) > 40.0: return false
 	var data: Dictionary = it.get_meta("data")
-	# Bots do not climb stairs: skip loot on upper floors.
+	# Upstairs loot only on a floor the stairs reach (not on a roof or a crate stack).
 	var ip := it.global_position
 	if ip.y - world.island.height_at(ip.x, ip.z) > 2.5:
-		return false
+		var bi: int = world.building_at(Vector2(ip.x, ip.z))
+		if bi < 0: return false
+		var bl: Dictionary = world.island.buildings[bi]
+		var lv := WorldBuilder.level_at(bl, ip.y)
+		if lv == 0 or absf(ip.y - float(bl.floor) - lv * WorldBuilder.STOREY_H) > 1.0: return false
 	if data.kind == "weapon":
 		if not TIER.has(data.id): return false
 		return not armed() or _tier(data.id) > _tier(weapon_id)
@@ -690,6 +733,17 @@ func _team_think() -> bool:
 					revive_t = 0.0
 			return true
 	revive_mate = null
+	# A teammate in a fight nearby: come and help, stopping short of the enemy
+	# (seeing it, the fight takes over as usual).
+	if not engaged and armed() and mode in ["roam", "loot", "follow", "crate", "alert"]:
+		for m in world.teammates(self):
+			if m is Bot and not world.is_gone(m) and m.target != null and is_instance_valid(m.target) and not (m.target is FortHeart) \
+					and not _is_dead(m.target) and m.hurt_t < 6.0 and m.global_position.distance_to(global_position) < 120.0:
+				var at: Vector3 = m.target.global_position.lerp(m.global_position, 0.5)
+				if mode != "alert" or goal.distance_to(at) > 15.0:
+					mode = "alert"
+					_go(at)
+				break
 	if not buddy or world.player.state == "dead": return false
 	var pp: Vector3 = world.player.global_position
 	var d_me := global_position.distance_to(pp)

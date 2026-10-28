@@ -977,18 +977,15 @@ func _route_plain(a: Vector3, b: Vector3) -> Array:
 		pts.append_array(_around(ib, from, best2[0]))
 		pts.append(_v3(best2[0]))
 		pts.append(_v3(best2[1]))
-	# Two-storey houses: come down the stairs before leaving an upper floor,
-	# and climb them to reach someone upstairs.
-	var a_up := ia >= 0 and a.y > float(island.buildings[ia].floor) + 2.0
-	var b_up := ib >= 0 and b.y > float(island.buildings[ib].floor) + 2.0
-	if a_up and not (ia == ib and b_up):
-		var st := WorldBuilder.stair_points(island.buildings[ia])
-		if not st.is_empty():
-			pts = [st[2], st[1], st[0]] + pts
-	if b_up and not (ia == ib and a_up):
-		var st2 := WorldBuilder.stair_points(island.buildings[ib])
-		if not st2.is_empty():
-			pts.append_array(st2)
+	# Upper floors (houses, apartment blocks up to the roof, warehouse
+	# galleries): down the stairs before leaving, up them to reach a floor.
+	var la := WorldBuilder.level_at(island.buildings[ia], a.y) if ia >= 0 else 0
+	var lb := WorldBuilder.level_at(island.buildings[ib], b.y) if ib >= 0 else 0
+	if ia >= 0 and ia == ib:
+		if la != lb: pts = WorldBuilder.climb_path(island.buildings[ia], la, lb) + pts
+		return pts
+	if la > 0: pts = WorldBuilder.climb_path(island.buildings[ia], la, 0) + pts
+	if lb > 0: pts.append_array(WorldBuilder.climb_path(island.buildings[ib], 0, lb))
 	return pts
 
 # ---------- Cover for bots ----------
@@ -1727,6 +1724,72 @@ func call_drop() -> void:
 	if hud: hud.show_banner("طائرة إنزال جوي في الطريق!")
 
 ## Nearest landed crate within r that still holds something ok(item) accepts.
+# ---------- Tyre tracks: one ring of instances, the oldest overwritten ----------
+const MARKS := 900
+var _marks: MultiMeshInstance3D
+var _mark_i := 0
+var _mark_n := 0
+
+func tire_mark(p: Vector3, dir: Vector3, width: float, rubber: bool) -> void:
+	if Game.settings.get("lite", false): return
+	if _marks == null:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		var q := QuadMesh.new()
+		q.size = Vector2(1, 1)
+		q.orientation = PlaneMesh.FACE_Y
+		var mat := StandardMaterial3D.new()
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.vertex_color_use_as_albedo = true
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.render_priority = -1
+		q.material = mat
+		mm.mesh = q
+		mm.instance_count = MARKS
+		mm.visible_instance_count = 0
+		_marks = MultiMeshInstance3D.new()
+		_marks.multimesh = mm
+		_marks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_marks)
+	var d := Vector3(dir.x, 0, dir.z)
+	if d.length() < 0.01: return
+	var seg := minf(d.length() + 0.08, 1.4)
+	var f := d.normalized()
+	var side := f.cross(Vector3.UP)
+	var g := ground_height(p)
+	# Lie on the slope: the ground half a metre ahead and to the side.
+	var t1 := f * 0.5 + Vector3(0, ground_height(p + f * 0.5) - g, 0)
+	var t2 := side * 0.5 + Vector3(0, ground_height(p + side * 0.5) - g, 0)
+	var n := t2.cross(t1).normalized()
+	if n.y < 0.0: n = -n
+	var z := f
+	var x := n.cross(z).normalized()
+	z = x.cross(n).normalized()
+	var xf := Transform3D(Basis(x * width, n, z * seg), Vector3(p.x, g + 0.035, p.z) - z * seg * 0.5)
+	var mm: MultiMesh = _marks.multimesh
+	mm.set_instance_transform(_mark_i, xf)
+	mm.set_instance_color(_mark_i, Color(0.05, 0.05, 0.05, 0.55) if rubber else Color(0.2, 0.15, 0.1, 0.38))
+	_mark_i = (_mark_i + 1) % MARKS
+	_mark_n = mini(_mark_n + 1, MARKS)
+	mm.visible_instance_count = _mark_n
+
+## A corner of the nearest apartment block's flat roof within r (clear of the
+## stairwell and the tanks), or INF: a place to watch the streets from.
+func roof_spot(p: Vector3, r: float) -> Vector3:
+	var best := Vector3.INF
+	var bd := r
+	for bl in island.buildings:
+		if bl.get("kind", "") != "apartment": continue
+		var d: float = Vector2(p.x, p.z).distance_to(bl.pos)
+		if d > bd: continue
+		if zone and zone.state != "idle" and zone.distance_to_safe(Vector3(bl.pos.x, 0, bl.pos.y)) > 0.0: continue
+		bd = d
+		var cx: float = (float(bl.size.x) * 0.5 - 1.3) * (1.0 if randf() < 0.5 else -1.0)
+		var cz: float = (float(bl.size.y) * 0.5 - 1.3) * (1.0 if randf() < 0.5 else -1.0)
+		best = Vector3(bl.pos.x + cx, float(bl.floor) + WorldBuilder.STOREY_H * int(bl.storeys), bl.pos.y + cz)
+	return best
+
 func nearest_airdrop(p: Vector3, r: float, ok: Callable) -> Node3D:
 	var best: Node3D = null
 	var bd := r
@@ -2150,7 +2213,13 @@ const SOUNDS := ["shot_ak", "shot_rifle", "shot_rifle_b", "shot_burst", "shot_fa
 	"shot_pistol_b", "shot_pistol_c", "shot_sniper_c", "far_ak_1", "far_ak_2", "far_ak_3",
 	"far_smg_1", "far_smg_2", "far_smg_3",
 	"heal_zipper", "heal_pills", "heal_bandage", "heal_gulp", "heal_can", "climb_grunt", "swim_1", "swim_2", "swim_3",
-	"slide", "punch_hit", "punch_hit_2"]
+	"slide", "punch_hit", "punch_hit_2",
+	# Made by tools/make_sfx.py: impacts, ricochets, casings, metal steps, gear.
+	"impact_dirt_1", "impact_dirt_2", "impact_dirt_3", "impact_concrete_1", "impact_concrete_2", "impact_concrete_3",
+	"impact_metal_1", "impact_metal_2", "impact_metal_3", "impact_wood_1", "impact_wood_2",
+	"ricochet_1", "ricochet_2", "ricochet_3", "hit_flesh_1", "hit_flesh_2",
+	"casing_1", "casing_2", "casing_3", "casing_4", "step_metal_1", "step_metal_2", "step_metal_3", "step_metal_4",
+	"cloth_1", "cloth_2", "cloth_3", "cloth_4"]
 var _ambience: AudioStreamPlayer
 const AUTO_CLASSES := ["ar", "smg", "lmg"]
 var _auto_tail_at := -1.0      # when the echo after your automatic fire is due
@@ -2236,6 +2305,8 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false, gun :
 		p = p2
 		add_child(p2)
 		p2.play()
+		_shot_echo(stream, pitch, -15.0 if suppressed else -9.0)
+		_casing(cls)
 		if cls == "sr":
 			sound_local("bolt_cycle", 0.35)
 		elif cls == "shotgun":
@@ -2252,6 +2323,7 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false, gun :
 		p = p3
 		add_child(p3)
 		p3.global_position = pos
+		if d > 40.0 and _air_building < 0: _shot_echo(stream, pitch, -12.0 - d / 45.0 - (14.0 if suppressed else 0.0), d / SPEED_OF_SOUND + 0.08)
 		# Sound travels at 343 m/s: far shots are heard after you see them.
 		if d > 60.0:
 			get_tree().create_timer(d / SPEED_OF_SOUND).timeout.connect(func():
@@ -2261,6 +2333,109 @@ func sound_shot(cls: String, pos: Vector3, own: bool, suppressed := false, gun :
 	p.finished.connect(func():
 		_sounds_playing -= 1
 		p.queue_free())
+
+## Outdoors a shot rolls back off the hills and the houses: the same shot,
+## quiet, through a long reverb (louder among buildings than in the open).
+func _shot_echo(stream: AudioStream, pitch: float, volume: float, delay := 0.0) -> void:
+	if _air_building >= 0 or _sounds_playing >= 18: return
+	var vp := view_position()
+	var town := 0.0
+	for t in island.towns:
+		if Vector2(vp.x, vp.z).distance_to(t.pos) < float(t.r) + 20.0:
+			town = 1.0
+			break
+	var p := AudioStreamPlayer.new()
+	p.bus = _echo_bus()
+	p.stream = stream
+	p.volume_db = volume + town * 4.0
+	p.pitch_scale = pitch * 0.94
+	add_child(p)
+	_sounds_playing += 1
+	p.finished.connect(func():
+		_sounds_playing -= 1
+		p.queue_free())
+	if delay > 0.01:
+		get_tree().create_timer(delay).timeout.connect(func():
+			if is_instance_valid(p): p.play())
+	else:
+		p.play()
+
+func _echo_bus() -> StringName:
+	if AudioServer.get_bus_index("Echo") < 0:
+		AudioServer.add_bus()
+		var i := AudioServer.bus_count - 1
+		AudioServer.set_bus_name(i, "Echo")
+		AudioServer.set_bus_send(i, "Master")
+		var lpf := AudioEffectLowPassFilter.new()
+		lpf.cutoff_hz = 2600.0
+		AudioServer.add_bus_effect(i, lpf)
+		var rv := AudioEffectReverb.new()
+		rv.room_size = 0.95
+		rv.damping = 0.6
+		rv.spread = 1.0
+		rv.predelay_msec = 90.0
+		rv.predelay_feedback = 0.25
+		rv.hipass = 0.2
+		rv.wet = 0.85
+		rv.dry = 0.0
+		AudioServer.add_bus_effect(i, rv)
+	return &"Echo"
+
+var _casing_t := 0
+## Your spent cases landing at your feet (a shotgun's plastic shells and a
+## bow have none): bright on hard floors, a dull tick in the grass.
+func _casing(cls: String) -> void:
+	if cls in ["shotgun", "crossbow", "melee"] or player == null or player.state != "ground": return
+	var now := Time.get_ticks_msec()
+	if now - _casing_t < 110: return
+	_casing_t = now
+	var soft := surface_at(player.global_position) in ["grass", "sand", "water"]
+	sound_local("casing_%d" % (randi() % 4 + 1), randf_range(0.35, 0.55), randf_range(0.9, 1.15) * (0.8 if soft else 1.0), -30.0 if soft else -19.0)
+
+## A bullet hitting something near you: dirt, concrete (sometimes a ricochet
+## whining off), metal, wood or a body.
+func sound_impact(pos: Vector3, what := "") -> void:
+	if not Game.settings.sound or _sounds_playing >= 16: return
+	var d := pos.distance_to(view_position())
+	if d > 55.0: return
+	if what == "":
+		match surface_at(pos):
+			"concrete": what = "concrete"
+			"wood": what = "wood"
+			"metal": what = "metal"
+			"water": return
+			_: what = "dirt"
+	var pick: String
+	match what:
+		"flesh": pick = "hit_flesh_%d" % (randi() % 2 + 1)
+		"wood": pick = "impact_wood_%d" % (randi() % 2 + 1)
+		_: pick = "impact_%s_%d" % [what, randi() % 3 + 1]
+	var p := AudioStreamPlayer3D.new()
+	p.stream = _snd.get(pick)
+	if p.stream == null: return
+	p.bus = _bus_at(pos)
+	p.unit_size = 5.0
+	p.max_distance = 70.0
+	p.volume_db = -2.0 if what != "flesh" else 0.0
+	p.pitch_scale = randf_range(0.9, 1.1)
+	add_child(p)
+	p.global_position = pos
+	_sounds_playing += 1
+	p.finished.connect(func():
+		_sounds_playing -= 1
+		p.queue_free())
+	p.play()
+	if what in ["concrete", "metal"] and randf() < 0.3 and d < 35.0:
+		var r := AudioStreamPlayer3D.new()
+		r.stream = _snd.get("ricochet_%d" % (randi() % 3 + 1))
+		r.unit_size = 6.0
+		r.max_distance = 70.0
+		r.volume_db = -6.0
+		r.pitch_scale = randf_range(0.85, 1.15)
+		add_child(r)
+		r.global_position = pos
+		r.play()
+		r.finished.connect(r.queue_free)
 
 ## Echo after a burst of your automatic fire (called every frame).
 func _update_auto_tail() -> void:
@@ -2276,7 +2451,9 @@ func surface_at(p: Vector3) -> String:
 	var bi := building_at(q)
 	if bi >= 0:
 		var bl: Dictionary = island.buildings[bi]
-		return "concrete" if bl.military or bl.get("kind", "house") in ["warehouse", "shop"] else "wood"
+		if WorldBuilder.has_mezzanine(bl) and p.y > float(bl.floor) + 2.5: return "metal"     # the steel gallery
+		if bl.get("kind", "house") == "apartment" and p.y > float(bl.floor) + WorldBuilder.STOREY_H * int(bl.storeys) - 0.4: return "concrete"
+		return "concrete" if bl.military or bl.get("kind", "house") in ["warehouse", "shop", "ruin"] else "wood"
 	if p.y < Island.WATER - 0.15: return "water"
 	if island.near_road(q, 0.0): return "concrete"
 	var g := island.height_at(p.x, p.z)
@@ -2284,7 +2461,7 @@ func surface_at(p: Vector3) -> String:
 	if reg == "desert" or reg == "nordic" or g < 2.4: return "sand"     # sand and snow both crunch
 	return "grass"
 
-const STEP_SETS := {"concrete": 5, "grass": 8, "wood": 5, "sand": 6, "water": 4}
+const STEP_SETS := {"concrete": 5, "grass": 8, "wood": 5, "sand": 6, "water": 4, "metal": 4}
 
 ## One footstep. own = your own feet (not placed in the world); loud 0..1
 ## (crouching is quiet, sprinting loud). Enemies are heard up to ~40 m away.
@@ -2299,6 +2476,9 @@ func footstep(pos: Vector3, own: bool, loud: float, who: Node = null) -> void:
 	var vol := lerpf(-26.0, -8.0, loud)
 	if own:
 		sound_local(snd, 0.0, randf_range(0.92, 1.08), vol - 6.0)
+		# Worn gear rustles and its buckles clink when you move quickly.
+		if loud > 0.6 and player and (int(player.gear.vest) > 0 or int(player.gear.pack) > 0) and randf() < 0.4:
+			sound_local("cloth_%d" % (randi() % 4 + 1), 0.05, randf_range(0.9, 1.1), vol - 14.0)
 		return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = _snd.get(snd)

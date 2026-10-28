@@ -1315,7 +1315,7 @@ func _round_lands(hit: Dictionary, end: Vector3, w: Dictionary, muzzle: Vector3)
 			if killed:
 				kills += 1
 				if head: head_kills += 1
-			world.effects.impact(end, hit.normal, not (col is Vehicle or col is FortHeart))     # cars get holes, not blood
+			world.effects.impact(end, hit.normal, not (col is Vehicle or col is FortHeart), col is Vehicle)     # cars get holes, not blood
 		else:
 			world.effects.impact(end, hit.normal, false)
 

@@ -71,7 +71,9 @@ func _bolt_mat() -> StandardMaterial3D:
 		_bolt_m.albedo_color = Color(0.25, 0.22, 0.18)
 	return _bolt_m
 
-func impact(pos: Vector3, normal: Vector3, flesh: bool) -> void:
+func impact(pos: Vector3, normal: Vector3, flesh: bool, metal := false) -> void:
+	var w = get_parent()
+	if w != null and w.has_method("sound_impact"): w.sound_impact(pos, "flesh" if flesh else ("metal" if metal else ""))
 	var p := CPUParticles3D.new()
 	p.one_shot = true
 	p.emitting = true

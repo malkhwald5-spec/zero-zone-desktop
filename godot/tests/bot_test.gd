@@ -101,10 +101,10 @@ func _run() -> void:
 	world.notify_shot(p.global_position, p)
 	check("far bot does not hear it", far_bot.mode == "roam")
 	# 3) A route to someone upstairs goes up the stairs.
-	var st: Array = WorldBuilder.stair_points(house)
+	var st: Array = WorldBuilder.flight_points(house, 1)
 	var up := Vector3(hc.x, float(house.floor) + WorldBuilder.STOREY_H + 0.1, hc.y)
 	var r: Array = world.route(ppos, up)
-	check("route upstairs uses the stairs", r.size() >= 3 and r[-1] == st[2] and r[-2] == st[1] and r[-3] == st[0], str(r))
+	check("route upstairs uses the stairs", r.size() >= 4 and r[-1] == st[3] and r[-2] == st[2] and r[-3] == st[1] and r[-4] == st[0], str(r))
 	var d: Bot = world.bots[3]
 	d.weapon_id = "m416"
 	d.mag = 30
@@ -124,5 +124,25 @@ func _run() -> void:
 		top = maxf(top, d.global_position.y - float(house.floor))
 		if top > 3.0: break
 	check("bot climbs the stairs", top > 3.0, "best height %.1f mode=%s" % [top, d.mode])
+	# 4) Up every flight of an apartment block onto its roof.
+	var blk: Dictionary = {}
+	for bl in world.island.buildings:
+		if bl.get("kind", "") == "apartment": blk = bl
+	if not blk.is_empty():
+		var bc: Vector2 = blk.pos
+		var roof_y := float(blk.floor) + WorldBuilder.STOREY_H * int(blk.storeys)
+		var door: Vector2 = world._doors(world.island.buildings.find(blk))[0][0]
+		_place(world, d, Vector3(door.x, 0, door.y))
+		d.target = null
+		d.mode = "alert"
+		d._go(Vector3(bc.x + float(blk.size.x) * 0.5 - 1.3, roof_y, bc.y + float(blk.size.y) * 0.5 - 1.3))
+		var best := 0.0
+		for i in 400:
+			await wait(0.25)
+			best = maxf(best, d.global_position.y - float(blk.floor))
+			if best > roof_y - float(blk.floor) - 0.3: break
+		check("bot climbs an apartment block to the roof", best > roof_y - float(blk.floor) - 0.3, "best height %.1f of %.1f (%d storeys) mode=%s" % [best, roof_y - float(blk.floor), int(blk.storeys), d.mode])
+		var spot: Vector3 = world.roof_spot(Vector3(bc.x, 0, bc.y), 50.0)
+		check("roof spot is on the roof", spot != Vector3.INF and absf(spot.y - roof_y) < 0.01, "spot=%s roof=%.2f zone=%s" % [spot, roof_y, world.zone.state])
 	print("BOT TEST %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 	tree.quit()

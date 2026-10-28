@@ -505,6 +505,7 @@ static func engine_stream() -> AudioStreamWAV:
 func _effects(sp: float) -> void:
 	var near: bool = world.player != null and global_position.distance_to(world.view_position()) < 180.0
 	var moving := absf(sp) > 4.0 and near
+	if near and kind != "boat" and absf(sp) > 1.5: _tracks()
 	if kind == "boat": moving = moving and _in_water
 	for d in _dust: d.emitting = moving
 	var braking := brake > 1.0 and driver != null
@@ -552,6 +553,34 @@ func _effects(sp: float) -> void:
 		_engine.volume_db = lerpf(_engine.volume_db, -10.0 + load * 6.0, 0.1)
 
 ## A recorded sound loaded by the world (null if missing).
+var _track_from := Vector3.INF
+## Tyre tracks: a dark band behind each rear wheel on dirt, grass and sand,
+## and black rubber on the road when the brakes lock or the car slides.
+func _tracks() -> void:
+	var here := global_position
+	if _track_from == Vector3.INF:
+		_track_from = here
+		return
+	if here.distance_to(_track_from) < 0.7: return
+	var dir := here - _track_from
+	_track_from = here
+	if not world.has_method("tire_mark") or not is_on_ground(): return
+	var surf: String = world.surface_at(here)
+	var vel_side := absf(linear_velocity.dot(global_basis.x))
+	var skid := brake > 1.0 and absf(speed()) > 8.0 or vel_side > 3.0 or handbrake
+	if surf == "concrete" and not skid: return
+	if surf in ["water", "wood"]: return
+	var half := 0.75 if kind != "bike" else 0.0
+	var back := -global_basis.z * (1.3 if kind != "bike" else 0.7)
+	for side in ([-1.0, 1.0] if kind != "bike" else [0.0]):
+		var p: Vector3 = here + back + global_basis.x * half * side
+		world.tire_mark(p, dir, 0.32 if kind != "bike" else 0.18, surf == "concrete")
+
+func is_on_ground() -> bool:
+	for c in get_children():
+		if c is VehicleWheel3D and (c as VehicleWheel3D).is_in_contact(): return true
+	return kind == "bike"
+
 func world_sound(name: String) -> AudioStream:
 	return world._snd.get(name) if world and "_snd" in world else null
 
