@@ -1731,7 +1731,6 @@ var _mark_i := 0
 var _mark_n := 0
 
 func tire_mark(p: Vector3, dir: Vector3, width: float, rubber: bool) -> void:
-	if Game.settings.get("lite", false): return
 	if _marks == null:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -1751,6 +1750,7 @@ func tire_mark(p: Vector3, dir: Vector3, width: float, rubber: bool) -> void:
 		_marks = MultiMeshInstance3D.new()
 		_marks.multimesh = mm
 		_marks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_marks.custom_aabb = AABB(Vector3(-1e5, -1e3, -1e5), Vector3(2e5, 2e3, 2e5))    # spread over the whole island
 		add_child(_marks)
 	var d := Vector3(dir.x, 0, dir.z)
 	if d.length() < 0.01: return
@@ -1769,7 +1769,7 @@ func tire_mark(p: Vector3, dir: Vector3, width: float, rubber: bool) -> void:
 	var xf := Transform3D(Basis(x * width, n, z * seg), Vector3(p.x, g + 0.035, p.z) - z * seg * 0.5)
 	var mm: MultiMesh = _marks.multimesh
 	mm.set_instance_transform(_mark_i, xf)
-	mm.set_instance_color(_mark_i, Color(0.05, 0.05, 0.05, 0.55) if rubber else Color(0.2, 0.15, 0.1, 0.38))
+	mm.set_instance_color(_mark_i, Color(0.04, 0.04, 0.04, 0.6) if rubber else Color(0.16, 0.12, 0.08, 0.5))
 	_mark_i = (_mark_i + 1) % MARKS
 	_mark_n = mini(_mark_n + 1, MARKS)
 	mm.visible_instance_count = _mark_n
