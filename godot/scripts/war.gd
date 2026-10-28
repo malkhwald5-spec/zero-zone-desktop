@@ -767,9 +767,6 @@ func hurt_heart(h: FortHeart, amount: float, attacker: Node, blast: bool) -> boo
 	var dmg := amount * (1.0 if blast else 0.2)
 	h.hp -= dmg
 	h.hit_t = 0.0
-	if h.team == world.player.team and Time.get_ticks_msec() - _fort_vo_ms > 45000:
-		_fort_vo_ms = Time.get_ticks_msec()
-		world.announce("fort_attack")
 	if attacker == world.player:
 		_heart_cash += dmg * 0.1
 		if _heart_cash >= 1.0:
@@ -890,11 +887,9 @@ func check_end() -> void:
 		world._end_match(true)
 
 # ---------------------------------------------------------------- the final battle
-var _fort_vo_ms := -100000
 
 func _final_battle() -> void:
 	final = true
-	world.announce("final_battle")
 	for f in forts:
 		f.respawn = false
 	_respawns.clear()

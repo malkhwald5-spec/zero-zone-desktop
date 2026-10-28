@@ -61,7 +61,6 @@ var settings := {
 	"sensitivity": 1.0,
 	"sound": true,
 	"lang": "ar",             # "ar" | "en": the language of the menus and the HUD
-	"narrator": true,         # the radio voice calling out the match (zone, kills, win)
 	"difficulty": "normal",
 	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"
 	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal

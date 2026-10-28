@@ -55,6 +55,9 @@ var chute_heading := 0.0          # direction the canopy flies
 var chute_bank := 0.0             # roll from turning (radians)
 var chute_turn := 0.0             # smoothed -1..1 steering under the canopy
 var chute_swing := 0.0            # pitch swing under the canopy (radians)
+var chute_wind := Vector3.ZERO    # the wind this jump (m/s, sideways drift under the canopy)
+var chute_flare := 0.0            # 0..1: both toggles pulled down for the touch-down
+var _touch_vel := Vector3.ZERO
 var land_t := 0.0                 # short landing crouch
 var hard_land_t := 0.0            # hard landing after a long fall: rolling back up, can't move
 ## Real people's starts, stops and rolls (CMU motion capture, see tools/bvh2glb.py):
@@ -436,6 +439,9 @@ func open_chute() -> void:
 		chute_t = 0.0
 		chute_heading = model.rotation.y
 		chute_swing = 0.35          # the opening shock swings you forward
+		chute_flare = 0.0
+		# A light wind from one side, different on every jump.
+		chute_wind = Vector3(1, 0, 0).rotated(Vector3.UP, randf() * TAU) * randf_range(0.8, 2.2)
 		shake = maxf(shake, 0.6)
 
 func set_stance(s: String) -> void:
@@ -694,6 +700,7 @@ func _air(delta: float) -> void:
 	else:
 		_canopy_flight(delta)
 	air_speed = velocity.length() * 3.6
+	_touch_vel = velocity     # the floor stops it in move_and_slide; the landing wants it
 	move_and_slide()
 	if is_on_floor() or global_position.y <= world.ground_height(global_position) + 0.05:
 		_land()
@@ -727,6 +734,13 @@ func _canopy_flight(delta: float) -> void:
 	var opening := clampf(chute_t / CHUTE_OPEN_TIME, 0.0, 1.0)
 	var brake := maxf(-move_input.y, 0.0) if absf(move_input.x) < 0.3 else 0.0
 	var push := maxf(move_input.y, 0.0)
+	# The last few metres: both toggles come down for a soft touch-down (not
+	# when diving in on purpose with W held: that comes in fast and hard).
+	var alt: float = global_position.y - world.ground_height(global_position)
+	var want_flare := clampf(inverse_lerp(9.0, 3.0, alt), 0.0, 1.0) * (1.0 - push)
+	chute_flare = move_toward(chute_flare, want_flare, delta * 1.6)
+	var manual := brake
+	brake = maxf(brake, chute_flare)
 	var want_turn := 0.0
 	if move_input.length() > 0.1 and brake == 0.0:
 		var d := _wish_dir()
@@ -736,27 +750,53 @@ func _canopy_flight(delta: float) -> void:
 	chute_turn = lerpf(chute_turn, want_turn, 1.0 - exp(-3.0 * delta))
 	var turn := chute_turn
 	chute_heading = wrapf(chute_heading + turn * 1.7 * delta * opening, -PI, PI)
-	var h_speed := lerpf(9.0, 14.0, push) - brake * 5.0 - absf(turn) * 1.5
-	var v_speed := lerpf(5.5, 7.5, push) - brake * 1.8 + absf(turn) * 1.2
+	var h_speed := lerpf(9.0, 14.0, push) - manual * 5.0 - chute_flare * 2.5 - absf(turn) * 1.5
+	var v_speed := lerpf(5.5, 7.5, push) - brake * 1.8 - chute_flare * 1.4 + absf(turn) * 1.2
 	var dir := Vector3(-sin(chute_heading), 0, -cos(chute_heading))
-	var h_target := dir * h_speed * opening
+	# Gusts: the wind comes and goes and swings round a little.
+	var gust := 0.7 + 0.3 * sin(chute_t * 0.53) + 0.2 * sin(chute_t * 1.37 + 1.1)
+	var h_target := dir * h_speed * opening + chute_wind.rotated(Vector3.UP, sin(chute_t * 0.21) * 0.4) * gust * opening
 	# The opening shock: big deceleration while the canopy inflates.
 	var rate := lerpf(45.0, 9.0, opening)
 	var h := Vector3(velocity.x, 0, velocity.z).move_toward(h_target, rate * delta)
 	velocity = Vector3(h.x, move_toward(velocity.y, -v_speed, rate * delta), h.z)
 	chute_bank = lerpf(chute_bank, -turn * 0.42, minf(1.0, delta * 2.5))
 	# Pendulum swing: pushed by speed changes, damped, with a slow sway.
-	chute_swing = lerpf(chute_swing, (push - brake) * -0.12 + sin(chute_t * 1.4) * 0.03, minf(1.0, delta * 1.2))
+	chute_swing = lerpf(chute_swing, (push - brake) * -0.12, minf(1.0, delta * 1.2))
 	model.steer = -turn
 	model.brake = brake
+	model.chute_wind = gust * chute_wind.length() / 2.2
 	model.chute_open = opening
 
 func _land() -> void:
 	if state == "chute":
 		world.drop_canopy(model, velocity)
 		land_t = 0.45
-		# Feet first, knees give, back up (motion capture of a drop).
-		if model.ap.has_animation("mx/c_land"): model.play_action("c_land", 0.6, 0.38, 1.05)
+		var hv := Vector3(_touch_vel.x, 0, _touch_vel.z)
+		var vy := _touch_vel.y
+		state = "ground"
+		jump_queued = false
+		stance = "stand"
+		global_position = world.safe_landing(global_position)
+		reset_physics_interpolation()
+		message.emit("اجمع الأسلحة بسرعة!")
+		if vy < -6.5 and hv.length() > 8.0 and model.ap.has_animation("mx/fall_roll"):
+			# Came in fast (diving with W): feet, knees and over onto the shoulder.
+			velocity = hv * 0.35
+			hard_land_t = 1.0
+			model.play_action("fall_roll", 1.25, 0.5, 2.13)
+		elif vy < -6.5 and model.ap.has_animation("mx/hard_land2"):
+			velocity = Vector3.ZERO
+			hard_land_t = 1.0
+			model.play_action("hard_land2", 1.2, 0.25, 2.0)
+		elif move_input.length() > 0.3 and hv.length() > 3.0:
+			# Flared in still going: run it out, as in PUBG.
+			velocity = hv * 0.6
+		else:
+			velocity = Vector3.ZERO
+			# Feet first, knees give, back up (motion capture of a drop).
+			if model.ap.has_animation("mx/c_land"): model.play_action("c_land", 0.6, 0.38, 1.05)
+		return
 	state = "ground"
 	jump_queued = false
 	stance = "stand"
@@ -892,7 +932,8 @@ func _ground(delta: float) -> void:
 			world.footstep(global_position, true, 1.0)
 		elif _fall_vy < -11.0 and not knocked and not swimming():
 			hard_land_t = 1.1
-			model.play_action("hard_land", 1.1)
+			if model.ap.has_animation("mx/hard_land2"): model.play_action("hard_land2", 1.2, 0.25, 2.0)
+			else: model.play_action("hard_land", 1.1)
 			world.footstep(global_position, true, 1.0)
 		_fall_vy = 0.0
 	# Deep water: you cannot swim out to sea (bridges and piers are fine).

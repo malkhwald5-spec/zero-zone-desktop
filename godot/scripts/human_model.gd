@@ -75,9 +75,21 @@ var _flinch_side := 0.0
 var steer := 0.0              # parachute toggles: -1 pull left .. 1 pull right
 var brake := 0.0              # parachute flare 0..1
 var chute_open := 1.0         # 0 = just pulled (bunched up) .. 1 = fully open
+var chute_wind := 0.5         # how hard the wind blows on the canopy (0..1)
+var _pend := Vector2.ZERO     # body swing under the canopy: x = pitch, y = roll (radians)
+var _pend_v := Vector2.ZERO
+var _chute_prev := Vector3.ZERO
+var _chute_vel := Vector3.ZERO
+var _seed := randf() * 10.0
 var helmet: MeshInstance3D
 var pack: MeshInstance3D
-var vest: MeshInstance3D
+var vest: MeshInstance3D     # where the vest goes (rigid, kept for measuring; not drawn when skinned)
+var vest_skin: MeshInstance3D  # the vest bent with the chest and shoulders (skinned to the body)
+var _pack_base := Vector3.ZERO
+var _pack_s := Vector3.ZERO    # backpack bounce (model space, metres)
+var _pack_sv := Vector3.ZERO
+var _pack_prev := Vector3.ZERO
+var _pack_vel := Vector3.ZERO
 var _fit: Array = []
 var _has_weapon := false
 var _anim := ""
@@ -728,6 +740,8 @@ func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 					var u := 1.0 / (_skel_scale * _cscale)
 					var outer: float = vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x
 					mi.position.z -= clampf(float(_measure(u).back1) - outer, 0.0, 0.12 * u)
+				_pack_base = mi.position
+	_skin_vest(vest_lvl)
 	if _back_id != "": _back_dirty = true      # clear of whatever is worn now
 
 static var _gear_cache := {}
@@ -873,7 +887,7 @@ var _action_speed := 1.0
 ## `from`/`to` pick part of a longer clip (seconds into it).
 ## Moves from the CMU motion capture (empty-handed people): with a gun the
 ## hands stay on it (see set_pose).
-const MOCAP_MOVES := ["c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll", "c_land"]
+const MOCAP_MOVES := ["c_run_start", "c_run_stop", "c_quick_stop", "c_run_vault", "c_dive_roll", "c_land", "hard_land2", "fall_roll"]
 
 func play_action(name: String, seconds: float, from := 0.0, to := -1.0) -> void:
 	var a: Animation = ap.get_animation("mx/" + name)
@@ -1056,6 +1070,7 @@ func _play(name: String, speed_scale: float) -> void:
 
 ## pose: "stand" | "crouch" | "prone" | "fall" | "chute" | "dead"
 func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -> void:
+	_pack_bounce(delta)
 	# One-shot action (grenade toss) takes over the whole body for a moment.
 	if _action_t > 0.0:
 		_action_t -= delta
@@ -1235,6 +1250,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	elif pose == "drive" and ride != "bike" and ap.has_animation("mx/drive"):
 		# Seated at the wheel (Mixamo driving clip); the hands follow the wheel below.
 		_play("mx/drive", 1.0)
+	elif pose == "chute" and ap.has_animation("mx/chute_hang"):
+		# Hanging in the harness, legs loose (Mixamo hanging idle); the hands
+		# are put on the toggles below.
+		_play("mx/chute_hang", 1.0)
 	elif pose == "fall" and ap.has_animation("mx/skydive"):
 		# Belly to earth, arched, arms and legs out (Mixamo skydive clip).
 		_play("mx/skydive", 1.0)
@@ -1254,8 +1273,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		if pickup_t >= 1.0 or pose not in ["stand", "crouch"]: pickup_t = -1.0
 	canopy.visible = pose == "chute"
 	if canopy.visible:
-		var e := ease(clampf(chute_open, 0.0, 1.0), 0.4)
-		canopy.scale = Vector3(lerpf(0.12, 1.0, e), lerpf(0.3, 1.0, e), lerpf(0.35, 1.0, e))
+		_canopy_look(t)
+	else:
+		_chute_prev = Vector3.ZERO
+		_pend = Vector2.ZERO
+		_pend_v = Vector2.ZERO
 	gun.visible = _has_weapon and pose in ["stand", "crouch", "prone", "airborne"]
 	# Crawling, knocked down, swimming or helping a mate up: hands are busy, the gun is put away.
 	if swimming or reviving or (drinking and _anim == "mx/drink") or (bandaging and _anim == "mx/kneel") or (pose == "prone" and (downed or _anim == "mx/prone_f")): gun.visible = false
@@ -1308,14 +1330,28 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 				_arm(side[0], Vector3(sin(ang) * 0.17, 1.02 + cos(ang) * 0.17 * 0.8, -0.42), Vector3(side[1], -1, 0.5))
 				if not seated: _leg(side[0], Vector3(side[1] * 0.16, 0.02, -0.62), Vector3(0, 1, -1))
 		"chute":
-			# Hands on the toggles; pulling one down turns, both down flares.
-			var pl := 0.4 * maxf(-steer, 0.0) + 0.35 * brake
-			var pr := 0.4 * maxf(steer, 0.0) + 0.35 * brake
-			_arm("Left", Vector3(-0.27, 2.05 - pl, -0.02), Vector3(-1, 0, 0.3))
-			_arm("Right", Vector3(0.27, 2.05 - pr, -0.02), Vector3(1, 0, 0.3))
-			var sw := sin(t * 1.7) * 0.05
-			_leg("Left", Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
-			_leg("Right", Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
+			# The body hangs from the risers and swings under the canopy.
+			_chute_pendulum(delta, t)
+			var piv := Vector3(0, RISER_Y + 0.55, 0)
+			body.rotation = Vector3(_pend.x, 0.0, _pend.y)
+			body.position = piv - body.basis * piv
+			# Hands on the toggles (they hang from the canopy, so they stay put
+			# while the body swings); pulling one down turns, both down flares.
+			var pl := 0.4 * maxf(-steer, 0.0) + 0.42 * brake
+			var pr := 0.4 * maxf(steer, 0.0) + 0.42 * brake
+			_arm("Left", Vector3(-0.27, 2.05 - pl, -0.02 - 0.08 * brake), Vector3(-1, 0, 0.3))
+			_arm("Right", Vector3(0.27, 2.05 - pr, -0.02 - 0.08 * brake), Vector3(1, 0, 0.3))
+			if not ap.has_animation("mx/chute_hang"):
+				var sw := sin(t * 1.7) * 0.05
+				_leg("Left", body.transform * Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
+				_leg("Right", body.transform * Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
+			elif brake > 0.05:
+				# Flaring for the touch-down: knees up and the feet out in front.
+				var k := clampf(brake, 0.0, 1.0)
+				for side in [["Left", -1.0], ["Right", 1.0]]:
+					var sd: float = side[1]
+					var foot := Vector3(sd * 0.14, 0.02, 0.0).lerp(Vector3(sd * 0.15, 0.28, -0.32), k)
+					_leg(side[0], body.transform * foot, body.basis * Vector3(0, 0.3, -1))
 	_lean_into_moves(pose, speed, delta)
 	if sliding > 0.0 and pose == "crouch":
 		# On the hip: leaning back, low, the lead leg out in front.
@@ -1497,6 +1533,10 @@ func _phase() -> float:
 	return 0.0
 
 const AIM_PIVOT := Vector3(0.0, 1.4, 0.05)     # between the shoulders (model space)
+var _gs := Vector2.ZERO          # gun sway from turning (x, yaw) and speeding up / slowing (y, pitch)
+var _gs_v := Vector2.ZERO
+var _gs_yaw := INF
+var _gs_speed := 0.0
 const WSCALE := 1.0                            # weapons sized to this character's reach
 
 ## Where the weapon should be for this pose (model space), then eased there.
@@ -1572,6 +1612,20 @@ func _place_gun(pose: String, delta: float) -> void:
 		var amp := clampf(_speed / 4.5, 0.0, 1.0) * (0.3 if aiming else 1.0)
 		target.origin += Vector3(sin(ph) * 0.01, 0.012 - absf(cos(ph)) * 0.024, 0) * amp
 		target.basis = Basis(Vector3.BACK, sin(ph) * 0.035 * amp) * target.basis
+	# Weight: turning, the gun lags behind the body and catches up with a small
+	# overshoot; stopping short it swings on forward, setting off it dips back.
+	var dt := maxf(delta, 1e-3)
+	var yr := global_rotation.y
+	var yaw_rate := wrapf(yr - _gs_yaw, -PI, PI) / dt if _gs_yaw != INF else 0.0
+	_gs_yaw = yr
+	var accel := (_speed - _gs_speed) / dt
+	_gs_speed = _speed
+	var heavy := 0.35 if aiming else 1.0
+	var want := Vector2(clampf(-yaw_rate * 0.03, -0.14, 0.14), clampf(-accel * 0.012, -0.08, 0.08)) * heavy
+	_gs_v += ((want - _gs) * 150.0 - _gs_v * 13.0) * dt
+	_gs += _gs_v * dt
+	target.basis = Basis(Vector3.UP, _gs.x) * Basis(Vector3.RIGHT, _gs.y) * target.basis
+	target.origin += Vector3(_gs.x * 0.06, _gs.y * 0.05, 0.0)
 	# Kick: back into the shoulder and the muzzle up.
 	target.origin += target.basis * Vector3(0, 0.015, 0.085) * recoil
 	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.12)
@@ -1588,6 +1642,43 @@ func _place_gun(pose: String, delta: float) -> void:
 		elif p >= 0.6 and p < 0.8: drop = 1.0 - (p - 0.6) / 0.2
 		mag.position = Vector3(0, -0.28 * drop, 0.05 * drop)
 		mag.visible = not (p >= 0.3 and p < 0.45)
+
+## Under the canopy: a pendulum (the body about 1.3 m below the risers),
+## pushed by how the canopy speeds up, slows and turns, and by the wind.
+func _chute_pendulum(delta: float, t: float) -> void:
+	var dt := maxf(delta, 1e-3)
+	var p := global_position
+	var v := (p - _chute_prev) / dt if _chute_prev != Vector3.ZERO else _chute_vel
+	_chute_prev = p
+	if v.length() > 80.0: v = _chute_vel        # moved by hand (a teleport), not flown
+	var acc := ((v - _chute_vel) / dt).limit_length(25.0)
+	_chute_vel = v
+	var la := global_basis.orthonormalized().inverse() * acc
+	const L := 1.3
+	var gust := chute_wind * (sin(t * 0.9 + _seed) * 0.6 + sin(t * 2.3 + _seed * 2.0) * 0.3)
+	# Speeding up forward leaves the feet behind (pitch back); a turn swings them out.
+	var force := Vector2(la.z, -la.x) / L * 0.5 + Vector2(gust * 0.15, gust * 0.4)
+	_pend_v += (force - _pend * (9.8 / L) - _pend_v * 1.2) * dt
+	_pend += _pend_v * dt
+	_pend = _pend.limit_length(0.55)
+
+## The canopy: pulled out of the pack as a long thin bundle, spreading,
+## snapping full with a shudder, then breathing and fluttering in the wind.
+func _canopy_look(t: float) -> void:
+	var k := clampf(chute_open, 0.0, 1.0)
+	var e := ease(k, 0.4)
+	var sx := lerpf(0.12, 1.0, e)
+	var sy := lerpf(0.3, 1.0, e) * (1.0 + (1.0 - smoothstep(0.0, 0.35, k)) * 0.8)    # streams out tall first
+	var sz := lerpf(0.35, 1.0, e)
+	# Overshoot as it fills, dying away.
+	var snap := sin(clampf((k - 0.55) / 0.45, 0.0, 1.0) * PI * 2.5) * (1.0 - k) * 0.6
+	sx *= 1.0 + snap * 0.35
+	sz *= 1.0 - snap * 0.15
+	var g := chute_wind * (sin(t * 1.1 + _seed) * 0.6 + sin(t * 2.9 + _seed) * 0.4)
+	var flut := sin(t * 13.0 + _seed) * 0.006 + sin(t * 21.0) * 0.004 + g * 0.012 + (1.0 - k) * sin(t * 30.0) * 0.03
+	canopy.scale = Vector3(sx * (1.0 + flut), sy * (1.0 - flut * 1.5), sz * (1.0 + flut * 0.5))
+	# Leans with the gusts, and back when the toggles flare it.
+	canopy.rotation = Vector3(g * 0.03 + brake * 0.1, 0.0, g * 0.05)
 
 ## Hit: the upper body jerks back and a little to one side, the head snaps.
 func hit(strength := 1.0) -> void:
@@ -1926,3 +2017,183 @@ func _two_bone(upper: int, lower: int, end: int, target_model: Vector3, pole_mod
 	var q2 := Quaternion((end_pos - new_lower.origin).normalized(), (hand - new_lower.origin).normalized())
 	var new_lower2 := Transform3D(Basis(q2) * new_lower.basis, new_lower.origin)
 	sk.set_bone_pose_rotation(lower, (new_upper.affine_inverse() * new_lower2).basis.get_rotation_quaternion())
+
+# ---------------------------------------------------------------- gear skinned to the body
+static var _samples_cache := {}
+static var _vest_skin_cache := {}
+const TORSO := ["Hips", "Spine", "Spine1", "Spine2", "Neck", "LeftShoulder", "RightShoulder"]
+
+## The vest as a skin over the body: every vest vertex takes the bone weights
+## of the body under it (chest, back, shoulders), so it bends, twists and
+## shrugs with the torso instead of riding the chest as a rigid shell.
+func _skin_vest(lvl: int) -> void:
+	if lvl <= 0 or vest.mesh == null:
+		if vest_skin: vest_skin.visible = false
+		vest.layers = 1
+		return
+	var key := "%s/%d" % [character, lvl]
+	if not _vest_skin_cache.has(key):
+		_vest_skin_cache[key] = _build_vest_skin()
+	var built: Array = _vest_skin_cache[key]
+	if built.is_empty():
+		vest.layers = 1
+		return
+	if vest_skin == null:
+		vest_skin = MeshInstance3D.new()
+		sk.add_child(vest_skin)
+		vest_skin.skeleton = NodePath("..")
+	vest_skin.mesh = built[0]
+	vest_skin.skin = built[1]
+	vest_skin.visible = true
+	vest.layers = 0        # still there for measuring, but not drawn
+
+## Body vertices at rest in skeleton space with their torso bone weights.
+func _body_samples() -> Array:
+	if _samples_cache.has(character): return _samples_cache[character]
+	var torso := {}
+	for n in TORSO:
+		if _bone.has(n): torso[int(_bone[n])] = true
+	var pts := PackedVector3Array()
+	var bw: Array = []
+	for mi: MeshInstance3D in body.find_children("*", "MeshInstance3D", true, false):
+		if mi.skin == null or mi.mesh == null: continue
+		var skin := mi.skin
+		var bind_bone := PackedInt32Array()
+		for bi in skin.get_bind_count():
+			var bn := String(skin.get_bind_name(bi))
+			bind_bone.append(sk.find_bone(bn) if bn != "" else skin.get_bind_bone(bi))
+		for si in mi.mesh.get_surface_count():
+			var arr := mi.mesh.surface_get_arrays(si)
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var bones = arr[Mesh.ARRAY_BONES]
+			var weights = arr[Mesh.ARRAY_WEIGHTS]
+			if bones == null or weights == null or verts.is_empty(): continue
+			var per: int = bones.size() / verts.size()
+			for i in range(0, verts.size(), 2):
+				var best := 0
+				for k in per:
+					if weights[i * per + k] > weights[i * per + best]: best = k
+				var b0: int = bones[i * per + best]
+				if b0 >= bind_bone.size() or not torso.has(bind_bone[b0]): continue
+				var w := {}
+				var tot := 0.0
+				for k in per:
+					var bk: int = bones[i * per + k]
+					var wk: float = weights[i * per + k]
+					if wk <= 0.0 or bk >= bind_bone.size() or not torso.has(bind_bone[bk]): continue
+					w[bind_bone[bk]] = w.get(bind_bone[bk], 0.0) + wk
+					tot += wk
+				if tot <= 0.0: continue
+				for b in w: w[b] /= tot
+				pts.append(sk.get_bone_global_rest(bind_bone[b0]) * (skin.get_bind_pose(b0) * verts[i]))
+				bw.append(w)
+	var out := [pts, bw]
+	_samples_cache[character] = out
+	return out
+
+## [ArrayMesh, Skin] for the vest now in `vest`, or [] when the body has no
+## torso to take weights from.
+func _build_vest_skin() -> Array:
+	var smp := _body_samples()
+	var pts: PackedVector3Array = smp[0]
+	var bws: Array = smp[1]
+	if pts.is_empty(): return []
+	var u := 1.0 / (_skel_scale * _cscale)
+	var cell := 0.06 * u
+	var grid := {}
+	for i in pts.size():
+		var c := Vector3i((pts[i] / cell).floor())
+		if not grid.has(c): grid[c] = PackedInt32Array()
+		grid[c].append(i)
+	var s1: int = _bone.get("Spine1", 0)
+	var place := sk.get_bone_global_rest(s1) * Transform3D(Basis.from_scale(vest.scale), vest.position)
+	var binds := {}           # skeleton bone -> skin bind index
+	var skin := Skin.new()
+	var mesh := ArrayMesh.new()
+	var src: Mesh = vest.mesh
+	for si in src.get_surface_count():
+		var arr := src.surface_get_arrays(si)
+		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var norms = arr[Mesh.ARRAY_NORMAL]
+		var tans = arr[Mesh.ARRAY_TANGENT]
+		var nv := PackedVector3Array()
+		nv.resize(verts.size())
+		var bones := PackedInt32Array()
+		bones.resize(verts.size() * 4)
+		var wts := PackedFloat32Array()
+		wts.resize(verts.size() * 4)
+		for i in verts.size():
+			var p := place * verts[i]
+			nv[i] = p
+			# The body samples within a few cells, weighted by nearness.
+			var c := Vector3i((p / cell).floor())
+			var acc := {}
+			var found := 0
+			for ring in [1, 2, 3]:
+				for dx in range(-ring, ring + 1):
+					for dy in range(-ring, ring + 1):
+						for dz in range(-ring, ring + 1):
+							if maxi(absi(dx), maxi(absi(dy), absi(dz))) != ring and ring > 1: continue
+							var cc := c + Vector3i(dx, dy, dz)
+							if not grid.has(cc): continue
+							for j in grid[cc]:
+								var d := p.distance_to(pts[j]) / u + 0.01
+								var k := 1.0 / (d * d)
+								for b in bws[j]: acc[b] = acc.get(b, 0.0) + bws[j][b] * k
+								found += 1
+				if found >= 6: break
+			if acc.is_empty(): acc[s1] = 1.0
+			var keys := acc.keys()
+			keys.sort_custom(func(a, b): return acc[a] > acc[b])
+			var tot := 0.0
+			for k in mini(4, keys.size()): tot += acc[keys[k]]
+			for k in 4:
+				if k < keys.size():
+					var b: int = keys[k]
+					if not binds.has(b):
+						binds[b] = skin.get_bind_count()
+						skin.add_bind(b, sk.get_bone_global_rest(b).affine_inverse())
+					bones[i * 4 + k] = binds[b]
+					wts[i * 4 + k] = acc[b] / tot
+				else:
+					bones[i * 4 + k] = 0
+					wts[i * 4 + k] = 0.0
+		arr[Mesh.ARRAY_VERTEX] = nv
+		if norms != null:
+			var nn: PackedVector3Array = norms
+			for i in nn.size(): nn[i] = (place.basis * nn[i]).normalized()
+			arr[Mesh.ARRAY_NORMAL] = nn
+		if tans != null:
+			var tt: PackedFloat32Array = tans
+			for i in range(0, tt.size(), 4):
+				var tv := (place.basis * Vector3(tt[i], tt[i + 1], tt[i + 2])).normalized()
+				tt[i] = tv.x
+				tt[i + 1] = tv.y
+				tt[i + 2] = tv.z
+			arr[Mesh.ARRAY_TANGENT] = tt
+		arr[Mesh.ARRAY_BONES] = bones
+		arr[Mesh.ARRAY_WEIGHTS] = wts
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		mesh.surface_set_material(si, src.surface_get_material(si))
+	return [mesh, skin]
+
+## The backpack rides on the back with a little give: it lags when you set
+## off, swings on when you stop and bounces with the steps.
+func _pack_bounce(delta: float) -> void:
+	if pack == null or not pack.visible: return
+	var dt := maxf(delta, 1e-3)
+	var p := global_position
+	var v := (p - _pack_prev) / dt if _pack_prev != Vector3.ZERO else Vector3.ZERO
+	_pack_prev = p
+	if v.length() > 40.0: v = _pack_vel
+	var acc := ((v - _pack_vel) / dt).limit_length(30.0)
+	_pack_vel = v
+	var la := global_basis.orthonormalized().inverse() * acc
+	var want := (-la * 0.0025).limit_length(0.035)
+	_pack_sv += ((want - _pack_s) * 220.0 - _pack_sv * 16.0) * dt
+	_pack_s += _pack_sv * dt
+	var u := 1.0 / (_skel_scale * _cscale)
+	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
+	var bone: int = _bone.get("Spine2", 0)
+	var off := sk.get_bone_global_pose(bone).basis.orthonormalized().inverse() * (to_sk.basis.orthonormalized() * _pack_s)
+	pack.position = _pack_base + off * u

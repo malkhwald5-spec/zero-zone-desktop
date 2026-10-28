@@ -1239,7 +1239,6 @@ func _on_hit(head: bool, killed: bool, pos: Vector3) -> void:
 		var names := {2: "إقصاء مزدوج!", 3: "ثلاثي!", 4: "رباعي!", 5: "لا يوقف!"}
 		var txt: String = names.get(mini(_streak, 5), "") if _streak >= 2 else ""
 		_kill_card(txt)
-		if _streak >= 2: world.announce({2: "double", 3: "triple"}.get(_streak, "great"))
 
 ## A short synthesised sound: a soft tick for a hit (higher for the head),
 ## a bright double chime for a kill.

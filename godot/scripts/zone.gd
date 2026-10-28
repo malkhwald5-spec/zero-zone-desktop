@@ -123,7 +123,6 @@ func _process(delta: float) -> void:
 			state = "shrink"
 			time_left = PHASES[phase][1] * _time_k()
 			if world.hud: world.hud.show_banner("الكارثة عم تقرّب — المنطقة الآمنة عم تصغر!")
-			world.announce("zone_shrink")
 	elif state == "shrink":
 		var dur: float = PHASES[phase][1] * _time_k()
 		var k := clampf(1.0 - time_left / dur, 0.0, 1.0)

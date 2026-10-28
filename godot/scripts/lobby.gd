@@ -2297,7 +2297,6 @@ func _page_settings(body: VBoxContainer) -> void:
 			var g := _section(body, "الصوت")
 			g.add_child(_cell("الصوت", _onoff("sound", func(): Game.apply_audio())))
 			g.add_child(_cell("مستوى الصوت", _slider("master_vol", 0.0, 1.0, 0.05, 1.0, _pct, func(): Game.apply_audio())))
-			g.add_child(_cell("صوت المعلّق", _onoff("narrator", func(): Game.save_data())))
 
 ## The on-screen buttons editor, over the whole lobby.
 func _open_touch_editor() -> void:
