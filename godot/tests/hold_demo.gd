@@ -65,7 +65,7 @@ func _run() -> void:
 	p.yaw = 0.0
 	await wait(1.5)
 	# Standing, from the front quarter.
-	follow(Vector3(1.8, 1.5, 2.4))
+	follow(Vector3(1.8, 1.5, -2.4))
 	await wait(2.5)
 	# Walking, from the side.
 	follow(Vector3(3.0, 1.3, 0.3))
@@ -80,7 +80,7 @@ func _run() -> void:
 			await get_tree().process_frame
 		await wait(0.6)
 	# Sprint, from behind: the backpack bounces; then a sudden stop.
-	follow(Vector3(0.9, 1.6, -3.2))
+	follow(Vector3(0.9, 1.7, 3.4))
 	p.touch_move = Vector2(0, 1)
 	p.sprinting = true
 	await wait(3.0)
@@ -93,7 +93,7 @@ func _run() -> void:
 	p.set_stance("crouch")
 	await wait(1.5)
 	p.set_stance("stand")
-	follow(Vector3(1.4, 1.6, -2.0))
+	follow(Vector3(0.8, 1.7, 2.2))
 	p.action("aim", true)
 	await wait(1.6)
 	p.action("fire", true)
