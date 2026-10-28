@@ -38,8 +38,9 @@ func follow(side: float, back: float, up: float) -> void:
 		var f := Vector3(-sin(p.chute_heading), 0, -cos(p.chute_heading)) if p.state == "chute" else Vector3(-sin(p.yaw), 0, -cos(p.yaw))
 		var r := f.cross(Vector3.UP)
 		var want := b - f * back + r * side + Vector3(0, up, 0)
+		want.y = maxf(want.y, world.ground_height(want) + 1.4)     # never in the ground or the grass
 		cam.global_position = cam.global_position.lerp(want, 0.15) if cam.global_position.distance_to(want) < 30.0 else want
-		cam.look_at(b + Vector3(0, 2.2, 0), Vector3.UP)
+		cam.look_at(b + Vector3(0, 1.9, 0), Vector3.UP)
 
 func _run() -> void:
 	var tree := get_tree()
@@ -54,7 +55,7 @@ func _run() -> void:
 	p = world.player
 	world.hud.visible = false
 	cam = Camera3D.new()
-	cam.fov = 60.0
+	cam.fov = 66.0
 	world.add_child(cam)
 	cam.current = true
 	for k in 2:
@@ -100,7 +101,7 @@ func _run() -> void:
 		# Down to the last 40 m, then the camera low and to the side for the touch-down.
 		p.global_position.y = world.ground_height(p.global_position) + 40.0
 		p.touch_move = Vector2(0, 1) if dive else Vector2.ZERO
-		follow(5.5, 3.0, -1.2)
+		follow(6.5, 3.5, 0.2)
 		var touched := false
 		for i in 1500:
 			await get_tree().physics_frame
