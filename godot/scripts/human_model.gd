@@ -30,6 +30,7 @@ var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
 var lean := 0.0               # roll while skydiving (-1..1)
 var fall_in := Vector2.ZERO   # the stick while skydiving (x right, y forward)
+var exit_k := 0.0             # 1 just out of the plane door (upright, tumbling) .. 0 settled belly-down
 var _fall_k := Vector3.ZERO   # eased: forward push, backing off, steering
 var peek := 0.0               # leaning round cover: -1 left .. 1 right
 var ride := ""               # vehicle kind while driving (hands and feet placed for it)
@@ -1305,6 +1306,11 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var bf := 0.012 + d * 0.03
 			var buf := Vector3(sin(t * 7.3 + _seed) + sin(t * 12.1) * 0.5, 0.0, sin(t * 5.7 + _seed * 2.0) + sin(t * 10.9) * 0.4) * bf
 			body.rotation = Vector3(-d * 1.15 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
+			if exit_k > 0.0:
+				# Out of the door feet first, then tipping forward onto the belly
+				# with a little roll and wobble before the arch takes hold.
+				var e := ease(exit_k, 0.6)
+				body.rotation += Vector3(PI * 0.45 * e, sin(t * 3.1) * 0.25 * e, sin(t * 4.3 + 1.0) * 0.35 * e)
 			var hip := Vector3(0, 1.0, 0)
 			body.position = hip - body.basis * hip
 			_fly_limbs(t, d)
@@ -1664,7 +1670,7 @@ func _fly_limbs(t: float, d: float) -> void:
 	var up_body := ((lsh + rsh) * 0.5 - hips).normalized()       # hips to shoulders
 	var across := (rsh - lsh).normalized()
 	var track := clampf(maxf(d, _fall_k.x * 0.6), 0.0, 1.0)
-	var reach := clampf(_fall_k.y, 0.0, 1.0) * (1.0 - track)
+	var reach := clampf(maxf(_fall_k.y, exit_k * 0.9), 0.0, 1.0) * (1.0 - track)     # out of the door: arms up and out for balance
 	for side in [["Left", -1.0, lsh], ["Right", 1.0, rsh]]:
 		var sd: float = side[1]
 		var sh: Vector3 = side[2]

@@ -50,6 +50,7 @@ var jump_queued := false
 var air_speed := 0.0              # km/h shown on the HUD
 var dive := 0.0                   # smoothed 0..1 head-down amount while skydiving
 var fall_lean := 0.0              # smoothed -1..1 roll while flying sideways in freefall
+var exit_t := 0.0                 # seconds since leaving the plane (the tumble out of the door)
 var chute_t := 0.0                # seconds since the parachute was pulled
 var chute_heading := 0.0          # direction the canopy flies
 var chute_bank := 0.0             # roll from turning (radians)
@@ -400,6 +401,7 @@ func jump_from_plane() -> void:
 	velocity = world.plane_velocity() * 0.5
 	dive = 0.0
 	fall_lean = 0.0
+	exit_t = 0.0
 	chute_turn = 0.0
 	message.emit("W مع النظر لتحت = غوص أسرع — W لقدام = طيران لبعيد — A/D يمين ويسار")
 
@@ -777,18 +779,11 @@ func _land() -> void:
 		global_position = world.safe_landing(global_position)
 		reset_physics_interpolation()
 		message.emit("اجمع الأسلحة بسرعة!")
-		if vy < -6.5 and hv.length() > 8.0 and model.ap.has_animation("mx/fall_roll"):
-			# Came in fast (diving with W): feet, knees and over onto the shoulder.
-			velocity = hv * 0.35
-			hard_land_t = 1.0
-			model.play_action("fall_roll", 1.25, 0.5, 2.13)
-		elif vy < -6.5 and model.ap.has_animation("mx/hard_land2"):
-			velocity = Vector3.ZERO
-			hard_land_t = 1.0
-			model.play_action("hard_land2", 1.2, 0.25, 2.0)
-		elif move_input.length() > 0.3 and hv.length() > 3.0:
-			# Flared in still going: run it out, as in PUBG.
+		if hv.length() > 3.0 and (move_input.length() > 0.3 or vy < -6.5):
+			# As in PUBG: down on the feet and straight into a run, no stopping
+			# (coming in fast with W held just carries more speed).
 			velocity = hv * 0.6
+			land_t = 0.15
 		else:
 			velocity = Vector3.ZERO
 			# Feet first, knees give, back up (motion capture of a drop).
@@ -1636,6 +1631,8 @@ func _update_model(delta: float) -> void:
 	model.reload_p = 1.0 - reload_t / float(w.reload) if reload_t > 0.0 and not w.is_empty() else -1.0
 	model.lean = fall_lean if state == "fall" else 0.0
 	model.fall_in = move_input if state == "fall" else Vector2.ZERO
+	if state == "fall": exit_t += delta
+	model.exit_k = 1.0 - smoothstep(0.0, 1.3, exit_t) if state == "fall" else 0.0
 	model.peek = peek if state == "ground" else 0.0
 	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
