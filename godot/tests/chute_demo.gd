@@ -39,7 +39,9 @@ func follow(side: float, back: float, up: float) -> void:
 		var r := f.cross(Vector3.UP)
 		var want := b - f * back + r * side + Vector3(0, up, 0)
 		want.y = maxf(want.y, world.ground_height(want) + 1.4)     # never in the ground or the grass
-		cam.global_position = cam.global_position.lerp(want, 0.15) if cam.global_position.distance_to(want) < 30.0 else want
+		# Falling at 50+ m/s a lagging camera is left far behind: stay locked on.
+		var k := 1.0 if p.state == "fall" else 0.15
+		cam.global_position = cam.global_position.lerp(want, k) if cam.global_position.distance_to(want) < 30.0 else want
 		cam.look_at(b + Vector3(0, 1.9, 0), Vector3.UP)
 
 func _run() -> void:
@@ -58,7 +60,7 @@ func _run() -> void:
 	cam.fov = 66.0
 	world.add_child(cam)
 	cam.current = true
-	for k in 2:
+	for k in (1 if OS.get_cmdline_user_args().has("--soft-only") else 2):
 		var dive := k == 1
 		# Over open land, 260 m up.
 		# The flattest open ground just outside the biggest town.
@@ -88,7 +90,7 @@ func _run() -> void:
 		if not dive:
 			# Freefall first: belly down, then a head-first dive (arms back),
 			# rolling into turns both ways, and sitting up to slow down.
-			follow(0.0, 7.5, 2.2)
+			follow(1.5, 5.0, 1.6)
 			await wait(1.5)
 			p.pitch = -0.9
 			p.touch_move = Vector2(0, 1)
