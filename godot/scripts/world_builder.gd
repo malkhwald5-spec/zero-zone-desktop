@@ -33,6 +33,7 @@ var clutter: Array = []         # [MultiMeshInstance3D, ShaderMaterial, spacing]
 const CAMERA_LAYER := 16
 var _glass_body: StaticBody3D
 var _lining: SurfaceTool        # inner plaster for brick houses (null otherwise)
+var _arab := false              # old Arab houses: small arched windows, carved wooden doors
 
 func _init(isl: Island, parent: Node3D) -> void:
 	island = isl
@@ -401,7 +402,8 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, trim: SurfaceTool, body: StaticB
 		var c := (k + 0.5) * (length / n_win) if n_win > 0 else length * 0.5
 		if door_at >= 0.0 and absf(c - door_at) < 2.0: continue
 		if c < 1.2 or c > length - 1.2: continue
-		openings.append([c - 0.6, c + 0.6, 1.0, 2.2])
+		if _arab: openings.append([c - 0.42, c + 0.42, 1.25, 2.45])     # tall and narrow, under an arch
+		else: openings.append([c - 0.6, c + 0.6, 1.0, 2.2])
 	openings.sort_custom(func(a, b): return a[0] < b[0])
 	# Local wall coordinates (u along the wall, y up, depth across it) to building space.
 	var at := func(u: float, y: float) -> Vector3:
@@ -424,8 +426,36 @@ func _wall(st: SurfaceTool, glass: SurfaceTool, trim: SurfaceTool, body: StaticB
 		var fw := 0.09
 		_add_box(trim, at.call(u0 - fw * 0.5, (y0 + y1) * 0.5), box_size.call(fw, y1 - y0, fd), trim_col)
 		_add_box(trim, at.call(u1 + fw * 0.5, (y0 + y1) * 0.5), box_size.call(fw, y1 - y0, fd), trim_col)
-		_add_box(trim, at.call(mid, y1 + fw * 0.5), box_size.call(u1 - u0 + fw * 2.0, fw, fd), trim_col)
-		if y0 > 0.0:
+		if _arab:
+			# A round arch: the top corners filled in with wall, step by
+			# step, a plaster band round the curve and a wooden lattice
+			# (mashrabiya) instead of glazing bars.
+			var r := (u1 - u0) * 0.5
+			var n := 5
+			for j in n:
+				var dy := (j + 0.5) * r / n
+				var hw := sqrt(maxf(r * r - dy * dy, 0.0))
+				var yy := y1 - r + dy
+				var fill := r - hw
+				if fill > 0.005:
+					_add_box(st, at.call(u0 + fill * 0.5, yy), box_size.call(fill, r / n + 0.01, WALL_T), col)
+					_add_box(st, at.call(u1 - fill * 0.5, yy), box_size.call(fill, r / n + 0.01, WALL_T), col)
+				_add_box(trim, at.call(mid - hw - 0.03, yy), box_size.call(0.07, r / n + 0.02, fd), col.lightened(0.18))
+				_add_box(trim, at.call(mid + hw + 0.03, yy), box_size.call(0.07, r / n + 0.02, fd), col.lightened(0.18))
+			if y0 > 0.0:
+				var lattice := y1 - r - y0
+				for k in 3:
+					_add_box(trim, at.call(mid, y0 + lattice * (k + 1) / 4.0), box_size.call(u1 - u0, 0.035, 0.06), trim_col)
+				_add_box(trim, at.call(u0 + (u1 - u0) / 3.0, y0 + lattice * 0.5), box_size.call(0.035, lattice, 0.06), trim_col)
+				_add_box(trim, at.call(u0 + (u1 - u0) * 2.0 / 3.0, y0 + lattice * 0.5), box_size.call(0.035, lattice, 0.06), trim_col)
+		else:
+			_add_box(trim, at.call(mid, y1 + fw * 0.5), box_size.call(u1 - u0 + fw * 2.0, fw, fd), trim_col)
+		if y0 > 0.0 and _arab:
+			_add_box(trim, at.call(mid, y0 - 0.03), box_size.call(u1 - u0 + 0.16, 0.07, WALL_T + 0.2), col.lightened(0.12))
+			panes.append({"c": _cur_origin + at.call(mid, (y0 + y1) * 0.5), "w": u1 - u0, "h": y1 - y0, "ax": along_x, "b": _cur_bi, "alive": true})
+			if _glass_body:
+				_shape(_glass_body, at.call(mid, (y0 + y1) * 0.5), box_size.call(u1 - u0, y1 - y0, WALL_T))
+		elif y0 > 0.0:
 			# Sill, glazing bars and the glass itself (visual only).
 			_add_box(trim, at.call(mid, y0 - 0.03), box_size.call(u1 - u0 + 0.24, 0.07, WALL_T + 0.26), trim_col.darkened(0.1))
 			_add_box(trim, at.call(mid, (y0 + y1) * 0.5), box_size.call(0.05, y1 - y0, 0.07), trim_col)
@@ -556,12 +586,14 @@ func _buildings() -> void:
 		var planks: bool = style in ["jungle", "nordic"] and not b.military
 		var st: SurfaceTool = sts.brick if brick else (sts.planks if planks else sts.wall)
 		_lining = sts.wall if (brick or planks) else null
+		_arab = style == "desert" and not b.military and kind not in ["warehouse", "barn", "shop"]
 		var sx: float = b.size.x
 		var sz: float = b.size.y
 		var hx := sx * 0.5
 		var hz := sz * 0.5
 		var col: Color = Color("a9ada0") if b.military else (Color.WHITE if brick else (style_tints[style][b.tint] if style_tints.has(style) else tints[b.tint]))
 		var tcol: Color = Color("5c5f58") if b.military else trims[(b.tint * 3 + b.roof) % trims.size()]
+		if _arab: tcol = [Color("5a3a22"), Color("3f5f6a"), Color("6b4a2c"), Color("2f4f4a")][(b.tint + b.roof) % 4]     # dark wood, or old blue-green paint
 		var doors: Array = b.doors
 		var storeys: int = b.get("storeys", 1)
 		var ruin := kind == "ruin"
@@ -1072,6 +1104,10 @@ func _structures() -> void:
 	var sand_dark := _wall_shader("plaster", 2.0, 0.85, 0.7, 0.95)
 	sand_dark.set_shader_parameter("tint", Color("a88a5e"))
 	var wood_m := _wall_shader("wood", 1.5, 0.0, 0.3, 0.85)
+	var concrete := _wall_shader("concrete", 2.5, 0.0, 0.6, 0.9)
+	var bag_m := StandardMaterial3D.new()
+	bag_m.albedo_color = Color("9a8a64")
+	bag_m.roughness = 1.0
 	var white := StandardMaterial3D.new()
 	white.albedo_color = Color("ece9e2")
 	white.roughness = 0.5
@@ -1349,6 +1385,59 @@ func _structures() -> void:
 				_mesh_box(node, Vector3(0, 2.75, 0), Vector3(2.8, 0.15, 1.6), wood_m)
 				_mesh_cyl(node, Vector3(0, 2.2, 0), 0.06, 0.06, 0.9, dark)
 				_cyl_shape(body, node.position + Vector3(0, 0.6, 0), 1.4, 1.2)
+			"blast_wall":
+				# A T-wall: a 3 m slab of grey concrete on a wider foot.
+				var bd: Vector2 = st.get("dir", Vector2(1, 0))
+				node.rotation.y = -atan2(bd.y, bd.x)
+				_mesh_box(node, Vector3(0, 0.35, 0), Vector3(2.95, 0.7, 1.4), concrete)
+				_mesh_box(node, Vector3(0, 2.0, 0), Vector3(2.95, 3.4, 0.35), concrete)
+				_shape_xf(body, node.transform * Transform3D(Basis.IDENTITY, Vector3(0, 1.85, 0)), Vector3(2.95, 3.7, 0.5))
+			"watchtower":
+				# Guard tower: four steel legs, a ladder and a sandbagged
+				# platform with a tin roof, 7 m up.
+				for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					_mesh_box(node, Vector3(e.x * 1.6, 3.6, e.y * 1.6), Vector3(0.22, 7.2, 0.22), dark)
+					_shape(body, node.position + Vector3(e.x * 1.6, 3.6, e.y * 1.6), Vector3(0.22, 7.2, 0.22))
+				for hgt in [2.4, 4.8]:
+					_mesh_box(node, Vector3(0, hgt, -1.6), Vector3(3.2, 0.12, 0.12), dark)
+					_mesh_box(node, Vector3(0, hgt, 1.6), Vector3(3.2, 0.12, 0.12), dark)
+				_mesh_box(node, Vector3(0, 7.2, 0), Vector3(4.0, 0.25, 4.0), wood_m)
+				_shape(body, node.position + Vector3(0, 7.2, 0), Vector3(4.0, 0.25, 4.0))
+				for side in [-1.0, 1.0]:
+					_mesh_box(node, Vector3(0, 7.75, side * 1.85), Vector3(4.0, 0.85, 0.35), bag_m)
+					_mesh_box(node, Vector3(side * 1.85, 7.75, 0), Vector3(0.35, 0.85, 4.0), bag_m)
+					_shape(body, node.position + Vector3(0, 7.75, side * 1.85), Vector3(4.0, 0.85, 0.35))
+					_shape(body, node.position + Vector3(side * 1.85, 7.75, 0), Vector3(0.35, 0.85, 4.0))
+				for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					_mesh_box(node, Vector3(e.x * 1.8, 8.9, e.y * 1.8), Vector3(0.1, 2.4, 0.1), dark)
+				_mesh_box(node, Vector3(0, 10.15, 0), Vector3(4.4, 0.1, 4.4), metal)
+				for k in 12:
+					_mesh_box(node, Vector3(0, 0.3 + k * 0.6, 2.15), Vector3(0.7, 0.06, 0.06), dark)     # ladder rungs
+			"helipad":
+				# A painted landing pad: a concrete disc, a white circle and an H.
+				_mesh_cyl(node, Vector3(0, 0.05, 0), 10.0, 10.0, 0.14, concrete)
+				_mesh_cyl(node, Vector3(0, 0.13, 0), 8.6, 8.6, 0.02, white)
+				_mesh_cyl(node, Vector3(0, 0.14, 0), 8.1, 8.1, 0.02, concrete)
+				_mesh_box(node, Vector3(-2.0, 0.15, 0), Vector3(0.9, 0.02, 6.0), white)
+				_mesh_box(node, Vector3(2.0, 0.15, 0), Vector3(0.9, 0.02, 6.0), white)
+				_mesh_box(node, Vector3(0, 0.15, 0), Vector3(3.2, 0.02, 0.9), white)
+			"sandbags":
+				# A curved sandbag post, waist high, to shoot over.
+				for k in 5:
+					var a := -0.9 + k * 0.45
+					var sp := Vector3(sin(a) * 2.2, 0, -cos(a) * 2.2 + 1.6)
+					for row in 3:
+						var bag := MeshInstance3D.new()
+						var bm2 := CapsuleMesh.new()
+						bm2.radius = 0.2
+						bm2.height = 1.0
+						bag.mesh = bm2
+						bag.material_override = bag_m
+						bag.position = sp + Vector3(0.12 * (row % 2), 0.2 + row * 0.33, 0)
+						bag.rotation = Vector3(0, a, PI * 0.5)
+						bag.scale = Vector3(1, 1, 0.7)
+						node.add_child(bag)
+				_shape(body, node.position + Vector3(0, 0.55, 0.0), Vector3(4.2, 1.1, 1.2))
 			"ruin_wall":
 				# A broken stone wall: one long piece and a higher stub at its end.
 				node.rotation.y = float(st.get("rot_f", 0.0))
@@ -1486,8 +1575,9 @@ static func pane_xf(pn: Dictionary) -> Transform3D:
 var doors: Array = []
 const DOOR_OPEN := PI * 0.5 * 0.94
 
-func _door_mesh() -> ArrayMesh:
+func _door_mesh(arab := false) -> ArrayMesh:
 	# Wooden door with four raised panels, and a brass handle on both sides.
+	# Old Arab houses: dark heavy planks with rows of iron studs and a ring knocker.
 	var w := DOOR_W - 0.03
 	var h := DOOR_H - 0.06
 	var wood := SurfaceTool.new()
@@ -1496,6 +1586,15 @@ func _door_mesh() -> ArrayMesh:
 	metal.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_add_box(wood, Vector3(w * 0.5, h * 0.5, 0), Vector3(w, h, 0.05), Color.WHITE)
 	for side in [-1.0, 1.0]:
+		if arab:
+			for k in 5:
+				_add_box(wood, Vector3(w * (0.1 + k * 0.2), h * 0.5, side * 0.03), Vector3(0.012, h - 0.04, 0.012), Color(0.55, 0.55, 0.55))
+			for r in 3:
+				_add_box(wood, Vector3(w * 0.5, h * (0.15 + r * 0.35), side * 0.032), Vector3(w - 0.04, 0.09, 0.015), Color(0.7, 0.7, 0.7))
+				for c in 5:
+					_add_box(metal, Vector3(w * (0.12 + c * 0.19), h * (0.15 + r * 0.35), side * 0.045), Vector3(0.035, 0.035, 0.02), Color(0.35, 0.35, 0.35))
+			_add_box(metal, Vector3(w * 0.5, h * 0.55, side * 0.05), Vector3(0.14, 0.14, 0.02), Color(0.45, 0.45, 0.45))
+			continue
 		for r in 2:
 			for c in 2:
 				var px := w * (0.29 + c * 0.42)
@@ -1505,13 +1604,13 @@ func _door_mesh() -> ArrayMesh:
 		_add_box(metal, Vector3(w - 0.08, h * 0.46, side * 0.035), Vector3(0.05, 0.08, 0.02), Color.WHITE)
 	var wm := StandardMaterial3D.new()
 	wm.vertex_color_use_as_albedo = true
-	wm.albedo_color = Color("d9b48c")
+	wm.albedo_color = Color("7a5232") if arab else Color("d9b48c")
 	wm.albedo_texture = load("res://assets/textures/wood_col.jpg") if ResourceLoader.exists("res://assets/textures/wood_col.jpg") else null
 	wm.uv1_triplanar = true
 	wm.uv1_scale = Vector3(0.8, 0.8, 0.8)
 	wm.roughness = 0.75
 	var mm := StandardMaterial3D.new()
-	mm.albedo_color = Color("b08d3a")
+	mm.albedo_color = Color("3a3632") if arab else Color("b08d3a")
 	mm.metallic = 0.8
 	mm.roughness = 0.35
 	var mesh := ArrayMesh.new()
@@ -1526,6 +1625,7 @@ func _doors() -> void:
 	parent.name = "Doors"
 	root.add_child(parent)
 	var mesh := _door_mesh()
+	var mesh_arab := _door_mesh(true)
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(DOOR_W - 0.03, DOOR_H - 0.06, 0.08)
 	var rng := RandomNumberGenerator.new()
@@ -1565,7 +1665,7 @@ func _doors() -> void:
 			pivot.rotation.y = base
 			parent.add_child(pivot)
 			var mi := MeshInstance3D.new()
-			mi.mesh = mesh
+			mi.mesh = mesh_arab if b.get("style", "") == "desert" and not b.military else mesh
 			mi.position = Vector3(0, 0.07, 0)
 			mi.visibility_range_end = 220.0
 			pivot.add_child(mi)

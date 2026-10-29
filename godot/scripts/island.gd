@@ -52,12 +52,14 @@ const PLACES := [
 	["مطار الرمال", "airport", Vector2(1070, 1652), 150.0, "desert", true],
 	["الأطلال", "ruins", Vector2(1095, 1795), 55.0, "desert", false],
 	["المنارة", "lighthouse", Vector2(1823, 98), 35.0, "nordic", false],
+	["قاعدة الصقر", "base", Vector2(950, 330), 90.0, "nordic", true],
+	["قرية البازلت", "town", Vector2(1800, 1100), 100.0, "volcano", false],
+	["محطة الطاقة", "industrial", Vector2(1550, 1200), 80.0, "volcano", false],
+	["مخيم الحطابين", "town", Vector2(350, 780), 80.0, "jungle", false],
+	["قرية الضفة", "town", Vector2(285, 1190), 85.0, "jungle", false],
+	["المنطقة الصناعية", "industrial", Vector2(1050, 1450), 90.0, "plains", false],
+	["قرية الكثبان", "town", Vector2(300, 1600), 100.0, "desert", false],
 ]
-## Team war: each team's fort in its own region (in team order: ice, fire,
-## sand, forest), and the places in the plains worth fighting over.
-const FORT_SPOTS := [["nordic", Vector2(850, 560)], ["volcano", Vector2(1440, 1300)], ["desert", Vector2(720, 1500)], ["jungle", Vector2(600, 900)]]
-const FORT_HALF := 40.0
-const WAR_POINTS := [["مزارع الشمال", Vector2(805, 765)], ["مدينة الشفق", Vector2(1225, 892)], ["المزارع", Vector2(968, 1262)], ["تلة الصقور", Vector2(700, 1200)]]
 ## Small islands the painting has but the coast map may have lost: centre, radius (px).
 const ISLETS := [[Vector2(1823, 98), 42.0], [Vector2(1095, 1800), 30.0], [Vector2(105, 1822), 45.0]]
 ## Paved roads (w 9 m) and dirt tracks (w 6 m) as polylines.
@@ -80,6 +82,12 @@ const DIRT := [
 	[Vector2(1310, 1265), Vector2(1400, 1200), Vector2(1480, 1140), Vector2(1540, 1090)],
 	[Vector2(450, 1700), Vector2(600, 1690), Vector2(760, 1682), Vector2(935, 1688)],
 	[Vector2(815, 1490), Vector2(880, 1570), Vector2(960, 1640), Vector2(1030, 1720), Vector2(1080, 1785)],
+	[Vector2(620, 490), Vector2(720, 430), Vector2(830, 370), Vector2(935, 335)],
+	[Vector2(1540, 1090), Vector2(1640, 1085), Vector2(1730, 1095), Vector2(1790, 1100)],
+	[Vector2(1480, 1140), Vector2(1520, 1175), Vector2(1550, 1195)],
+	[Vector2(415, 800), Vector2(380, 790), Vector2(355, 782)],
+	[Vector2(835, 1400), Vector2(930, 1420), Vector2(1040, 1448)],
+	[Vector2(450, 1700), Vector2(380, 1660), Vector2(310, 1605)],
 ]
 const RUNWAY := [Vector2(935, 1682), Vector2(1200, 1612)]
 ## Water: the lake (centre, radii in px) with its islet, and the river from
@@ -122,6 +130,7 @@ var loot_spots: Array = []     # {pos: Vector2, military, level?}
 var structures: Array = []     # {kind, pos: Vector2, rot (0 or 90), level, col} containers, silos, towers...
 var obstacles: Array = []      # {pos: Vector2, half: Vector2} footprints of structures
 var fields: Array = []         # Rect2 crop fields next to farms
+var boat_spots: Array = []     # {pos: Vector2, dir: Vector2 (out to sea)} boats tied up at the piers
 var lava: Array = []           # polylines of world points (Vector2), see LAVA
 var lava_pools: Array = []     # [centre: Vector2, radius]
 var crater := Vector2.ZERO
@@ -130,9 +139,6 @@ var warp := FastNoiseLite.new()
 var ridge := FastNoiseLite.new()
 ## Region weights on a coarse grid: desert, jungle (the forest), nordic, volcano (plains = the rest).
 var biome := PackedFloat32Array()
-var war := false               # team war: four forts, places to capture
-var forts: Array = []          # {team, region, pos: Vector2, y, gate: Vector2 (unit, outwards)}
-var war_points: Array = []     # {name, pos: Vector2}
 var _water_d := PackedFloat32Array()   # per height sample: metres to the nearest river line
 var _lava_d := PackedFloat32Array()    # per height sample: metres to the nearest lava line
 
@@ -164,7 +170,6 @@ func generate() -> void:
 	_roads()
 	_carve_water()
 	_buildings()
-	if war: _war_points()
 	_props()
 
 ## A point of the painted map (pixels) in world metres.
@@ -492,9 +497,8 @@ func _towns() -> void:
 	for pl in L.places:
 		var t := {"name": pl[0], "kind": pl[1], "pos": _m(pl[2]), "r": pl[3], "region": pl[4], "military": pl[5]}
 		towns.append(t)
-	if war: _forts()
 	for t in towns:
-		if t.kind in ["crater", "lighthouse", "ruins", "fort", "castle"]: continue
+		if t.kind in ["crater", "lighthouse", "ruins", "castle"]: continue
 		# Town ground: level, a little above the sea (ports stay low by the water).
 		var level := maxf(1.6, height_at(t.pos.x, t.pos.y) * (0.5 if not t.kind in ["city", "medina"] else 0.35))
 		if t.kind == "port": level = maxf(1.8, height_at(t.pos.x, t.pos.y) * 0.3)
@@ -504,35 +508,6 @@ func _towns() -> void:
 		var r: Rect2 = fa
 		var c := _m(r.get_center())
 		flatten(c, _m(r.size) * 0.5, 60.0, maxf(1.8, height_at(c.x, c.y)))
-
-## The four forts: a level square of ground each (no houses, trees or rocks
-## on it), the gate on the side facing the middle of the island.
-func _forts() -> void:
-	var mid := _m(L.lake_c)
-	for i in L.fort_spots.size():
-		var c := _m(L.fort_spots[i][1])
-		var y := maxf(2.0, height_at(c.x, c.y))
-		flatten(c, Vector2(FORT_HALF + 6.0, FORT_HALF + 6.0), 70.0, y)
-		var to := mid - c
-		var gate := Vector2(signf(to.x), 0) if absf(to.x) > absf(to.y) else Vector2(0, signf(to.y))
-		forts.append({"team": i, "region": L.fort_spots[i][0], "pos": c, "y": y, "gate": gate})
-		towns.append({"name": "", "kind": "fort", "pos": c, "r": FORT_HALF + 20.0, "region": L.fort_spots[i][0], "military": false})
-		var half := Vector2(FORT_HALF + 4.0, FORT_HALF + 4.0)
-		_fp_add(c, half)
-		obstacles.append({"pos": c, "half": half})
-
-## Where each capture point's flag stands: near its place, on open ground.
-func _war_points() -> void:
-	for wp in L.war_points:
-		var c := _m(wp[1])
-		var at := c
-		for k in 60:
-			var p := c + Vector2(k * 1.5, 0).rotated(k * 2.4)
-			if _land_around(p, 8.0) and not _overlaps(p, Vector2(6, 6), 2.0) and not near_road(p, 4.0):
-				at = p
-				break
-		_fp_add(at, Vector2(4, 4))
-		war_points.append({"name": wp[0], "pos": at})
 
 func _roads() -> void:
 	for spec in [[L.paved, 9.0, false], [L.dirt, 6.0, true]]:
@@ -760,7 +735,7 @@ func _buildings() -> void:
 			"lighthouse": _lighthouse(t); continue
 			"medina": _medina(t); continue
 			"castle": _castle(t); continue
-			"fort": continue
+			"base": _base(t); continue
 			"crater":
 				for k in 6:
 					loot_spots.append({"pos": t.pos + Vector2(rng.randf_range(70.0, 100.0), 0).rotated(rng.randf() * TAU), "military": true})
@@ -912,8 +887,28 @@ func _port(t: Dictionary) -> void:
 		if not is_land(shore.x + sea.x * 6.0, shore.y + sea.y * 6.0): break
 		shore += sea * 6.0
 	var rot := atan2(sea.y, sea.x)
+	var perp := Vector2(-sea.y, sea.x)
+	var big := float(t.r) >= 100.0
 	_structure("pier", shore + sea * 28.0, Vector2(30, 30), {"dir": sea, "len": 60.0})
 	obstacles.pop_back()   # you can walk the pier
+	# Boats tied up along the pier (and the second one in the big ports).
+	boat_spots.append({"pos": shore + sea * 44.0 + perp * 7.5, "dir": sea})
+	if big:
+		var p2 := shore + perp * 42.0
+		if _land_around(p2 - sea * 6.0, 3.0):
+			_structure("pier", p2 + sea * 22.0, Vector2(24, 24), {"dir": sea, "len": 48.0})
+			obstacles.pop_back()
+			boat_spots.append({"pos": p2 + sea * 34.0 - perp * 7.5, "dir": sea})
+		boat_spots.append({"pos": shore + sea * 30.0 - perp * 7.5, "dir": sea})
+		# A harbour shed and a row of fish stalls (market awnings) on the quay.
+		var shed := shore - sea * 40.0 - perp * 20.0
+		if _land_around(shed, 14.0) and not _overlaps(shed, Vector2(13, 8), 2.0):
+			_add_building(shed, Vector2(24, 14), false, 1, "warehouse")
+			buildings[-1].doors = [0, 2]
+		for i in 4:
+			var sp := shore - sea * 9.0 + perp * (-30.0 - i * 6.0)
+			if _land_around(sp, 3.0) and not _overlaps(sp, Vector2(2.5, 2.5), 1.0):
+				_structure("souq_stall", sp, Vector2(2.2, 1.2), {"dir": sea, "col": rng.randi_range(0, 5)})
 	for row in 2:
 		for i in 4:
 			var p := shore - sea * (18.0 + row * 7.0) + Vector2(-sea.y, sea.x) * (-14.0 + i * 8.5)
@@ -924,8 +919,41 @@ func _port(t: Dictionary) -> void:
 	var cp := shore - sea * 8.0 + Vector2(-sea.y, sea.x) * 26.0
 	if _land_around(cp, 4.0) and not _overlaps(cp, Vector2(4, 4), 2.0):
 		_structure("crane", cp, Vector2(3.0, 3.0), {"rot_f": rot})
-	for k in 5:
-		loot_spots.append({"pos": shore - sea * rng.randf_range(10.0, 30.0) + Vector2(-sea.y, sea.x) * rng.randf_range(-20, 20), "military": false})
+	for k in 8 if big else 5:
+		loot_spots.append({"pos": shore - sea * rng.randf_range(10.0, 30.0) + perp * rng.randf_range(-20, 20), "military": false})
+
+## Military base: a square of concrete blast walls with a gate, watchtowers
+## on the corners, two long barracks, a command block to fight from, a
+## helipad, sandbag posts and rows of containers. The best loot around.
+func _base(t: Dictionary) -> void:
+	var c: Vector2 = t.pos
+	var half := 62.0
+	flatten(c, Vector2(half + 10.0, half + 10.0), 60.0, maxf(2.0, height_at(c.x, c.y)))
+	for side in 4:
+		var n := Vector2(1, 0).rotated(side * PI * 0.5)
+		var along := Vector2(-n.y, n.x)
+		var k := -half + 3.0
+		while k < half - 2.0:
+			# The gate: a gap in the side facing south-west, towards the roads.
+			if not (side == 1 and absf(k) < 7.0):
+				_structure("blast_wall", c + n * half + along * k, Vector2(1.6, 1.6), {"dir": along})
+			k += 3.0
+	for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		_structure("watchtower", c + e * (half - 5.0), Vector2(2.4, 2.4))
+	for k in 2:
+		_add_building(c + Vector2(-28.0, -32.0 + k * 22.0), Vector2(28, 11), true, 1, "warehouse")
+		buildings[-1].doors = [0, 2]
+	_add_building(c + Vector2(28.0, -30.0), Vector2(14, 12), true, 3, "apartment")
+	_structure("helipad", c + Vector2(26.0, 22.0), Vector2(0.5, 0.5))
+	obstacles.pop_back()
+	for i in 5:
+		var p := c + Vector2(-38.0 + i * 7.0, 36.0)
+		_structure("container", p, Vector2(3.1, 1.3))
+		if i % 2 == 0: structures.append({"kind": "container", "pos": p, "rot": 0, "level": 1, "col": 3})
+	for e in [Vector2(-8, 50), Vector2(8, 50), Vector2(0, -12)]:
+		_structure("sandbags", c + e, Vector2(2.0, 0.8))
+	for k in 10:
+		loot_spots.append({"pos": c + Vector2(rng.randf_range(-45, 45), rng.randf_range(-45, 45)), "military": true})
 
 ## Observatory on the peaks: the white dome, a lab and a cabin.
 func _observatory(t: Dictionary) -> void:
@@ -1261,7 +1289,7 @@ func _disc(img: Image, c: Vector2, r: float, col: Color, soft: bool) -> void:
 ## Seasons Island (the constants at the top, in its picture's pixels).
 const SEASONS := {"name": MAP_NAME, "sea": SEA_NAME, "titles": REGION_TITLES, "coast": "res://assets/map/seasons_land.png",
 	"pic": PIC, "nordic": NORDIC_AREA, "volcano": VOLCANO_AREA, "desert": DESERT_AREA, "forest": FOREST_AREA,
-	"region_labels": REGION_LABELS, "places": PLACES, "fort_spots": FORT_SPOTS, "war_points": WAR_POINTS, "islets": ISLETS,
+	"region_labels": REGION_LABELS, "places": PLACES, "islets": ISLETS,
 	"paved": PAVED, "dirt": DIRT, "runway": RUNWAY, "lake_c": LAKE_C, "lake_r": LAKE_R, "lake_islet": LAKE_ISLET,
 	"rivers": RIVERS, "crater_px": CRATER, "lava_px": LAVA, "lava_pools_px": LAVA_POOLS, "fields": FIELD_AREAS,
 	"trees": REGION_TREES, "forest_density": REGION_FOREST}
@@ -1285,7 +1313,7 @@ const DUNES := {"name": "وادي الرمال", "sea": "بحر العنبر", "
 		["القلعة", "castle", Vector2(245, 225), 70.0, "desert", true],
 		["واحة النخيل", "town", Vector2(400, 545), 95.0, "plains", false],
 		["مزرعة التمر", "farm", Vector2(560, 560), 65.0, "plains", false],
-		["ميناء الصيادين", "port", Vector2(845, 520), 100.0, "desert", false],
+		["ميناء الصيادين", "port", Vector2(845, 520), 150.0, "desert", false],
 		["مطار الصحراء", "airport", Vector2(690, 835), 130.0, "desert", true],
 		["محطة النفط", "industrial", Vector2(720, 195), 110.0, "desert", false],
 		["قرية الطين", "town", Vector2(175, 470), 90.0, "desert", false],
@@ -1294,7 +1322,6 @@ const DUNES := {"name": "وادي الرمال", "sea": "بحر العنبر", "
 		["المحجر", "mine", Vector2(470, 855), 60.0, "desert", true],
 		["المنارة", "lighthouse", Vector2(955, 135), 30.0, "desert", false],
 	],
-	"fort_spots": [], "war_points": [],
 	"islets": [[Vector2(955, 135), 16.0], [Vector2(70, 965), 12.0]],
 	"paved": [
 		[Vector2(500, 320), Vector2(620, 375), Vector2(760, 445), Vector2(845, 500)],

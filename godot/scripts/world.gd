@@ -7,17 +7,12 @@ const BOT_COUNT_MOBILE := 49   # phones: 50 players (a phone CPU can't run 99 bo
 
 ## Quick match: 50 players and a zone that closes about twice as fast (~10 minutes).
 func quick() -> bool:
-	return Game.settings.get("length", "classic") == "quick" and not war_mode()
-
-## Team war (حرب الفرق): four teams with forts, see War.
-func war_mode() -> bool:
-	return Game.settings.get("mode", "solo") == "war"
+	return Game.settings.get("length", "classic") == "quick"
 
 var island: Island
 var builder: WorldBuilder
 var effects: Effects
 var events: MatchEvents           # mid-match surprises: plane crash, eruption, earthquake
-var war: War = null               # team war mode only
 var birds: Birds
 var player: Player
 var hud: Hud
@@ -60,12 +55,12 @@ var spawn: SpawnIsland = null     # the waiting island before the plane (null on
 func _ready() -> void:
 	loading = LoadingScreen.new()
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
-	# Which map: team war and the training ground are on Seasons Island;
-	# online everyone gets the host's pick.
-	Game.current_map = "seasons" if (war_mode() or Game.training) else (Net.map_id if Net.in_match else Game.pick_map())
-	loading.title = "حرب الفرق" if war_mode() else Game.map_name()
+	# Which map: the training ground is on Seasons Island; online everyone
+	# gets the host's pick.
+	Game.current_map = "seasons" if Game.training else (Net.map_id if Net.in_match else Game.pick_map())
+	loading.title = Game.map_name()
 	var players: int = 50 if quick else int(Game.MAPS[Game.current_map].players)
-	loading.subtitle = "4 فرق × 25 لاعب" if war_mode() else ("باتل رويال • %d لاعب" % players)
+	loading.subtitle = "باتل رويال • %d لاعب" % players
 
 	if Net.in_match:
 		Net.world = self
@@ -91,7 +86,6 @@ func _build() -> void:
 		seed_v = Net.match_seed
 		seed(seed_v)         # the builder's random touches (trees, rocks, furniture) too
 	island = Island.new(seed_v, Game.map_size(), Game.current_map)
-	island.war = war_mode()
 	island.generate()
 	builder = WorldBuilder.new(island, self)
 	weather = Game.pick_weather() if not Net.in_match else Net.weather
@@ -130,16 +124,7 @@ func _build() -> void:
 	player.global_position = plane_position()
 	player.yaw = atan2(-(plane_to - plane_from).x, -(plane_to - plane_from).z)
 	player.pitch = -0.5
-	if war_mode():
-		# No plane: everyone starts in their team's fort.
-		Game.spawn_island = false
-		plane_active = false
-		plane.visible = false
-		team_size = Game.team_size()
-		war = War.new()
-		add_child(war)
-		war.setup(self)
-	elif Game.training:
+	if Game.training:
 		Game.spawn_island = false
 		team_size = 1
 	elif Net.in_match:
@@ -897,34 +882,9 @@ func _crosses(a: Vector2, b: Vector2, c: Vector2, h: Vector2) -> bool:
 	return true
 
 ## Waypoints for walking from a to b: leave/enter buildings through doors and
-## cross deep water on bridges (and, in team war, forts through their gates).
+## cross deep water on bridges.
 ## The goal itself is not included.
 func route(a: Vector3, b: Vector3) -> Array:
-	if war:
-		var wa := war.fort_at(Vector2(a.x, a.z), 1.0)
-		var wb := war.fort_at(Vector2(b.x, b.z), 1.0)
-		if wa != wb or wa < 0:
-			# Out through the gate, round the walls of any fort in the way,
-			# in through the other gate.
-			var pre := []
-			var post := []
-			var a2 := a
-			var b2 := b
-			if wa >= 0:
-				pre = war.gate_path(wa, true)
-				a2 = pre[-1]
-			if wb >= 0:
-				post = war.gate_path(wb, false)
-				b2 = post[0]
-			var mid: Array = war.around_forts(a2, b2)
-			var s := a2
-			var res := pre
-			for q in mid:
-				res.append_array(_route_plain(s, q))
-				res.append(q)
-				s = q
-			res.append_array(_route_plain(s, b2))
-			return res + post
 	return _route_plain(a, b)
 
 func _route_plain(a: Vector3, b: Vector3) -> Array:
@@ -1185,7 +1145,7 @@ static func is_gone(a: Node) -> bool:
 ## Can `a` be knocked down instead of dying? Only with a teammate still on
 ## their feet to pick them up.
 func can_knock(a: Node) -> bool:
-	if team_size <= 1 or is_down(a) or war: return false
+	if team_size <= 1 or is_down(a): return false
 	for m in teammates(a):
 		if not is_gone(m) and not is_down(m): return true
 	return false
@@ -1280,9 +1240,6 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 		Game.profile.rival = {"name": attacker.display_name, "persona": attacker.persona}
 		player.longest_kill = maxf(player.longest_kill, player.global_position.distance_to(victim.global_position))
 	if attacker == null: zone_deaths += 1
-	if war:
-		war.on_kill(victim, attacker)
-		return
 	_commentate(victim, attacker)
 	# Bled out or team wiped: the kill goes to whoever knocked them down.
 	if victim is Bot and victim.bled and attacker != null and is_instance_valid(attacker) and attacker != victim:
@@ -1314,9 +1271,6 @@ func on_actor_killed(victim: Node, attacker: Node) -> void:
 		_end_match(false)
 
 func _on_player_died(_killer: String) -> void:
-	if war:
-		war.on_player_died()
-		return
 	# In a team the match goes on while a teammate lives: you watch them.
 	if team_alive(player.team) and team_size > 1:
 		hud.team_still_alive()
@@ -1327,7 +1281,6 @@ func _end_match(won: bool) -> void:
 	if match_over: return
 	match_over = true
 	var rank := 1 if won else (teams_alive() + 1 if team_size > 1 else alive_count() + 1)
-	if war and not won: rank = war.teams_in() + 1
 	if won: Game.stats.wins += 1
 	if Game.stats.best == 0 or rank < Game.stats.best: Game.stats.best = rank
 	var reward := Game.reward_match(rank, player.kills, won)
@@ -1636,8 +1589,14 @@ func _spawn_vehicles() -> void:
 ## Motor boats moored in deep water just off the shores and in the river.
 func _spawn_boats() -> void:
 	var placed: Array[Vector2] = []
+	# First the ones tied up alongside the piers, bow out to sea.
+	for bs in island.boat_spots:
+		var bp: Vector2 = bs.pos
+		if not island.is_deep(bp.x, bp.y): continue
+		_add_boat(bp, atan2(-bs.dir.y, bs.dir.x) + PI * 0.5)
+		placed.append(bp)
 	var tries := 0
-	while placed.size() < 10 and tries < 4000:
+	while placed.size() < 10 + island.boat_spots.size() and tries < 4000:
 		tries += 1
 		var p := Vector2(randf_range(0.05, 0.95), randf_range(0.05, 0.95)) * island.size
 		if not island.is_deep(p.x, p.y) or island.height_at(p.x, p.y) > -2.0: continue
@@ -1657,16 +1616,19 @@ func _spawn_boats() -> void:
 			if o.distance_to(p) < 250.0: near = true
 		if near: continue
 		placed.append(p)
-		var v := Vehicle.new()
-		v.world = self
-		v.kind = "boat"
-		v.paint = [Color("c8d2d8"), Color("2f5d7a"), Color("b8402f"), Color("e8e4da")][randi() % 4]
-		v.position = Vector3(p.x, Island.WATER + 0.2, p.y)
 		# Side on to the shore, so you can step aboard.
 		var to := (shore - p).normalized()
-		v.rotation.y = atan2(-to.y, to.x)
-		add_child(v)
-		vehicles.append(v)
+		_add_boat(p, atan2(-to.y, to.x))
+
+func _add_boat(p: Vector2, rot: float) -> void:
+	var v := Vehicle.new()
+	v.world = self
+	v.kind = "boat"
+	v.paint = [Color("c8d2d8"), Color("2f5d7a"), Color("b8402f"), Color("e8e4da")][randi() % 4]
+	v.position = Vector3(p.x, Island.WATER + 0.2, p.y)
+	v.rotation.y = rot
+	add_child(v)
+	vehicles.append(v)
 
 ## Bots at the wheel right now.
 func bot_drivers() -> int:
@@ -1844,7 +1806,6 @@ func explode(pos: Vector3, thrower: Node, exclude: Array = []) -> void:
 	for v in vehicles:
 		if v.dead or v.global_position.distance_to(pos) > Grenade.FRAG_RADIUS: continue
 		v.take_damage(Grenade.FRAG_DAMAGE * 2.0 * (1.0 - v.global_position.distance_to(pos) / Grenade.FRAG_RADIUS), thrower)
-	if war: war.blast(pos, thrower)
 	var pd := pos.distance_to(player.global_position)
 	if pd < 40.0: player.shake = maxf(player.shake, 1.0 - pd / 40.0)
 

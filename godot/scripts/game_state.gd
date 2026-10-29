@@ -152,11 +152,11 @@ func touch_override(act: String) -> Array:
 	var v = all[i].get(act, [])
 	return v if typeof(v) == TYPE_ARRAY and v.size() == 3 else []
 
-const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة", "war": "حرب الفرق"}
+const MODE_NAMES := {"solo": "فردي", "duo": "ثنائي", "squad": "فرقة"}
 
 ## Players per team in the chosen mode.
 func team_size() -> int:
-	return {"solo": 1, "duo": 2, "squad": 4, "war": 25}.get(settings.get("mode", "solo"), 1)
+	return {"solo": 1, "duo": 2, "squad": 4}.get(settings.get("mode", "solo"), 1)
 
 ## Keyboard actions you can rebind (Settings → الأزرار), their default keys
 ## and names. Esc and 4-8 (heals) stay fixed.
@@ -389,6 +389,8 @@ func load_data() -> void:
 	if int(data.get("save_version", 1)) < 3:
 		profile.outfit = LOLA
 		if not profile.owned.has(LOLA): profile.owned.append(LOLA)
+	# Team war is gone: its saves go back to solo.
+	if not MODE_NAMES.has(settings.get("mode", "solo")): settings.mode = "solo"
 	# JSON numbers come back as floats; career counters are whole numbers.
 	for k in stats.keys():
 		if typeof(stats[k]) == TYPE_FLOAT: stats[k] = int(stats[k])
@@ -515,10 +517,10 @@ func this_week() -> String:
 ## claims of the ones gone by).
 func roll_periods() -> void:
 	if typeof(stats.get("day")) != TYPE_DICTIONARY or stats.day.get("date", "") != today():
-		stats.day = {"date": today(), "games": 0, "kills": 0, "wins": 0, "top10": 0, "war": 0}
+		stats.day = {"date": today(), "games": 0, "kills": 0, "wins": 0, "top10": 0}
 		wallet.claimed = wallet.claimed.filter(func(c): return not String(c).begins_with("d_") or String(c).begins_with("d_" + today()))
 	if typeof(stats.get("week")) != TYPE_DICTIONARY or stats.week.get("week", "") != this_week():
-		stats.week = {"week": this_week(), "games": 0, "kills": 0, "wins": 0, "top10": 0, "war": 0}
+		stats.week = {"week": this_week(), "games": 0, "kills": 0, "wins": 0, "top10": 0}
 		wallet.claimed = wallet.claimed.filter(func(c): return not String(c).begins_with("wk_") or String(c).begins_with("wk_" + this_week()))
 
 func login_due() -> bool:
@@ -550,7 +552,6 @@ func record_match(m: Dictionary) -> Dictionary:
 		per.kills = int(per.kills) + int(m.kills)
 		per.wins = int(per.wins) + (1 if m.won else 0)
 		per.top10 = int(per.top10) + (1 if int(m.rank) <= 10 else 0)
-		per.war = int(per.war) + (1 if m.mode == "war" else 0)
 	var rp0 := int(stats.rp)
 	var delta := rank_delta(int(m.rank), int(m.teams), int(m.kills), bool(m.won), rp0)
 	stats.rp = maxi(1000, rp0 + delta)

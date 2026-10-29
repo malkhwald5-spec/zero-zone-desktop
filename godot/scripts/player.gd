@@ -355,10 +355,6 @@ func interact() -> void:
 				firing = false
 				cancel_heal()
 				return
-			# Team war: the shop stall in your fort.
-			if world.war and world.war.near_shop(global_position):
-				world.hud.toggle_shop()
-				return
 			var door := door_target()
 			if not door.is_empty():
 				world.toggle_door(door, global_position)
@@ -439,6 +435,7 @@ func open_chute() -> void:
 		chute_t = 0.0
 		chute_heading = model.rotation.y
 		chute_swing = 0.35          # the opening shock swings you forward
+		shake = maxf(shake, 0.35)   # and jolts the view
 		chute_flare = 0.0
 		# A light wind from one side, different on every jump.
 		chute_wind = Vector3(1, 0, 0).rotated(Vector3.UP, randf() * TAU) * randf_range(0.8, 2.2)
@@ -1315,7 +1312,7 @@ func _round_lands(hit: Dictionary, end: Vector3, w: Dictionary, muzzle: Vector3)
 			if killed:
 				kills += 1
 				if head: head_kills += 1
-			world.effects.impact(end, hit.normal, not (col is Vehicle or col is FortHeart), col is Vehicle)     # cars get holes, not blood
+			world.effects.impact(end, hit.normal, not col is Vehicle, col is Vehicle)     # cars get holes, not blood
 		else:
 			world.effects.impact(end, hit.normal, false)
 
@@ -1472,7 +1469,7 @@ func _update_camera(delta: float) -> void:
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
 	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
 	_update_wind()
-	model.visible = not scoped() and state != "plane" and not (state == "vehicle" and vehicle and vehicle.kind == "apc")
+	model.visible = not scoped() and state != "plane"
 
 var _cam_offset := Vector3(0, 1.6, 0)
 ## Free look (PUBG's eye button / Alt): look around while running one way;
@@ -1638,6 +1635,7 @@ func _update_model(delta: float) -> void:
 	var w := weapon()
 	model.reload_p = 1.0 - reload_t / float(w.reload) if reload_t > 0.0 and not w.is_empty() else -1.0
 	model.lean = fall_lean if state == "fall" else 0.0
+	model.fall_in = move_input if state == "fall" else Vector2.ZERO
 	model.peek = peek if state == "ground" else 0.0
 	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
@@ -1947,10 +1945,9 @@ func enter_vehicle(v: Vehicle) -> void:
 	throw_ready = false
 	cancel_heal()
 	# Into a car: open the door, turn and sit down (the Mixamo boarding clip).
-	_board_t = 0.0 if v.kind not in ["bike", "boat", "apc"] else -1.0
+	_board_t = 0.0 if v.kind not in ["bike", "boat"] else -1.0
 	if _board_t >= 0.0: model.play_action("car_enter", BOARD_TIME, 1.0, 3.6)
-	if v.kind == "apc": message.emit("WASD للقيادة • زر الإطلاق للرشاش اللي عالسقف • F للنزول")
-	else: message.emit("WASD للقيادة • Space فرامل • F للنزول")
+	message.emit("WASD للقيادة • Space فرامل • F للنزول")
 
 ## Get out (F). From a boat only where you can stand: next to the shore or
 ## in shallow water. `force` (the vehicle blew up): out anyway, on the
@@ -1984,7 +1981,7 @@ func exit_vehicle(force := false) -> void:
 	var side: Vector3 = v.global_transform.basis.x * sd
 	var out := v.global_position + side * 1.9
 	if world.is_deep(out): out = v.global_position - side * 1.9
-	elif not force and v.kind not in ["bike", "apc"] and absf(v.speed()) < 4.0 and model.ap.has_animation("mx/car_exit"):
+	elif not force and v.kind not in ["bike"] and absf(v.speed()) < 4.0 and model.ap.has_animation("mx/car_exit"):
 		# Climbing out: the clip from the seat, sliding across to the door.
 		_unboard_t = 0.0
 		_unboard_v = v
@@ -2020,5 +2017,3 @@ func _drive(_delta: float) -> void:
 	vehicle.steer_in = move_input.x
 	vehicle.handbrake = jump_queued or (Game.settings.controls == "kbm" and Input.is_physical_key_pressed(Game.key("jump")))
 	jump_queued = false
-	if vehicle.kind == "apc":
-		vehicle.turret_aim(yaw, pitch, firing, self, _delta)

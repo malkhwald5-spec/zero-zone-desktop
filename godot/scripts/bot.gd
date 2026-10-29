@@ -17,10 +17,6 @@ var skill := 0.5
 ## "rusher" (pushes in, rarely hides), "camper" (holds cover, never flanks).
 var persona := ""
 var rival := false            # killed you last match: comes looking for you
-var war_role := ""            # team war: "defend" | "capture" | "raid"
-var war_goal := -1            # team war: the place (or enemy fort) it is going for
-var war_push := false         # team war raider: the group is together, going in
-var war_since := -1.0         # team war raider: when it got to the meeting point
 var kills := 0
 var model: HumanModel
 var shape: CollisionShape3D
@@ -419,24 +415,6 @@ func _think() -> void:
 	if target and (not is_instance_valid(target) or _is_dead(target) or global_position.distance_to(target.global_position) > 160.0):
 		target = null
 	var seen := _look_for_enemy()
-	if world.war and war_role == "raid" and mode in ["march", "fight", "flank", "cover"] and hurt_t > 3.0:
-		# Raiders on their way keep going: only someone close (or shooting
-		# at them) stops them.
-		if seen and global_position.distance_to(seen.global_position) > 40.0: seen = null
-		if target and not (target is FortHeart) and is_instance_valid(target) and global_position.distance_to(target.global_position) > 40.0:
-			target = null
-			mode = "march"
-			path = []
-	if world.war and war_role == "raid" and war_push:
-		# At the enemy's gate with their heart in view: that comes first,
-		# unless someone is right on top of us.
-		var h: Node3D = world.war.raid_heart(self)
-		if h and (seen == null or global_position.distance_to(seen.global_position) > 15.0):
-			seen = null
-			if target != h:
-				target = h
-				react_t = 0.3
-				engage_t = 0.0
 	if seen:
 		if target != seen:
 			react_t = randf_range(0.45, 1.0) - skill * 0.3
@@ -479,9 +457,6 @@ func _think() -> void:
 			_go(Vector3(c.x, 0.0, c.y))
 		return
 	if mode == "alert" and global_position.distance_to(goal) > 3.0:
-		return
-	# Team war: defend the fort, take places, raid the enemy hearts.
-	if world.war and world.war.bot_think(self):
 		return
 	# Your rival comes looking for you once armed (it knows roughly where you are).
 	if rival and armed() and not world.is_gone(world.player) and world.player.on_ground():
@@ -529,7 +504,7 @@ func _think() -> void:
 			return
 		mode = "roam"
 		_perch_next = now + 120000.0
-	elif armed() and now > _perch_next and not buddy and not world.war \
+	elif armed() and now > _perch_next and not buddy \
 			and (persona == "sniper" or String(Game.WEAPONS[weapon_id].cls) in ["sr", "dmr"] or randf() < 0.04):
 		_perch_next = now + 30000.0
 		var roof: Vector3 = world.roof_spot(global_position, 160.0)
@@ -635,7 +610,6 @@ func _clear_line(e: Node3D) -> bool:
 ## health or reloading (heal and reload there, then peek out again), and go
 ## round the side when the enemy hides. True while busy with that.
 func _tactics(can_see: bool) -> bool:
-	if target is FortHeart: return false        # a fort's heart: just keep shooting it
 	var tpos: Vector3 = target.global_position
 	var d := global_position.distance_to(tpos)
 	unseen_t = 0.0 if can_see else unseen_t + 0.3
@@ -737,7 +711,7 @@ func _team_think() -> bool:
 	# (seeing it, the fight takes over as usual).
 	if not engaged and armed() and mode in ["roam", "loot", "follow", "crate", "alert"]:
 		for m in world.teammates(self):
-			if m is Bot and not world.is_gone(m) and m.target != null and is_instance_valid(m.target) and not (m.target is FortHeart) \
+			if m is Bot and not world.is_gone(m) and m.target != null and is_instance_valid(m.target) \
 					and not _is_dead(m.target) and m.hurt_t < 6.0 and m.global_position.distance_to(global_position) < 120.0:
 				var at: Vector3 = m.target.global_position.lerp(m.global_position, 0.5)
 				if mode != "alert" or goal.distance_to(at) > 15.0:
@@ -806,7 +780,7 @@ func _move(delta: float) -> void:
 		to_t.y = 0.0
 		var d := to_t.length()
 		var side := Vector3(cos(yaw), 0, -sin(yaw)) * (1.0 if int((Time.get_ticks_msec() + get_instance_id()) / 1400) % 2 == 0 else -1.0)
-		var closer := (0.6 if d > 45.0 else (-0.3 if d < 12.0 else 0.0)) if not (target is FortHeart) else 0.0
+		var closer := (0.6 if d > 45.0 else (-0.3 if d < 12.0 else 0.0))
 		wish = side * 0.6 + to_t.normalized() * closer
 		speed = 3.2
 	else:
@@ -821,9 +795,6 @@ func _move(delta: float) -> void:
 			wish = to.normalized()
 			yaw = lerp_angle(yaw, atan2(-wish.x, -wish.z), minf(1.0, delta * 6.0))
 		if mode in ["zone", "flee", "cover", "flank", "revive"]: speed = 5.8
-		elif mode == "march":
-			# Team war: off to the front. Out of sight, as fast as if driving.
-			speed = 5.8 if not far else 13.0
 		elif mode == "alert": speed = 3.6
 		elif mode == "follow": speed = 5.6 if global_position.distance_to(goal) > 12.0 else 3.8
 		if knocked: speed = 0.9
@@ -873,19 +844,8 @@ func _move(delta: float) -> void:
 			if stuck_n >= 3:
 				stuck_n = 0
 				loot_item = null
-				var wp: Vector3 = path[0] if not path.is_empty() else goal
-				var to_wp := Vector3(wp.x - global_position.x, 0, wp.z - global_position.z)
-				var hop := global_position + to_wp.normalized() * minf(20.0, to_wp.length())
-				if mode == "march" and far and world.war:
-					# Team war, out of sight: step past whatever holds it up
-					# (onto dry land) instead of wandering off its way.
-					hop = world.safe_landing(Vector3(hop.x, global_position.y, hop.z))
-					global_position = Vector3(hop.x, world.ground_height(hop) + 0.3, hop.z)
-					reset_physics_interpolation()
-					if not path.is_empty() and to_wp.length() < 20.0: path.pop_front()
-				else:
-					var a := randf() * TAU
-					_go(global_position + Vector3(cos(a), 0, sin(a)) * 12.0)
+				var a := randf() * TAU
+				_go(global_position + Vector3(cos(a), 0, sin(a)) * 12.0)
 		else:
 			stuck_n = 0
 		last_pos = global_position
@@ -998,11 +958,11 @@ var _cheap_drive := false
 
 ## A long way to go to the safe zone and a free car close by: go and take it.
 func _want_car() -> bool:
-	if world.war or not armed() or buddy or target != null or knocked: return false
+	if not armed() or buddy or target != null or knocked: return false
 	if global_position.distance_to(goal) < 320.0: return false
 	if world.bot_drivers() >= MAX_DRIVERS: return false
 	var v: Vehicle = world.nearest_vehicle(global_position, 45.0)
-	if v == null or v.kind in ["boat", "apc"] or world.is_deep(v.global_position): return false
+	if v == null or v.kind in ["boat"] or world.is_deep(v.global_position): return false
 	car = v
 	_ride_goal = goal
 	mode = "to_car"

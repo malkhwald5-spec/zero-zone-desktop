@@ -29,6 +29,8 @@ var canopy: Node3D            # ram-air parachute (canopy + suspension lines)
 ## Skydive / parachute controls, set by the owner each frame.
 var dive := 0.0               # 0 = belly to earth, 1 = head-down dive
 var lean := 0.0               # roll while skydiving (-1..1)
+var fall_in := Vector2.ZERO   # the stick while skydiving (x right, y forward)
+var _fall_k := Vector3.ZERO   # eased: forward push, backing off, steering
 var peek := 0.0               # leaning round cover: -1 left .. 1 right
 var ride := ""               # vehicle kind while driving (hands and feet placed for it)
 var flinch := 0.0             # hit reaction: 1 when just hit, fades out
@@ -1295,11 +1297,17 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 				body.position = Vector3(0, 0.22, 0.9)
 		"fall" when _anim == "mx/skydive":
 			# The clip is already flat on the belly: diving tips the head
-			# down (about the hips), steering rolls the body.
+			# down (about the hips), steering rolls and twists the body, backing
+			# off sits it up. On top, the arms and legs fly the body.
 			var d := clampf(dive, 0.0, 1.0)
-			body.rotation = Vector3(-d * 1.15, 0.0, -lean * 0.5)
+			_fall_k = _fall_k.lerp(Vector3(maxf(fall_in.y, 0.0), maxf(-fall_in.y, 0.0), fall_in.x), minf(1.0, delta * 3.0))
+			# The air is never still: a buffet that grows with the speed.
+			var bf := 0.012 + d * 0.03
+			var buf := Vector3(sin(t * 7.3 + _seed) + sin(t * 12.1) * 0.5, 0.0, sin(t * 5.7 + _seed * 2.0) + sin(t * 10.9) * 0.4) * bf
+			body.rotation = Vector3(-d * 1.15 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
 			var hip := Vector3(0, 1.0, 0)
 			body.position = hip - body.basis * hip
+			_fly_limbs(t, d)
 		"fall":
 			# Belly to earth (arms and legs spread) blending into a head-down
 			# dive (arms along the body, legs together). Turned about the hips.
@@ -1645,9 +1653,44 @@ func _place_gun(pose: String, delta: float) -> void:
 
 ## Under the canopy: a pendulum (the body about 1.3 m below the risers),
 ## pushed by how the canopy speeds up, slows and turns, and by the wind.
+## Skydiving limbs on top of the clip: diving sweeps the arms back along the
+## body and brings the legs together (a "track"), backing off reaches the
+## arms forward, steering drops one shoulder; the hands flutter in the wind.
+func _fly_limbs(t: float, d: float) -> void:
+	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
+	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
+	var lsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["LeftArm"]).origin
+	var rsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["RightArm"]).origin
+	var up_body := ((lsh + rsh) * 0.5 - hips).normalized()       # hips to shoulders
+	var across := (rsh - lsh).normalized()
+	var track := clampf(maxf(d, _fall_k.x * 0.6), 0.0, 1.0)
+	var reach := clampf(_fall_k.y, 0.0, 1.0) * (1.0 - track)
+	for side in [["Left", -1.0, lsh], ["Right", 1.0, rsh]]:
+		var sd: float = side[1]
+		var sh: Vector3 = side[2]
+		var now: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Hand"]).origin
+		var swept := hips + up_body * 0.1 + across * sd * 0.3 + Vector3(0, 0.12, 0)
+		var forward := sh + up_body * 0.45 + across * sd * 0.22
+		var want := now.lerp(swept, track * 0.85).lerp(forward, reach * 0.7)
+		# Into a turn: the inside shoulder dips, the outside arm lifts.
+		want += Vector3(0, -sd * _fall_k.z * 0.16, 0)
+		want += Vector3(0, sin(t * 19.0 + sd * 1.7 + _seed) * 0.012 * (1.0 + track), 0)
+		_arm(side[0], want, (want - sh).cross(across * sd).normalized() + Vector3(0, -0.3, 0))
+		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Foot"]).origin
+		var knee: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Leg"]).origin
+		var together := hips - up_body * 0.95 + across * sd * 0.1
+		var fw := foot.lerp(together, track * 0.7)
+		fw += Vector3(0, sin(t * 4.1 + sd + _seed) * 0.02, 0)
+		_leg(side[0], fw, (knee - (hips + foot) * 0.5).normalized())
+
 func _chute_pendulum(delta: float, t: float) -> void:
 	var dt := maxf(delta, 1e-3)
 	var p := global_position
+	if _chute_prev == Vector3.ZERO and chute_open < 0.3:
+		# Just pulled: still lying flat as in the freefall; the canopy
+		# catching snaps the body round under it, swinging past and back.
+		_pend = Vector2(-1.25, lean * 0.35)
+		_pend_v = Vector2(0.6, 0.0)
 	var v := (p - _chute_prev) / dt if _chute_prev != Vector3.ZERO else _chute_vel
 	_chute_prev = p
 	if v.length() > 80.0: v = _chute_vel        # moved by hand (a teleport), not flown
@@ -1660,7 +1703,7 @@ func _chute_pendulum(delta: float, t: float) -> void:
 	var force := Vector2(la.z, -la.x) / L * 0.5 + Vector2(gust * 0.15, gust * 0.4)
 	_pend_v += (force - _pend * (9.8 / L) - _pend_v * 1.2) * dt
 	_pend += _pend_v * dt
-	_pend = _pend.limit_length(0.55)
+	_pend = _pend.limit_length(lerpf(1.3, 0.55, smoothstep(0.2, 1.0, chute_open)))
 
 ## The canopy: pulled out of the pack as a long thin bundle, spreading,
 ## snapping full with a shudder, then breathing and fluttering in the wind.

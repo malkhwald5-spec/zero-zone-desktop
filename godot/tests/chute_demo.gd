@@ -79,12 +79,32 @@ func _run() -> void:
 				c = q
 		c += Vector3(0, 0, 70.0 * k)
 		p.jump_from_plane()
-		p.global_position = Vector3(c.x, world.ground_height(c) + 260.0, c.z)
+		p.global_position = Vector3(c.x, world.ground_height(c) + (260.0 if dive else 640.0), c.z)
 		p.velocity = Vector3(0, -40, 0)
 		p.yaw = 0.0
 		cam.global_position = p.global_position + Vector3(6, 2, 8)
 		follow(3.5, 6.5, 0.6)
 		print("DEMO %s jump" % ("dive" if dive else "soft"))
+		if not dive:
+			# Freefall first: belly down, then a head-first dive (arms back),
+			# rolling into turns both ways, and sitting up to slow down.
+			follow(0.0, 7.5, 2.2)
+			await wait(1.5)
+			p.pitch = -0.9
+			p.touch_move = Vector2(0, 1)
+			print("DEMO freefall dive")
+			await wait(2.2)
+			p.pitch = -0.3
+			p.touch_move = Vector2(-1, 0.4)
+			await wait(1.4)
+			p.touch_move = Vector2(1, 0.4)
+			await wait(1.4)
+			p.touch_move = Vector2(0, -1)
+			print("DEMO freefall brake")
+			await wait(1.0)
+			p.touch_move = Vector2.ZERO
+			p.global_position.y = maxf(p.global_position.y, world.ground_height(p.global_position) + 220.0)
+			follow(3.5, 6.5, 0.6)
 		await wait(1.2)
 		p.open_chute()
 		print("DEMO open")

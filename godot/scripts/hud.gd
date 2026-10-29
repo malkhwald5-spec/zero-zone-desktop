@@ -70,10 +70,7 @@ func _ready() -> void:
 	p.hit_confirmed.connect(_on_hit)
 	p.damaged.connect(func(dir): dmg_dirs.append({"dir": dir, "t": 1.2}))
 	p.message.connect(show_banner)
-	if world.war:
-		show_banner("حرب الفرق! أنت مع %s — جهّز حالك واشتري من المتجر قبل ما تنفتح البوابات" % War.TEAMS[world.player.team].name)
-	else:
-		show_banner("مرحباً في منطقة الصفر — جهّز حالك، الطيارة جاية" if world.spawn != null else "مرحباً في منطقة الصفر — اقفز من الطائرة فوق الجزيرة")
+	show_banner("مرحباً في منطقة الصفر — جهّز حالك، الطيارة جاية" if world.spawn != null else "مرحباً في منطقة الصفر — اقفز من الطائرة فوق الجزيرة")
 	Game.cursor_free = false
 	if Game.settings.controls == "kbm":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -200,9 +197,6 @@ func _team() -> Array:
 
 ## Left side: each teammate's number, name and health (red while knocked).
 func _draw_team(c: Control) -> void:
-	if world.war:
-		_draw_war_teams(c)
-		return
 	if world.team_size <= 1: return
 	feed.position.y = 60.0 + world.team_size * 30.0 + 8.0     # kill feed goes under the team list
 	var y := 52.0
@@ -234,9 +228,8 @@ func _draw_team_tags(c: Control, p: Player) -> void:
 		var wp: Vector3 = m.global_position + Vector3(0, 2.15 if not world.is_down(m) else 0.9, 0)
 		if cam.is_position_behind(wp): continue
 		var d: float = cam.global_position.distance_to(wp)
-		if world.war and d > 35.0: continue       # 24 teammates: only the ones near you
 		var sp := cam.unproject_position(wp)
-		var col: Color = world.TEAM_COLORS[m.slot % 4] if not world.war else War.TEAMS[m.team].col
+		var col: Color = world.TEAM_COLORS[m.slot % 4]
 		if world.is_down(m):
 			c.draw_circle(sp + Vector2(0, -16), 9.0, Color("e03a2a"))
 			c.draw_rect(Rect2(sp + Vector2(-2, -22), Vector2(4, 12)), Color.WHITE)
@@ -294,8 +287,7 @@ func _process(delta: float) -> void:
 	if _banner_t > 0.0:
 		_banner_t -= delta
 		banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
-	banner.visible = not map_open and not bag_open and shop == null
-	if world.war: _update_shop_btn()
+	banner.visible = not map_open and not bag_open
 	_update_ready_btn()
 	draw_layer.queue_redraw()
 
@@ -312,10 +304,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_bag()
 		elif act == "cursor":
 			toggle_cursor()
-		elif world.war and event.physical_keycode == KEY_V and Game.action_for(KEY_V) == "":
-			toggle_shop()
-		elif event.physical_keycode == KEY_ESCAPE and shop != null:
-			toggle_shop()
 		elif event.physical_keycode == KEY_ESCAPE and bag_open:
 			toggle_bag()
 		elif event.physical_keycode == KEY_ESCAPE and map_open:
@@ -360,7 +348,6 @@ func toggle_cursor() -> void:
 		Game.cursor_free = false
 
 var inventory: InventoryPanel
-var shop: ShopPanel
 var _ready_btn: Button
 
 ## On the spawn island: "ready" sends the plane off at once.
@@ -377,48 +364,6 @@ func _update_ready_btn() -> void:
 		else:
 			var sz := get_viewport().get_visible_rect().size
 			_ready_btn.position = Vector2(sz.x * 0.5 - 120, sz.y * 0.21 + 52)
-
-var _shop_btn: Button
-
-## Team war: the fort's shop (only inside your own fort, alive).
-func toggle_shop() -> void:
-	if pause_panel or results: return
-	if shop:
-		shop.queue_free()
-		shop = null
-		if Game.settings.controls == "kbm":
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-			Game.cursor_free = false
-		return
-	var p: Player = world.player
-	if p.state != "ground" or not world.war.in_own_fort(p.global_position):
-		show_banner("المتجر بس جوّا حصنك")
-		return
-	if bag_open: toggle_bag()
-	if map_open: toggle_map()
-	shop = ShopPanel.new(world)
-	add_child(shop)
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	Game.cursor_free = true
-	p.firing = false
-	p.aiming = false
-
-## The on-screen shop button, shown inside your fort.
-func _update_shop_btn() -> void:
-	var p: Player = world.player
-	var show_it: bool = world.war != null and shop == null and p.state == "ground" and world.war.in_own_fort(p.global_position) and not map_open and not bag_open
-	if show_it and _shop_btn == null:
-		var key := " (V)" if Game.settings.controls == "kbm" else ""
-		_shop_btn = UiKit.yellow_button("المتجر" + key, toggle_shop, Vector2(170, 52), 22)
-		add_child(_shop_btn)
-		# Under the team list, clear of the touch buttons.
-		_shop_btn.position = Vector2(14, 236)
-	elif not show_it and _shop_btn != null:
-		_shop_btn.queue_free()
-		_shop_btn = null
-	# Walked out of the fort with the shop open: it closes.
-	if shop and (p.state != "ground" or not world.war.in_own_fort(p.global_position)):
-		toggle_shop()
 
 ## B / I: the bag screen with the mouse free; closing gives the mouse back.
 func toggle_bag() -> void:
@@ -472,12 +417,11 @@ func _confirm_leave() -> void:
 		toggle_pause()]], "رح تخسر هالمباراة وما رح تنحسبلك")
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 
-## Phone back button: close what is open (map, bag, shop), else pause.
+## Phone back button: close what is open (map, bag), else pause.
 func go_back() -> void:
 	if results: return
 	if map_open: toggle_map()
 	elif bag_open: toggle_bag()
-	elif shop: toggle_shop()
 	else: toggle_pause()
 
 var _settings_box: Control
@@ -851,7 +795,6 @@ func _draw_hud() -> void:
 			_text(c, Vector2(sz.x * 0.5, sz.y * 0.21), "الطيارة بتقلع بعد %d ثانية" % left, 28, col, HORIZONTAL_ALIGNMENT_CENTER, bold)
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.21 + 30), "جزيرة الانتظار — جرّب الأسلحة، ما حدا بيتأذى هون", 16, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, bold)
 	_draw_dmg_numbers(c)
-	if world.war: _draw_war(c, sz, p)
 	if p.state in ["ground", "vehicle"] and world.zone.state != "idle" and world.zone.is_outside(p.global_position):
 		# Caught in the disaster outside the zone: its colour over the screen.
 		var dz: Array = Zone.DISASTERS[world.zone.disaster_at(p.global_position)]
@@ -872,7 +815,6 @@ func _draw_counters(c: Control) -> void:
 	var x := 14.0
 	var pills := [[str(world.alive_count()), "متبقي"], [str(world.player.kills), "الإقصاءات"]]
 	if world.team_size > 1: pills.insert(1, [str(world.teams_alive()), "فرق"])
-	if world.war: pills = [["$%d" % world.war.money, "فلوسك"], [str(world.player.kills), "الإقصاءات"]]
 	for b in pills:
 		var nw: float = maxf(40.0, String(b[0]).length() * 11.0 + 8.0)
 		var w: float = nw + 12.0 + String(b[1]).length() * 9.0
@@ -932,13 +874,6 @@ func _draw_minimap(c: Control, sz: Vector2, p: Player) -> void:
 	for ad in world.airdrops:
 		var q: Vector2 = r.get_center() + (Vector2(ad.global_position.x, ad.global_position.z) - Vector2(pos.x, pos.z)) * s
 		if r.has_point(q): _crate_icon(c, q, ad.landed)
-	if world.war:
-		for f in world.war.forts:
-			var fq: Vector2 = r.get_center() + (f.pos - Vector2(pos.x, pos.z)) * s
-			if r.grow(-6).has_point(fq): _fort_icon(c, fq, f, 7.0)
-		for pt in world.war.points:
-			var pq: Vector2 = r.get_center() + (Vector2(pt.pos.x, pt.pos.z) - Vector2(pos.x, pos.z)) * s
-			if r.grow(-6).has_point(pq): _flag_icon(c, pq, pt, 1.0)
 	if marker != Vector2.INF:
 		var mq: Vector2 = r.get_center() + (marker - Vector2(pos.x, pos.z)) * s
 		if r.grow(-4).has_point(mq):
@@ -1351,9 +1286,6 @@ func _draw_prompt(c: Control, sz: Vector2, p: Player) -> void:
 		_draw_heal(c, sz, p)
 		return
 	var key := "[F] " if Game.settings.controls == "kbm" else ""
-	if world.war and world.war.near_shop(p.global_position):
-		_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + "افتح المتجر", 19, Color("ffd34d"), HORIZONTAL_ALIGNMENT_CENTER, bold)
-		return
 	var door := p.door_target()
 	if not door.is_empty():
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.64), key + ("سكّر الباب" if door.target > 0.5 else "افتح الباب"), 19, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold)
@@ -1563,19 +1495,6 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 	for ad in world.airdrops:
 		var q := _w2m(Vector2(ad.global_position.x, ad.global_position.z))
 		if r.has_point(q): _crate_icon(c, q, ad.landed)
-	if world.war:
-		for f in world.war.forts:
-			var fq := _w2m(f.pos)
-			if not r.grow(-10).has_point(fq): continue
-			_fort_icon(c, fq, f, 11.0)
-			_text(c, fq + Vector2(0, 30), War.TEAMS[f.team].fort, 14, War.TEAMS[f.team].col, HORIZONTAL_ALIGNMENT_CENTER, bold, 200)
-		for pt in world.war.points:
-			var pq := _w2m(Vector2(pt.pos.x, pt.pos.z))
-			if not r.grow(-10).has_point(pq): continue
-			_flag_icon(c, pq, pt, 1.5)
-			# (Places that are towns already have their name on the map.)
-			if not world.island.towns.any(func(t): return t.name == pt.name):
-				_text(c, pq + Vector2(0, 24), pt.name, 13, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 200)
 	for f in world._drop_flights:
 		var fp: Vector3 = f.node.global_position
 		var q2 := _w2m(Vector2(fp.x, fp.z))
@@ -1745,88 +1664,3 @@ func _draw_vehicle(c: Control, sz: Vector2, p: Player) -> void:
 	var hw := 260.0
 	c.draw_rect(Rect2(sz.x * 0.5 - hw * 0.5, sz.y - 14.0, hw, 6.0), Color(0, 0, 0, 0.5))
 	c.draw_rect(Rect2(sz.x * 0.5 - hw * 0.5, sz.y - 14.0, hw * clampf(p.health / 100.0, 0.0, 1.0), 6.0), Color.WHITE)
-
-# ---------- Team war ----------
-## Left: the four teams — heart, fort level, people alive, places held.
-func _draw_war_teams(c: Control) -> void:
-	var w: War = world.war
-	var y := 50.0
-	for t in 4:
-		var f: Dictionary = w.forts[t]
-		var col: Color = War.TEAMS[t].col
-		var mine: bool = t == world.player.team
-		var out: bool = not w.team_in(t)
-		c.draw_rect(Rect2(14, y, 236, 40), Color(0, 0, 0, 0.5 if mine else 0.35))
-		c.draw_rect(Rect2(14, y, 6, 40), col if not out else Color(0.4, 0.4, 0.4))
-		if mine: c.draw_rect(Rect2(14, y, 236, 40), Color(col, 0.8), false, 1.5)
-		var nm: String = War.TEAMS[t].name + ("  (فريقك)" if mine else "")
-		_text(c, Vector2(26, y + 16), nm, 13, Color(1, 1, 1, 0.45) if out else Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, bold, 150)
-		_text(c, Vector2(244, y + 16), "مستوى %d" % int(f.level), 11, Color("ffd34d"), HORIZONTAL_ALIGNMENT_RIGHT, null, 70)
-		var h: FortHeart = f.heart
-		if h.dead:
-			_text(c, Vector2(26, y + 34), "القلب انكسر  •  حي %d" % w.alive_in(t), 12, Color("ff8a7a"), HORIZONTAL_ALIGNMENT_LEFT, null, 220)
-		else:
-			var k := clampf(h.hp / h.max_hp, 0.0, 1.0)
-			c.draw_rect(Rect2(26, y + 24, 120, 7), Color(1, 1, 1, 0.15))
-			c.draw_rect(Rect2(26, y + 24, 120 * k, 7), col if h.hit_t > 0.5 else Color.WHITE)
-			_text(c, Vector2(152, y + 33), "حي %d  •  🚩%d" % [w.alive_in(t), w.points_owned(t)], 11, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_LEFT, null, 100)
-		y += 44.0
-	feed.position.y = y + (66.0 if _shop_btn else 6.0)
-
-func _fort_icon(c: Control, at: Vector2, f: Dictionary, s: float) -> void:
-	var col: Color = War.TEAMS[f.team].col
-	c.draw_rect(Rect2(at - Vector2(s, s), Vector2(s, s) * 2.0), Color.BLACK)
-	c.draw_rect(Rect2(at - Vector2(s, s) * 0.8, Vector2(s, s) * 1.6), col if not f.heart.dead else col.darkened(0.6))
-	if f.heart.dead:
-		c.draw_line(at - Vector2(s, s) * 0.6, at + Vector2(s, s) * 0.6, Color.BLACK, 2.0)
-		c.draw_line(at + Vector2(-s, s) * 0.6, at + Vector2(s, -s) * 0.6, Color.BLACK, 2.0)
-
-func _flag_icon(c: Control, at: Vector2, pt: Dictionary, k: float) -> void:
-	var col: Color = War.TEAMS[pt.owner].col if pt.owner >= 0 else Color(0.92, 0.92, 0.92)
-	c.draw_line(at + Vector2(0, 7) * k, at + Vector2(0, -8) * k, Color.BLACK, 3.0 * k)
-	c.draw_colored_polygon(PackedVector2Array([at + Vector2(0, -8) * k, at + Vector2(10, -4.5) * k, at + Vector2(0, -1) * k]), col)
-	c.draw_line(at + Vector2(0, 7) * k, at + Vector2(0, -8) * k, Color.WHITE, 1.4 * k)
-
-## Middle of the screen: getting ready, the clock to the final battle,
-## taking a place, coming back after dying.
-func _draw_war(c: Control, sz: Vector2, p: Player) -> void:
-	var w: War = world.war
-	var y := sz.y * 0.3
-	if w.prep_left > 0.0:
-		var t := ceili(w.prep_left)
-		_text(c, Vector2(sz.x * 0.5, y), "البوابات بتنفتح بعد %d:%02d" % [t / 60, t % 60], 28, Color("ffd34d") if t <= 10 else Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
-		_text(c, Vector2(sz.x * 0.5, y + 28), "جهّز حالك — اشتري سلاحك من المتجر جوّا الحصن", 16, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
-	elif not w.final:
-		var t2 := maxi(0, int(War.FINAL_AT - w.time))
-		_text(c, Vector2(sz.x * 0.5, 96), "المعركة الأخيرة بعد %d:%02d" % [t2 / 60, t2 % 60], 14, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_CENTER, bold, 300)
-	if p.state == "ground":
-		var pt: Dictionary = w.point_here(p.global_position)
-		if not pt.is_empty():
-			var col: Color = War.TEAMS[pt.owner].col if pt.owner >= 0 else Color.WHITE
-			var txt := ""
-			var k: float = pt.prog
-			if pt.owner == p.team:
-				txt = "%s — لفريقك" % pt.name
-			elif pt.owner >= 0:
-				txt = "عم تشيل علم %s عن %s" % [War.TEAMS[pt.owner].name, pt.name]
-			else:
-				txt = "عم تحتل %s" % pt.name
-				if pt.capper >= 0: col = War.TEAMS[pt.capper].col
-				if pt.capper != p.team: k = 0.0
-			var bw := 320.0
-			var r := Rect2(sz.x * 0.5 - bw * 0.5, sz.y * 0.26, bw, 10)
-			c.draw_rect(r, Color(0, 0, 0, 0.55))
-			c.draw_rect(Rect2(r.position, Vector2(bw * clampf(k, 0.0, 1.0), 10)), col)
-			_text(c, Vector2(sz.x * 0.5, sz.y * 0.26 - 8), txt, 17, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
-	if p.state == "dead" and w.player_respawn > 0.0:
-		_text(c, Vector2(sz.x * 0.5, sz.y * 0.42), "رح ترجع بحصنك بعد %d" % ceili(w.player_respawn), 30, Color("7dff8a"), HORIZONTAL_ALIGNMENT_CENTER, bold, 600)
-
-## Back from the dead in team war: no results panel or spectating left over.
-func end_spectate_for_respawn() -> void:
-	spectating = false
-	if _spec_panel:
-		_spec_panel.queue_free()
-		_spec_panel = null
-	if results:
-		results.queue_free()
-		results = null

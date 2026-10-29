@@ -544,7 +544,7 @@ func _spawn_soldier() -> void:
 func _mate_count() -> int:
 	match Game.settings.get("mode", "solo"):
 		"duo": return 1
-		"squad", "war": return 3
+		"squad": return 3
 	return 0
 
 ## Your teammates beside you (bot characters, each with a gun on the back).
@@ -881,7 +881,7 @@ func _fill_missions() -> void:
 		row.add_child(bar)
 		mv.add_child(row)
 
-## Bottom right: the four modes as chips, and the start: wide, warm, glowing,
+## Bottom right: the three modes as chips, and the start: wide, warm, glowing,
 ## with a light sweeping across it.
 func _c_play() -> void:
 	var v := VBoxContainer.new()
@@ -951,7 +951,7 @@ func _c_play() -> void:
 	labels.start = start
 
 ## Bottom left: a couple of small actions, the news line and the status.
-const TIPS := ["جديد: وضع حرب الفرق — اكسر قلب حصن العدو!", "نصيحة: اقفز فوق المدينة لغنائم أكتر بس انتبه من الزحمة",
+const TIPS := ["جديد: خريطة وادي الرمال — مدينة قديمة وقلعة وواحة بالصحرا", "نصيحة: اقفز فوق المدينة لغنائم أكتر بس انتبه من الزحمة",
 	"راديو الصفر بيحكيلك شو عم يصير بالمباراة", "اللي قتلك بيرجع بالمباراة الجاية… وبيدوّر عليك", "برّا المنطقة الآمنة الجزيرة بتنقلب عليك",
 	"المهام اليومية بتعطيك ذهب — شوفها من القائمة"]
 var _tip_i := 0
@@ -1032,32 +1032,30 @@ func _mode_picker() -> void:
 			_picker = null
 			_refresh(), Vector2(320, 48), UiKit.style(Color(1, 0.7, 0.1, 0.25) if on else Color(1, 1, 1, 0.06), 8, ACCENT if on else Color(0, 0, 0, 0), 1, 8), 18)
 		v.add_child(b)
-	if cur != "war":
-		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 8)
-		for L in [["classic", "كلاسيكي 25 د"], ["quick", "سريع 10 د"]]:
-			var lid: String = L[0]
-			var lon: bool = Game.settings.get("length", "classic") == lid
-			hb.add_child(UiKit.button(L[1], func():
-				Game.settings.length = lid
-				Game.save_data()
-				_picker.queue_free()
-				_picker = null
-				_refresh(), Vector2(156, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if lon else Color(1, 1, 1, 0.06), 8, ACCENT if lon else Color(0, 0, 0, 0), 1, 6), 15))
-		v.add_child(hb)
-	if cur != "war":
-		var mb := HBoxContainer.new()
-		mb.add_theme_constant_override("separation", 6)
-		for mp in [["random", "عشوائية"], ["seasons", "الفصول"], ["dunes", "وادي الرمال"]]:
-			var mid: String = mp[0]
-			var mon: bool = Game.settings.get("map", "random") == mid
-			mb.add_child(UiKit.button(mp[1], func():
-				Game.settings.map = mid
-				Game.save_data()
-				_picker.queue_free()
-				_picker = null
-				_refresh(), Vector2(102, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if mon else Color(1, 1, 1, 0.06), 8, ACCENT if mon else Color(0, 0, 0, 0), 1, 6), 14))
-		v.add_child(mb)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 8)
+	for L in [["classic", "كلاسيكي 25 د"], ["quick", "سريع 10 د"]]:
+		var lid: String = L[0]
+		var lon: bool = Game.settings.get("length", "classic") == lid
+		hb.add_child(UiKit.button(L[1], func():
+			Game.settings.length = lid
+			Game.save_data()
+			_picker.queue_free()
+			_picker = null
+			_refresh(), Vector2(156, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if lon else Color(1, 1, 1, 0.06), 8, ACCENT if lon else Color(0, 0, 0, 0), 1, 6), 15))
+	v.add_child(hb)
+	var mb := HBoxContainer.new()
+	mb.add_theme_constant_override("separation", 6)
+	for mp in [["random", "عشوائية"], ["seasons", "الفصول"], ["dunes", "وادي الرمال"]]:
+		var mid: String = mp[0]
+		var mon: bool = Game.settings.get("map", "random") == mid
+		mb.add_child(UiKit.button(mp[1], func():
+			Game.settings.map = mid
+			Game.save_data()
+			_picker.queue_free()
+			_picker = null
+			_refresh(), Vector2(102, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if mon else Color(1, 1, 1, 0.06), 8, ACCENT if mon else Color(0, 0, 0, 0), 1, 6), 14))
+	v.add_child(mb)
 	v.add_child(UiKit.button("كل الخيارات (الصعوبة…) ›", func():
 		_picker.queue_free()
 		_picker = null
@@ -1145,7 +1143,7 @@ func _tick_ui(delta: float) -> void:
 		var txt := "📶 عالية الدقة • الشرق الأوسط • %02d:%02d • %s" % [now.hour, now.minute, Game.VERSION]
 		if labels.status.text != txt: labels.status.text = txt
 
-const MODE_PICS := {"solo": "br", "duo": "duo", "squad": "squad", "war": "war"}
+const MODE_PICS := {"solo": "br", "duo": "duo", "squad": "squad"}
 
 func _refresh() -> void:
 	labels.name.text = Game.player_name()
@@ -1159,9 +1157,8 @@ func _refresh() -> void:
 	var n := _mate_count()
 	labels.squad_line.text = "لحالك" if n == 0 else "الفريق %d/%d جاهزين" % [n + 1, n + 1]
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
-	var war := mode == "war"
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
-	labels.mode.text = ("حرب الفرق • 4 فرق × 25 • %s" % d) if war else ("باتل رويال • %s • %s • %s" % [_map_label(), "50 لاعب" if quick else ("60 لاعب" if Game.settings.get("map", "") == "dunes" else "100 لاعب"), d])
+	labels.mode.text = ("باتل رويال • %s • %s • %s" % [_map_label(), "50 لاعب" if quick else ("60 لاعب" if Game.settings.get("map", "") == "dunes" else "100 لاعب"), d])
 	for id in _mode_chips:
 		var on: bool = id == mode
 		var c: Button = _mode_chips[id]
@@ -1199,8 +1196,7 @@ func _start() -> void:
 	v.add_theme_constant_override("separation", 12)
 	pc.add_child(v)
 	v.add_child(UiKit.label("جاري البحث عن لاعبين…", 26, Color.WHITE, UiKit.bold(), 0))
-	var war: bool = Game.settings.get("mode", "solo") == "war"
-	var total := 100 if war or Game.settings.get("length", "classic") != "quick" else 50
+	var total := 100 if Game.settings.get("length", "classic") != "quick" else 50
 	var count := UiKit.label("1 / %d" % total, 34, ACCENT, UiKit.bold(), 0)
 	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(count)
@@ -1420,7 +1416,6 @@ func _missions() -> Array:
 		{"id": d + "top10", "text": "اليوم: خلّص بين أول 10", "cur": day.top10, "goal": 1, "gold": 300, "icon": "calendar"},
 		{"id": w + "play", "text": "الأسبوع: العب 10 مباريات", "cur": wk.games, "goal": 10, "gold": 800, "icon": "trophy"},
 		{"id": w + "kill", "text": "الأسبوع: اقضِ على 30 خصم", "cur": wk.kills, "goal": 30, "gold": 1000, "icon": "trophy"},
-		{"id": w + "war", "text": "الأسبوع: العب حرب الفرق 3 مرات", "cur": wk.war, "goal": 3, "gold": 900, "icon": "trophy"},
 		{"id": w + "win", "text": "الأسبوع: افز بمباراتين", "cur": wk.wins, "goal": 2, "gold": 1500, "icon": "trophy"},
 		{"id": "m_play1", "text": "العب مباراة واحدة", "cur": Game.stats.games, "goal": 1, "gold": 100, "icon": "globe"},
 		{"id": "m_play5", "text": "العب 5 مباريات", "cur": Game.stats.games, "goal": 5, "gold": 250, "icon": "globe"},
@@ -2376,13 +2371,12 @@ func _input(event: InputEvent) -> void:
 	_wait_key = ""
 	_open("keys")
 
-## Choosing how to play: four big cards (solo, duo, squad, team war) with a
+## Choosing how to play: three big cards (solo, duo, squad) with a
 ## picture each, then how long and how hard.
 const MODES := [
 	["solo", "فردي", "100 لاعب، كل واحد لحاله. آخر واحد واقف بيربح.", "br"],
 	["duo", "ثنائي", "إنت وزميل من الكمبيوتر بتنزلوا سوا وبترفعوا بعض.", "duo"],
 	["squad", "فرقة", "فرقة من 4: بتنطّوا سوا، بتقاتلوا سوا، بترفعوا بعض.", "squad"],
-	["war", "⚔ حرب الفرق", "4 فرق × 25، حصون وقلوب، احتلال، فلوس ومتجر ومدرعات.", "war"],
 ]
 
 func _page_mode(body: VBoxContainer) -> void:
@@ -2434,9 +2428,8 @@ func _page_mode(body: VBoxContainer) -> void:
 	var ov := VBoxContainer.new()
 	ov.add_theme_constant_override("separation", 10)
 	opts.add_child(ov)
-	if Game.settings.get("mode", "solo") != "war":
-		ov.add_child(_row("الخريطة", _seg(["random", "seasons", "dunes"], ["عشوائية", "جزيرة الفصول (8 كم)", "وادي الرمال (4 كم)"], "map", "mode")))
-		ov.add_child(_row("طول المباراة", _seg(["classic", "quick"], ["كلاسيكي (100 لاعب، 25 دقيقة)", "سريع (50 لاعب، 10 دقايق)"], "length", "mode")))
+	ov.add_child(_row("الخريطة", _seg(["random", "seasons", "dunes"], ["عشوائية", "جزيرة الفصول (8 كم)", "وادي الرمال (4 كم)"], "map", "mode")))
+	ov.add_child(_row("طول المباراة", _seg(["classic", "quick"], ["كلاسيكي (100 لاعب، 25 دقيقة)", "سريع (50 لاعب، 10 دقايق)"], "length", "mode")))
 	ov.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
 	var go := UiKit.yellow_button("تأكيد", func(): _close_panel(), Vector2(220, 52), 24)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

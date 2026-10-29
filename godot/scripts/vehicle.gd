@@ -22,10 +22,7 @@ var throttle := 0.0              # -1..1
 var steer_in := 0.0              # -1..1 (right positive)
 var handbrake := false
 var paint := Color("b8402f")
-var kind := "sedan"              # "sedan" | "jeep" | "pickup" | "bike" | "boat" | "apc"
-var team := -1                   # team war: whose armoured car it is
-var _turret: Node3D              # armoured car: the gun on the roof
-var _gun_cd := 0.0
+var kind := "sedan"              # "sedan" | "jeep" | "pickup" | "bike" | "boat"
 var max_health := MAX_HEALTH
 var max_speed := MAX_SPEED
 var max_force := MAX_FORCE
@@ -48,9 +45,6 @@ func _ready() -> void:
 		return
 	if kind == "boat":
 		_ready_boat()
-		return
-	if kind == "apc":
-		_ready_apc()
 		return
 	mass = 1150.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
@@ -174,142 +168,6 @@ func _ready_boat() -> void:
 		var dm: StandardMaterial3D = d.mesh.material
 		dm.albedo_color = Color(0.92, 0.95, 0.97, 0.7)
 
-## مدرعة: a six-wheeled armoured car (team war, from the fort's shop). Slow
-## and heavy, shrugs off most bullets, with a machine gun on the roof that
-## the driver fires where the camera looks.
-func _ready_apc() -> void:
-	max_health = 2400.0
-	health = max_health
-	max_speed = 22.0
-	max_force = 9000.0
-	max_steer = 0.42
-	display_name = "مدرعة"
-	_ready_common(4200.0)
-	center_of_mass = Vector3(0, 0.45, 0)
-	_add_box_shape(Vector3(2.6, 1.5, 6.4), Vector3(0, 1.55, 0))
-	_add_box_shape(Vector3(1.3, 0.6, 1.3), Vector3(0, 2.6, -0.3))
-	var olive := _shared_mat("apc_olive", Color("56603f"), 0.75, 0.25)
-	var dark := _shared_mat("apc_dark", Color("23261f"), 0.8, 0.2)
-	var stripe := _mat(War.TEAMS[team].col if team >= 0 else Color("c9a03a"), 0.6)
-	_tail_mat = _mat(Color("8a1010"), 0.25)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	War._box(st, Vector3(0, 1.15, 0), Vector3(2.5, 0.9, 6.3))          # lower hull
-	War._box(st, Vector3(0, 1.95, -0.4), Vector3(2.3, 0.75, 5.0))      # upper hull
-	War._box(st, Vector3(1.35, 1.6, -1.6), Vector3(0.3, 0.6, 2.2))      # side boxes
-	War._box(st, Vector3(-1.35, 1.6, -1.6), Vector3(0.3, 0.6, 2.2))
-	var hull := MeshInstance3D.new()
-	hull.mesh = st.commit()
-	hull.material_override = olive
-	add_child(hull)
-	# The sloped nose plate.
-	var nose := MeshInstance3D.new()
-	var nb := BoxMesh.new()
-	nb.size = Vector3(2.3, 0.12, 1.6)
-	nose.mesh = nb
-	nose.material_override = olive
-	nose.position = Vector3(0, 1.85, 2.55)
-	nose.rotation.x = 0.55
-	add_child(nose)
-	# Vision slits and the team stripe.
-	for part in [[Vector3(0, 2.1, 2.08), Vector3(1.6, 0.12, 0.05), dark], [Vector3(1.16, 1.95, 0.6), Vector3(0.05, 0.12, 0.9), dark],
-			[Vector3(-1.16, 1.95, 0.6), Vector3(0.05, 0.12, 0.9), dark], [Vector3(1.26, 1.25, 0), Vector3(0.02, 0.22, 5.6), stripe],
-			[Vector3(-1.26, 1.25, 0), Vector3(0.02, 0.22, 5.6), stripe]]:
-		var pm := MeshInstance3D.new()
-		var b := BoxMesh.new()
-		b.size = part[1]
-		pm.mesh = b
-		pm.material_override = part[2]
-		pm.position = part[0]
-		add_child(pm)
-	# Roof gun.
-	_turret = Node3D.new()
-	_turret.position = Vector3(0, 2.4, -0.3)
-	add_child(_turret)
-	var ring := MeshInstance3D.new()
-	var rc := CylinderMesh.new()
-	rc.top_radius = 0.6
-	rc.bottom_radius = 0.65
-	rc.height = 0.35
-	ring.mesh = rc
-	ring.material_override = olive
-	_turret.add_child(ring)
-	for part in [[Vector3(0, 0.35, 0.15), Vector3(0.9, 0.35, 0.8), olive], [Vector3(0, 0.38, 0.9), Vector3(0.12, 0.12, 1.4), dark]]:
-		var gm := MeshInstance3D.new()
-		var gb := BoxMesh.new()
-		gb.size = part[1]
-		gm.mesh = gb
-		gm.material_override = part[2]
-		gm.position = part[0]
-		_turret.add_child(gm)
-	# Six big wheels, all driven, the front two steer.
-	var tyre := CylinderMesh.new()
-	tyre.top_radius = 0.55
-	tyre.bottom_radius = 0.55
-	tyre.height = 0.45
-	tyre.radial_segments = 16
-	var tyre_mat := _shared_mat("apc_tyre", Color("161616"), 0.95)
-	for z in [2.1, 0.0, -2.1]:
-		for x in [-1.25, 1.25]:
-			var w := VehicleWheel3D.new()
-			w.position = Vector3(x, 0.75, z)
-			w.wheel_radius = 0.55
-			w.wheel_rest_length = 0.2
-			w.suspension_travel = 0.25
-			w.suspension_stiffness = 60.0
-			w.suspension_max_force = 30000.0
-			w.damping_compression = 1.2
-			w.damping_relaxation = 1.4
-			w.wheel_friction_slip = 3.0
-			w.wheel_roll_influence = 0.05
-			w.use_as_steering = z > 1.0
-			w.use_as_traction = true
-			add_child(w)
-			_wheels.append(w)
-			var im := MeshInstance3D.new()
-			im.mesh = tyre
-			im.material_override = tyre_mat
-			im.rotation.z = PI * 0.5
-			w.add_child(im)
-	_effect_nodes(Vector3(0, 0.3, -3.1), [-0.9, 0.9], Vector3(0, 2.2, -2.4))
-
-## The driver aims the roof gun with the camera and fires it (the fire button).
-func turret_aim(yaw: float, pitch: float, fire: bool, shooter: Node, delta: float) -> void:
-	if _turret == null or dead: return
-	# Faces -Z when its local yaw is 0; the car faces +Z.
-	var local := wrapf(yaw + PI - global_rotation.y, -PI, PI)
-	_turret.rotation.y = lerp_angle(_turret.rotation.y, local, minf(1.0, delta * 8.0))
-	_gun_cd -= delta
-	if not fire or _gun_cd > 0.0: return
-	_gun_cd = 0.085
-	var cam: Camera3D = shooter.camera
-	var dir: Vector3 = -cam.global_basis.z
-	dir = dir.rotated(cam.global_basis.x, randf_range(-0.012, 0.012)).rotated(Vector3.UP, randf_range(-0.012, 0.012))
-	var muzzle: Vector3 = _turret.global_position + Vector3(0, 0.4, 0) + Vector3(dir.x, 0, dir.z).normalized() * 1.6
-	# Aim at what the crosshair is on (the camera sits behind the car).
-	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(cam.global_position, cam.global_position + dir * 500.0, 1 | 4)
-	q.exclude = [get_rid(), shooter.get_rid()]
-	var hit0 := space.intersect_ray(q)
-	var aim: Vector3 = hit0.position if hit0 else cam.global_position + dir * 500.0
-	var q2 := PhysicsRayQueryParameters3D.create(muzzle, aim + (aim - muzzle).normalized() * 0.2, 1 | 4)
-	q2.exclude = [get_rid(), shooter.get_rid()]
-	var hit := space.intersect_ray(q2)
-	var end: Vector3 = hit.position if hit else aim
-	world.effects.tracer(muzzle, end)
-	world.sound_shot("lmg", muzzle, true)
-	world.notify_shot(muzzle, shooter)
-	if hit and hit.collider and hit.collider.has_method("take_damage"):
-		var col: Object = hit.collider
-		# Heavy rounds: they chew through fort hearts and towers.
-		var dmg := 26.0 * (5.0 if col is FortHeart or col is WarTurret else 1.0)
-		var killed: bool = col.take_damage(dmg, shooter)
-		if shooter.has_signal("hit_confirmed"): shooter.hit_confirmed.emit(false, killed, end)
-		if killed and "kills" in shooter: shooter.kills += 1
-		world.effects.impact(end, hit.normal, not (col is Vehicle or col.is_in_group("bloodless")))
-	elif hit:
-		world.effects.impact(end, hit.normal, false)
-
 ## Dust (or spray) behind, smoke and fire when damaged.
 func _effect_nodes(dust_at: Vector3, xs: Array, engine_at: Vector3) -> void:
 	for x in xs:
@@ -335,7 +193,6 @@ func seat_xform() -> Transform3D:
 		"boat": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.55, 1.23, -0.3))
 		"jeep": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.62, -0.18))
 		"pickup": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.42, 0.5, 0.45))
-		"apc": return Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, 1.9, -0.3))
 	return Transform3D(Basis(Vector3.UP, PI), Vector3(0.38, 0.32, -0.18))
 
 ## Getting in, `k` 0..1 through it (vehicle space): from beside the door,
@@ -743,9 +600,6 @@ func _boat_physics(delta: float) -> void:
 
 func take_damage(amount: float, attacker: Node, _head := false) -> bool:
 	if dead: return false
-	if kind == "apc":
-		if attacker != null and "team" in attacker and attacker.team == team and team >= 0: return false
-		amount *= 0.35       # armour
 	health -= amount
 	if driver is Bot and attacker != null and attacker != driver:
 		# Shooting up a car hits whoever is at the wheel too.
