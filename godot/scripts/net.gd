@@ -24,6 +24,7 @@ var roster := {}                  # peer id -> {name, outfit}
 var rooms := {}                   # host address -> {name, players, t}
 var match_seed := 0
 var weather := "clear"
+var map_id := "seasons"
 var world: Node = null            # the match, while one is running
 var _udp: PacketPeerUDP
 var _find: PacketPeerUDP
@@ -228,12 +229,13 @@ func _roster(r: Dictionary) -> void:
 ## Host: everyone into the match, on the same island.
 func start_match() -> void:
 	if not is_host: return
-	_begin.rpc(randi(), Game.pick_weather())
+	_begin.rpc(randi(), Game.pick_weather(), Game.pick_map())
 
 @rpc("authority", "call_local", "reliable")
-func _begin(s: int, w: String) -> void:
+func _begin(s: int, w: String, m := "seasons") -> void:
 	match_seed = s
 	weather = w
+	map_id = m if Game.MAPS.has(m) else "seasons"
 	in_match = true
 	_loaded = {}
 	Game.training = false

@@ -105,6 +105,8 @@ const LAVA_POOLS := [[Vector2(1435, 1237), 17.0], [Vector2(1780, 1226), 14.0]]
 const FIELD_AREAS := [Rect2(700, 705, 190, 125), Rect2(880, 1170, 210, 175)]
 
 var size: float
+var map_id := "seasons"        # "seasons" | "dunes"
+var L: Dictionary              # the map's layout (see SEASONS and DUNES at the end)
 var step: float
 var heights := PackedFloat32Array()
 var rng := RandomNumberGenerator.new()
@@ -134,7 +136,9 @@ var war_points: Array = []     # {name, pos: Vector2}
 var _water_d := PackedFloat32Array()   # per height sample: metres to the nearest river line
 var _lava_d := PackedFloat32Array()    # per height sample: metres to the nearest lava line
 
-func _init(seed_value: int, map_size: float) -> void:
+func _init(seed_value: int, map_size: float, which := "seasons") -> void:
+	map_id = which if which == "dunes" else "seasons"
+	L = DUNES if map_id == "dunes" else SEASONS
 	size = map_size
 	step = size / float(N - 1)
 	rng.seed = seed_value
@@ -165,7 +169,7 @@ func generate() -> void:
 
 ## A point of the painted map (pixels) in world metres.
 func _m(p: Vector2) -> Vector2:
-	return p * size / PIC
+	return p * size / L.pic
 
 func _poly(src: Array) -> PackedVector2Array:
 	var out := PackedVector2Array()
@@ -200,19 +204,19 @@ var _coast_w := 0
 var _islets: Array = []                # [centre, radius] in metres
 
 func _load_coast() -> void:
-	var img := (load("res://assets/map/seasons_land.png") as Image).duplicate()
+	var img := (load(String(L.coast)) as Image).duplicate()
 	img.convert(Image.FORMAT_L8)
 	_coast_w = img.get_width()
 	var data: PackedByteArray = img.get_data()
 	_coast_m.resize(data.size())
 	for k in data.size():
 		_coast_m[k] = (float(data[k]) - 128.0) * 2.0
-	for il in ISLETS:
+	for il in L.islets:
 		_islets.append([_m(il[0]), _m(Vector2(il[1], 0)).x])
 
 # ---------- Regions ----------
 func _biomes() -> void:
-	var polys := [_poly(DESERT_AREA), _poly(FOREST_AREA), _poly(NORDIC_AREA), _poly(VOLCANO_AREA)]
+	var polys := [_poly(L.desert), _poly(L.forest), _poly(L.nordic), _poly(L.volcano)]
 	var raw := PackedFloat32Array()
 	raw.resize(BIOME_N * BIOME_N * 4)
 	for j in BIOME_N:
@@ -243,8 +247,8 @@ func _biomes() -> void:
 					dst[(j * BIOME_N + i) * 4 + c] = sum / (2 * rad + 1)
 
 	# The lighthouse rock is bare dark stone as painted, not snowfield.
-	var lh := _m(ISLETS[0][0])
-	var lr: float = _m(Vector2(ISLETS[0][1], 0)).x * 1.8
+	var lh := _m(L.islets[0][0])
+	var lr: float = _m(Vector2(L.islets[0][1], 0)).x * 1.8
 	for j in BIOME_N:
 		for i in BIOME_N:
 			var q := Vector2((i + 0.5) / BIOME_N * size, (j + 0.5) / BIOME_N * size)
@@ -306,15 +310,15 @@ func _line_field(lines: Array, reach: float) -> PackedFloat32Array:
 
 ## How far into the lake a point is: < 1 inside the water (0 at the centre).
 func lake_t(p: Vector2) -> float:
-	var c := _m(LAKE_C)
-	var r := _m(LAKE_R)
+	var c := _m(L.lake_c)
+	var r := _m(L.lake_r)
 	var wob := 1.0 + detail.get_noise_2d(p.x * 2.0, p.y * 2.0) * 0.08
 	return Vector2((p.x - c.x) / r.x, (p.y - c.y) / r.y).length() * wob
 
 ## Near the lake or a river (for keeping houses and towns off the banks).
 func near_water(p: Vector2, pad: float) -> bool:
-	if lake_t(p) < 1.0 + pad / _m(LAKE_R).y: return true
-	for line in RIVERS:
+	if lake_t(p) < 1.0 + pad / _m(L.lake_r).y: return true
+	for line in L.rivers:
 		for k in line.size() - 1:
 			if Geometry2D.get_closest_point_to_segment(p, _m(line[k]), _m(line[k + 1])).distance_to(p) < 22.0 + pad:
 				return true
@@ -333,23 +337,23 @@ func on_lava(p: Vector2) -> bool:
 
 func _heights() -> void:
 	_biomes()
-	crater = _m(CRATER)
-	for line in LAVA:
+	crater = _m(L.crater_px)
+	for line in L.lava_px:
 		var pts := []
 		for q in line: pts.append(_m(q))
 		lava.append(pts)
-	for pl in LAVA_POOLS: lava_pools.append([_m(pl[0]), _m(Vector2(pl[1], 0)).x])
-	for reg in REGION_LABELS: labels[reg] = _m(REGION_LABELS[reg])
+	for pl in L.lava_pools_px: lava_pools.append([_m(pl[0]), _m(Vector2(pl[1], 0)).x])
+	for reg in L.region_labels: labels[reg] = _m(L.region_labels[reg])
 	var rivers := []
-	for line in RIVERS:
+	for line in L.rivers:
 		var pts := []
 		for q in line: pts.append(_m(q))
 		rivers.append(pts)
 	_water_d = _line_field(rivers, 220.0)
 	_lava_d = _line_field(lava, 40.0)
-	var islet := _m(LAKE_ISLET)
-	var lake_c := _m(LAKE_C)
-	var lake_r := _m(LAKE_R)
+	var islet := _m(L.lake_islet)
+	var lake_c := _m(L.lake_c)
+	var lake_r := _m(L.lake_r)
 	heights.resize(N * N)
 	for j in N:
 		for i in N:
@@ -378,6 +382,12 @@ func _heights() -> void:
 				var mesa := floorf(n0 * 4.5) / 4.5
 				mesa = lerpf(mesa, n0, 0.25)
 				var desert := 5.0 + pow(mesa, 1.5) * 95.0
+				if map_id == "dunes":
+					# Dune Valley: rolling sand dunes in long crests across the
+					# wind, rocky hills now and then, a dry valley down the middle.
+					var crest := absf(sin((x * 0.62 + z * 0.78) / 48.0 + detail.get_noise_2d(x * 0.4, z * 0.4) * 3.5))
+					var hill := maxf(0.0, ridge.get_noise_2d(x * 0.8, z * 0.8)) * 70.0 * smoothstep(0.35, 0.75, n0)
+					desert = 4.0 + pow(n0, 1.3) * 34.0 + pow(crest, 3.0) * 7.0 * (0.4 + n0) + hill
 				# Volcano land: rough black ground rising to the cone.
 				var volcano := 0.0
 				if bw[3] > 0.001:
@@ -424,8 +434,8 @@ func _heights() -> void:
 ## Rivers and the lake again, after towns, fields and the runway were levelled
 ## (the levelling must not dam them).
 func _carve_water() -> void:
-	var lc := _m(LAKE_C)
-	var lr := _m(LAKE_R)
+	var lc := _m(L.lake_c)
+	var lr := _m(L.lake_r)
 	for j in N:
 		for i in N:
 			var o := j * N + i
@@ -433,7 +443,7 @@ func _carve_water() -> void:
 			if _water_d[o] < 20.0: heights[o] = minf(heights[o], -1.2)
 			if absf(p.x - lc.x) > lr.x * 1.3 or absf(p.y - lc.y) > lr.y * 1.3: continue
 			var lt := lake_t(p)
-			if lt < 1.0 and p.distance_to(_m(LAKE_ISLET)) > 40.0:
+			if lt < 1.0 and p.distance_to(_m(L.lake_islet)) > 40.0:
 				heights[o] = minf(heights[o], lerpf(-6.0, -0.9, lt * lt))
 
 func height_at(x: float, z: float) -> float:
@@ -479,18 +489,18 @@ func _land_around(p: Vector2, r: float) -> bool:
 
 # ---------- Towns, roads, buildings ----------
 func _towns() -> void:
-	for pl in PLACES:
+	for pl in L.places:
 		var t := {"name": pl[0], "kind": pl[1], "pos": _m(pl[2]), "r": pl[3], "region": pl[4], "military": pl[5]}
 		towns.append(t)
 	if war: _forts()
 	for t in towns:
-		if t.kind in ["crater", "lighthouse", "ruins", "fort"]: continue
+		if t.kind in ["crater", "lighthouse", "ruins", "fort", "castle"]: continue
 		# Town ground: level, a little above the sea (ports stay low by the water).
-		var level := maxf(1.6, height_at(t.pos.x, t.pos.y) * (0.5 if t.kind != "city" else 0.35))
+		var level := maxf(1.6, height_at(t.pos.x, t.pos.y) * (0.5 if not t.kind in ["city", "medina"] else 0.35))
 		if t.kind == "port": level = maxf(1.8, height_at(t.pos.x, t.pos.y) * 0.3)
-		var half := Vector2(t.r, t.r) * (0.85 if t.kind == "city" else 1.0)
+		var half := Vector2(t.r, t.r) * (0.85 if t.kind in ["city", "medina"] else 1.0)
 		flatten(t.pos, half, 110.0, level)
-	for fa in FIELD_AREAS:
+	for fa in L.fields:
 		var r: Rect2 = fa
 		var c := _m(r.get_center())
 		flatten(c, _m(r.size) * 0.5, 60.0, maxf(1.8, height_at(c.x, c.y)))
@@ -498,22 +508,22 @@ func _towns() -> void:
 ## The four forts: a level square of ground each (no houses, trees or rocks
 ## on it), the gate on the side facing the middle of the island.
 func _forts() -> void:
-	var mid := _m(LAKE_C)
-	for i in FORT_SPOTS.size():
-		var c := _m(FORT_SPOTS[i][1])
+	var mid := _m(L.lake_c)
+	for i in L.fort_spots.size():
+		var c := _m(L.fort_spots[i][1])
 		var y := maxf(2.0, height_at(c.x, c.y))
 		flatten(c, Vector2(FORT_HALF + 6.0, FORT_HALF + 6.0), 70.0, y)
 		var to := mid - c
 		var gate := Vector2(signf(to.x), 0) if absf(to.x) > absf(to.y) else Vector2(0, signf(to.y))
-		forts.append({"team": i, "region": FORT_SPOTS[i][0], "pos": c, "y": y, "gate": gate})
-		towns.append({"name": "", "kind": "fort", "pos": c, "r": FORT_HALF + 20.0, "region": FORT_SPOTS[i][0], "military": false})
+		forts.append({"team": i, "region": L.fort_spots[i][0], "pos": c, "y": y, "gate": gate})
+		towns.append({"name": "", "kind": "fort", "pos": c, "r": FORT_HALF + 20.0, "region": L.fort_spots[i][0], "military": false})
 		var half := Vector2(FORT_HALF + 4.0, FORT_HALF + 4.0)
 		_fp_add(c, half)
 		obstacles.append({"pos": c, "half": half})
 
 ## Where each capture point's flag stands: near its place, on open ground.
 func _war_points() -> void:
-	for wp in WAR_POINTS:
+	for wp in L.war_points:
 		var c := _m(wp[1])
 		var at := c
 		for k in 60:
@@ -525,12 +535,12 @@ func _war_points() -> void:
 		war_points.append({"name": wp[0], "pos": at})
 
 func _roads() -> void:
-	for spec in [[PAVED, 9.0, false], [DIRT, 6.0, true]]:
+	for spec in [[L.paved, 9.0, false], [L.dirt, 6.0, true]]:
 		for line in spec[0]:
 			for k in line.size() - 1:
 				roads.append({"a": _m(line[k]), "b": _m(line[k + 1]), "w": spec[1], "dirt": spec[2]})
-	var ra := _m(RUNWAY[0])
-	var rb := _m(RUNWAY[1])
+	var ra := _m(L.runway[0])
+	var rb := _m(L.runway[1])
 	roads.append({"a": ra, "b": rb, "w": 42.0, "runway": true})
 	# The runway and its apron are flat.
 	var mid := (ra + rb) * 0.5
@@ -723,7 +733,7 @@ func _gas_stations() -> void:
 		made += 1
 
 func _buildings() -> void:
-	for fa in FIELD_AREAS:
+	for fa in L.fields:
 		var r: Rect2 = fa
 		# The painted fields: a patchwork of plots with tracks between.
 		var a := _m(r.position)
@@ -748,6 +758,8 @@ func _buildings() -> void:
 			"airport": _airport(t); continue
 			"ruins": _ruins(t); continue
 			"lighthouse": _lighthouse(t); continue
+			"medina": _medina(t); continue
+			"castle": _castle(t); continue
 			"fort": continue
 			"crater":
 				for k in 6:
@@ -941,8 +953,8 @@ func _mine(t: Dictionary) -> void:
 
 ## Airport: the runway (a road), a terminal, two hangars and the control tower.
 func _airport(t: Dictionary) -> void:
-	var ra := _m(RUNWAY[0])
-	var rb := _m(RUNWAY[1])
+	var ra := _m(L.runway[0])
+	var rb := _m(L.runway[1])
 	var dir := (rb - ra).normalized()
 	var side := Vector2(-dir.y, dir.x)
 	if side.y < 0.0: side = -side     # buildings on the land side (south of the strip faces the sea)
@@ -989,6 +1001,10 @@ func _model_buildings() -> void:
 		var want := []
 		if t.military:
 			want = ["bld_warehouse"]
+		elif t.get("kind", "town") == "town" and map_id == "dunes":
+			_minaret(t)
+			_well(t)
+			want = ["bld_abandoned"]
 		elif t.get("kind", "town") == "town":
 			_minaret(t)
 			want = ["bld_house", "bld_shed", "bld_abandoned"]
@@ -1029,6 +1045,7 @@ func _model_loot(kind: String, c: Vector2, half: Vector2) -> void:
 ## Windmills (as on the small flowery map): one by each farm and a few more
 ## on open plains hills, among the lupine fields.
 func _windmills() -> void:
+	if map_id == "dunes": return
 	for t in towns:
 		if t.get("kind", "") != "farm": continue
 		for k in 12:
@@ -1073,10 +1090,10 @@ const REGION_FOREST := {"plains": 0.6, "nordic": 0.9, "jungle": 3.2, "desert": 0
 
 func _tree_kind(reg: String) -> String:
 	var r := rng.randf()
-	for e in REGION_TREES[reg]:
+	for e in L.trees[reg]:
 		r -= e[1]
 		if r <= 0.0: return e[0]
-	return REGION_TREES[reg][0][0]
+	return L.trees[reg][0][0]
 
 func _props() -> void:
 	var k_area := _area()
@@ -1096,7 +1113,7 @@ func _props() -> void:
 	for f in int(70 * k_area):
 		var c := Vector2(rng.randf_range(80, size - 80), rng.randf_range(80, size - 80))
 		var reg := region_at(c.x, c.y)
-		var dens: float = REGION_FOREST[reg]
+		var dens: float = L.forest_density[reg]
 		if dens < 1.0 and rng.randf() > dens: continue
 		# Thick regions get several forests per try (the jungle is nearly all trees).
 		for rep in int(ceil(dens)):
@@ -1125,7 +1142,9 @@ func _props() -> void:
 				while d < minf(s0 + run, length):
 					var p := a + dir * d + nrm * sd * off + Vector2(rng.randf_range(-1.5, 1.5), rng.randf_range(-1.5, 1.5))
 					var reg := region_at(p.x, p.y)
-					if reg in ["plains", "nordic"]:
+					if map_id == "dunes":
+						if reg == "plains" or rng.randf() < 0.25: _add_tree(p, "palm")     # palms along the desert roads
+					elif reg in ["plains", "nordic"]:
 						_add_tree(p, "broad" if reg == "plains" and rng.randf() < 0.7 else "pine")
 					d += rng.randf_range(7.0, 11.0)
 			s0 += run + rng.randf_range(60.0, 200.0)
@@ -1237,3 +1256,159 @@ func _disc(img: Image, c: Vector2, r: float, col: Color, soft: bool) -> void:
 			var cur := img.get_pixel(x, y)
 			var a := 1.0 - smoothstep(r * 0.6, r, d) if soft else 1.0
 			img.set_pixel(x, y, Color(maxf(cur.r, col.r * a), maxf(cur.g, col.g * a), maxf(cur.b, col.b * a), maxf(cur.a, col.a * a)))
+
+# ---------- The layouts ----------
+## Seasons Island (the constants at the top, in its picture's pixels).
+const SEASONS := {"name": MAP_NAME, "sea": SEA_NAME, "titles": REGION_TITLES, "coast": "res://assets/map/seasons_land.png",
+	"pic": PIC, "nordic": NORDIC_AREA, "volcano": VOLCANO_AREA, "desert": DESERT_AREA, "forest": FOREST_AREA,
+	"region_labels": REGION_LABELS, "places": PLACES, "fort_spots": FORT_SPOTS, "war_points": WAR_POINTS, "islets": ISLETS,
+	"paved": PAVED, "dirt": DIRT, "runway": RUNWAY, "lake_c": LAKE_C, "lake_r": LAKE_R, "lake_islet": LAKE_ISLET,
+	"rivers": RIVERS, "crater_px": CRATER, "lava_px": LAVA, "lava_pools_px": LAVA_POOLS, "fields": FIELD_AREAS,
+	"trees": REGION_TREES, "forest_density": REGION_FOREST}
+
+## Dune Valley (وادي الرمال), 4 km: a desert island with an old walled city,
+## a castle on a hill, a palm oasis round a pond, mud villages, a fishing
+## port on the east coast, an airfield, an oil yard and a quarry. In a
+## 1000-px frame (the coast is assets/map/dunes_land.png, made by
+## tools/make_dunes_coast.py).
+const DUNES := {"name": "وادي الرمال", "sea": "بحر العنبر", "coast": "res://assets/map/dunes_land.png", "pic": 1000.0,
+	"titles": {"plains": "الواحة", "desert": "صحراء الرمال", "jungle": "بستان النخيل", "nordic": "", "volcano": ""},
+	# Everything is desert but the oasis (cut out through a thin slit), and the palm grove inside it.
+	"desert": [Vector2(-100, -100), Vector2(1100, -100), Vector2(1100, 1100), Vector2(-100, 1100), Vector2(-100, 602),
+		Vector2(355, 602), Vector2(355, 690), Vector2(585, 690), Vector2(585, 515), Vector2(355, 515), Vector2(355, 598), Vector2(-100, 598)],
+	"forest": [Vector2(395, 575), Vector2(430, 560), Vector2(470, 565), Vector2(515, 580), Vector2(535, 615), Vector2(520, 655),
+		Vector2(475, 672), Vector2(425, 665), Vector2(392, 640), Vector2(380, 605)],
+	"nordic": [], "volcano": [],
+	"region_labels": {"desert": Vector2(760, 640), "plains": Vector2(470, 530), "jungle": Vector2(470, 690)},
+	"places": [
+		["المدينة القديمة", "medina", Vector2(500, 320), 240.0, "desert", false],
+		["القلعة", "castle", Vector2(245, 225), 70.0, "desert", true],
+		["واحة النخيل", "town", Vector2(400, 545), 95.0, "plains", false],
+		["مزرعة التمر", "farm", Vector2(560, 560), 65.0, "plains", false],
+		["ميناء الصيادين", "port", Vector2(845, 520), 100.0, "desert", false],
+		["مطار الصحراء", "airport", Vector2(690, 835), 130.0, "desert", true],
+		["محطة النفط", "industrial", Vector2(720, 195), 110.0, "desert", false],
+		["قرية الطين", "town", Vector2(175, 470), 90.0, "desert", false],
+		["قرية الجبل", "town", Vector2(705, 420), 80.0, "desert", false],
+		["أطلال الوادي", "ruins", Vector2(300, 770), 55.0, "desert", false],
+		["المحجر", "mine", Vector2(470, 855), 60.0, "desert", true],
+		["المنارة", "lighthouse", Vector2(955, 135), 30.0, "desert", false],
+	],
+	"fort_spots": [], "war_points": [],
+	"islets": [[Vector2(955, 135), 16.0], [Vector2(70, 965), 12.0]],
+	"paved": [
+		[Vector2(500, 320), Vector2(620, 375), Vector2(760, 445), Vector2(845, 500)],
+		[Vector2(500, 320), Vector2(500, 440), Vector2(535, 560), Vector2(600, 700), Vector2(665, 800)],
+		[Vector2(500, 320), Vector2(380, 275), Vector2(270, 235)],
+		[Vector2(500, 320), Vector2(610, 255), Vector2(720, 200)],
+	],
+	"dirt": [
+		[Vector2(400, 545), Vector2(290, 505), Vector2(175, 470)],
+		[Vector2(400, 545), Vector2(345, 650), Vector2(300, 770), Vector2(390, 830), Vector2(470, 855)],
+		[Vector2(705, 420), Vector2(620, 375)],
+		[Vector2(665, 800), Vector2(565, 845), Vector2(470, 855)],
+		[Vector2(175, 470), Vector2(210, 350), Vector2(245, 240)],
+	],
+	"runway": [Vector2(585, 850), Vector2(770, 805)],
+	"lake_c": Vector2(462, 618), "lake_r": Vector2(34, 24), "lake_islet": Vector2(-5000, -5000),
+	"rivers": [], "crater_px": Vector2(-9000, -9000), "lava_px": [], "lava_pools_px": [],
+	"fields": [Rect2(525, 595, 75, 45)],
+	"trees": {"plains": [["palm", 0.75], ["broad", 0.25]], "jungle": [["palm", 1.0]], "desert": [["dead", 0.55], ["palm", 0.25], ["cactus", 0.2]],
+		"nordic": [["pine", 1.0]], "volcano": [["dead", 1.0]]},
+	"forest_density": {"plains": 0.9, "jungle": 3.2, "desert": 0.06, "nordic": 0.0, "volcano": 0.0},
+}
+
+# ---------- Dune Valley places ----------
+## The old walled city: a maze of flat-roofed stone houses packed along
+## narrow lanes, a covered souq down the main street, the great mosque with
+## its dome and minaret on the square, a well.
+func _medina(t: Dictionary) -> void:
+	var c: Vector2 = t.pos
+	var r: float = t.r
+	# The square in the middle: mosque, minaret, well.
+	_structure("mosque", c + Vector2(-26, -8), Vector2(9, 9))
+	_structure("minaret", c + Vector2(-12, -20), Vector2(2.4, 2.4))
+	_structure("well", c + Vector2(16, 12), Vector2(1.6, 1.6))
+	# The souq: two rows of stalls under coloured awnings down one street.
+	var dir := Vector2(1, 0).rotated(rng.randi_range(0, 3) * PI * 0.5)
+	var side := Vector2(-dir.y, dir.x)
+	for k in 9:
+		for sd in [-1.0, 1.0]:
+			var p: Vector2 = c + dir * (40.0 + k * 7.0) + side * sd * 5.5
+			if _land_around(p, 3.0) and not _overlaps(p, Vector2(2.6, 2.0), 0.5):
+				_structure("souq_stall", p, Vector2(2.6, 2.0), {"dir": dir * sd, "col": rng.randi_range(0, 5)})
+	for k in 6:
+		loot_spots.append({"pos": c + dir * rng.randf_range(40.0, 100.0) + side * rng.randf_range(-3.0, 3.0), "military": false})
+	# Houses packed tight on a jittered grid: lanes of 4-6 m between them.
+	var cell := 17.0
+	var n := int(r / cell)
+	for gj in range(-n, n + 1):
+		for gi in range(-n, n + 1):
+			var p := c + Vector2(gi, gj) * cell + Vector2(rng.randf_range(-2.5, 2.5), rng.randf_range(-2.5, 2.5))
+			var d := p.distance_to(c)
+			if d > r or d < 34.0: continue
+			if rng.randf() < 0.1: continue
+			var sz := Vector2(rng.randf_range(10, 13.5), rng.randf_range(9, 12.5))
+			var half := sz * 0.5
+			if not _land_around(p, half.length() + 1.0): continue
+			if _overlaps(p, half, 3.0) or near_road(p, half.length() + 1.0): continue
+			var roll := rng.randf()
+			if roll < 0.08 and sz.x >= 10.5 and sz.y >= 9.0:
+				_add_building(p, sz, false, rng.randi_range(3, 4), "apartment")
+			elif roll < 0.14:
+				_add_building(p, sz, false, 1, "ruin")
+			else:
+				_add_building(p, sz, false, 2 if roll < 0.55 and sz.x >= 10.0 and sz.y >= 8.5 else 1)
+	# The old city wall round it, broken where the roads come in.
+	_ring_wall(c, r + 14.0, 4.5)
+
+## A stone wall round c, in straight pieces, with gaps for every road.
+func _ring_wall(c: Vector2, rad: float, hgt: float) -> void:
+	var n := int(TAU * rad / 22.0)
+	for k in n:
+		var a0 := k * TAU / n
+		var a1 := (k + 1) * TAU / n
+		var p0 := c + Vector2(rad, 0).rotated(a0)
+		var p1 := c + Vector2(rad, 0).rotated(a1)
+		var m := (p0 + p1) * 0.5
+		if near_road(m, 8.0) or not _land_around(m, 3.0) or _overlaps(m, Vector2(3, 3), 0.5): continue
+		var piece := p0.distance_to(p1) + 0.6
+		_structure("castle_wall", m, Vector2(2, 2), {"rot_f": -atan2(p1.y - p0.y, p1.x - p0.x), "len": piece, "hgt": hgt, "thick": 1.6})
+		if k % 4 == 0: _structure("castle_tower", p0, Vector2(2.6, 2.6), {"hgt": hgt + 3.0, "w": 5.0})
+
+## The castle on its hill: four walls with a gate, a tower at each corner,
+## the keep and the barracks inside (the best loot on the map).
+func _castle(t: Dictionary) -> void:
+	var c: Vector2 = t.pos
+	var h := 32.0
+	flatten(c, Vector2(h + 10.0, h + 10.0), 30.0, maxf(8.0, height_at(c.x, c.y)))
+	var gate := rng.randi_range(0, 3)
+	for w in 4:
+		var along_x := w % 2 == 0
+		var off := Vector2(0, -h) if w == 0 else (Vector2(h, 0) if w == 1 else (Vector2(0, h) if w == 2 else Vector2(-h, 0)))
+		var rot := 0.0 if along_x else PI * 0.5
+		if w == gate:
+			for sd in [-1.0, 1.0]:
+				var q: Vector2 = c + off + (Vector2(sd * 18.5, 0) if along_x else Vector2(0, sd * 18.5))
+				_structure("castle_wall", q, Vector2(14, 14), {"rot_f": rot, "len": 27.0, "hgt": 7.0, "thick": 2.2})
+		else:
+			_structure("castle_wall", c + off, Vector2(h, h), {"rot_f": rot, "len": h * 2.0, "hgt": 7.0, "thick": 2.2})
+		obstacles.pop_back()
+	for e in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		_structure("castle_tower", c + e * h, Vector2(4, 4), {"hgt": 11.0, "w": 7.5})
+	_fp_add(c, Vector2(h + 4.0, h + 4.0))
+	# The keep (an apartment block: stairs to its roof) and two barracks.
+	_add_building(c + Vector2(-8, -6), Vector2(12, 11), false, 3, "apartment")
+	buildings[-1].military = true
+	_add_building(c + Vector2(14, 12), Vector2(16, 10), true, 2)
+	_add_building(c + Vector2(-16, 18), Vector2(12, 9), true, 1)
+	for k in 6:
+		loot_spots.append({"pos": c + Vector2(rng.randf_range(-24, 24), rng.randf_range(-24, 24)), "military": true})
+
+## A village well with a little roof, in the middle of the oasis and mud villages.
+func _well(t: Dictionary) -> void:
+	for attempt in 30:
+		var p: Vector2 = t.pos + Vector2(rng.randf_range(0.0, 20.0), 0).rotated(rng.randf() * TAU)
+		if _land_around(p, 3.0) and not _overlaps(p, Vector2(2, 2), 2.0) and not near_road(p, 3.0):
+			_structure("well", p, Vector2(1.6, 1.6))
+			return

@@ -1513,7 +1513,7 @@ func _draw_full_map(c: Control, sz: Vector2, p: Player) -> void:
 		for reg in _region_centres:
 			var rp := _w2m(_region_centres[reg]) + Vector2(0, 34)
 			if r.has_point(rp):
-				_text(c, rp, Island.REGION_TITLES.get(reg, ""), 26, Color(1, 1, 1, 0.32), HORIZONTAL_ALIGNMENT_CENTER, bold, 300)
+				_text(c, rp, world.island.L.titles.get(reg, ""), 26, Color(1, 1, 1, 0.32), HORIZONTAL_ALIGNMENT_CENTER, bold, 300)
 	# Lava flows and pools on the volcano.
 	var lava_col := Color(1.0, 0.45, 0.1)
 	for line in world.island.lava:

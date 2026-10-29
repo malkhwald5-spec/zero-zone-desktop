@@ -60,12 +60,17 @@ var spawn: SpawnIsland = null     # the waiting island before the plane (null on
 func _ready() -> void:
 	loading = LoadingScreen.new()
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
-	loading.title = "حرب الفرق" if war_mode() else Island.MAP_NAME
-	loading.subtitle = "4 فرق × 25 لاعب" if war_mode() else ("باتل رويال • %s" % ("50 لاعب" if quick else "100 لاعب"))
+	# Which map: team war and the training ground are on Seasons Island;
+	# online everyone gets the host's pick.
+	Game.current_map = "seasons" if (war_mode() or Game.training) else (Net.map_id if Net.in_match else Game.pick_map())
+	loading.title = "حرب الفرق" if war_mode() else Game.map_name()
+	var players: int = 50 if quick else int(Game.MAPS[Game.current_map].players)
+	loading.subtitle = "4 فرق × 25 لاعب" if war_mode() else ("باتل رويال • %d لاعب" % players)
+
 	if Net.in_match:
 		Net.world = self
 		loading.title = "مع صحابك"
-		loading.subtitle = "%d لاعبين • %s" % [Net.roster.size(), Island.MAP_NAME]
+		loading.subtitle = "%d لاعبين • %s" % [Net.roster.size(), Game.map_name()]
 	if Game.training:
 		loading.title = "التدريب"
 		loading.subtitle = "تعلّم الأساسيات خطوة خطوة"
@@ -85,7 +90,7 @@ func _build() -> void:
 	if Net.in_match:
 		seed_v = Net.match_seed
 		seed(seed_v)         # the builder's random touches (trees, rocks, furniture) too
-	island = Island.new(seed_v, Game.MAP_SIZE)
+	island = Island.new(seed_v, Game.map_size(), Game.current_map)
 	island.war = war_mode()
 	island.generate()
 	builder = WorldBuilder.new(island, self)
@@ -752,6 +757,8 @@ func _spawn_bots() -> void:
 	var lead_dest := Vector3.ZERO
 	var lead_jump := 0.5
 	var n_bots := BOT_COUNT_MOBILE if OS.has_feature("mobile") or quick() else BOT_COUNT
+	# The small map holds fewer (60 players on 4 km, as on the mobile shooters' small maps).
+	n_bots = mini(n_bots, int(Game.MAPS.get(Game.current_map, Game.MAPS.seasons).players) - 1)
 	for i in n_bots:
 		var b := Bot.new()
 		b.world = self

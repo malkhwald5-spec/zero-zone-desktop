@@ -1067,6 +1067,11 @@ func _structures() -> void:
 	metal.set_shader_parameter("metallic", 0.5)
 	var brick := _wall_shader("brick", 1.3, 0.0, 0.6, 0.9)
 	var stone := _wall_shader("stone", 2.0, 0.0, 0.0, 0.9)
+	var sand := _wall_shader("plaster", 2.0, 0.85, 0.45, 0.95)     # sun-baked adobe / sandstone (walls, towers, wells)
+	sand.set_shader_parameter("tint", Color("d9bd8c"))
+	var sand_dark := _wall_shader("plaster", 2.0, 0.85, 0.7, 0.95)
+	sand_dark.set_shader_parameter("tint", Color("a88a5e"))
+	var wood_m := _wall_shader("wood", 1.5, 0.0, 0.3, 0.85)
 	var white := StandardMaterial3D.new()
 	white.albedo_color = Color("ece9e2")
 	white.roughness = 0.5
@@ -1245,6 +1250,105 @@ func _structures() -> void:
 				_mesh_cyl(node, Vector3(0, 21.9, 0), 4.6, 4.6, 0.6, white)
 				_mesh_box(node, Vector3(0, 23.6, 0), Vector3(0.12, 3.0, 0.12), dark)           # aerial
 				_cyl_shape(body, node.position + Vector3(0, 11.0, 0), 4.2, 22.0)
+			"castle_wall":
+				# Sand-coloured stone wall with a walk along the top behind a row
+				# of square merlons (old cities and the castle).
+				node.rotation.y = float(st.get("rot_f", 0.0))
+				var cl: float = st.get("len", 20.0)
+				var ch: float = st.get("hgt", 6.0)
+				var ct: float = st.get("thick", 2.0)
+				_mesh_box(node, Vector3(0, ch * 0.5 - 0.6, 0), Vector3(cl, ch + 1.2, ct), sand)
+				var mn := int(cl / 2.2)
+				for k in mn:
+					var mx := -cl * 0.5 + 1.1 + k * cl / mn
+					_mesh_box(node, Vector3(mx, ch + 0.5, ct * 0.5 - 0.25), Vector3(1.1, 1.0, 0.5), sand)
+					_mesh_box(node, Vector3(mx, ch + 0.5, -ct * 0.5 + 0.25), Vector3(1.1, 1.0, 0.5), sand)
+				_mesh_box(node, Vector3(0, ch * 0.18, ct * 0.5 + 0.05), Vector3(cl, ch * 0.36, 0.12), sand_dark)
+				_shape_xf(body, node.transform * Transform3D(Basis.IDENTITY, Vector3(0, ch * 0.5, 0)), Vector3(cl, ch + 1.0, ct))
+			"castle_tower":
+				var tw: float = st.get("w", 7.0)
+				var th: float = st.get("hgt", 11.0)
+				_mesh_box(node, Vector3(0, th * 0.5 - 0.6, 0), Vector3(tw, th + 1.2, tw), sand)
+				_mesh_box(node, Vector3(0, th + 0.15, 0), Vector3(tw + 0.6, 0.3, tw + 0.6), sand_dark)
+				for k in 4:
+					for e in [-1.0, 1.0]:
+						var off: float = -tw * 0.5 + 0.6 + k * (tw - 1.2) / 3.0
+						_mesh_box(node, Vector3(off, th + 0.85, e * (tw * 0.5 - 0.2)), Vector3(0.8, 1.1, 0.4), sand)
+						_mesh_box(node, Vector3(e * (tw * 0.5 - 0.2), th + 0.85, off), Vector3(0.4, 1.1, 0.8), sand)
+				for hy in [th * 0.45, th * 0.75]:
+					for e in [Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(-1, 0, 0)]:
+						_mesh_box(node, Vector3(0, hy, 0) + e * (tw * 0.5 + 0.02), Vector3(0.4, 1.2, 0.4) if e.x == 0.0 else Vector3(0.4, 1.2, 0.4), dark)
+				_shape(body, node.position + Vector3(0, th * 0.5, 0), Vector3(tw, th + 1.0, tw))
+			"mosque":
+				# The great mosque: a white prayer hall with arched windows, a
+				# drum and a big green dome with a gold finial.
+				var plaster_m := _static_wall("plaster", 3.0, 0.5, 0.9)
+				plaster_m.set_shader_parameter("tint", Color("f1e8d6"))
+				var green_m := StandardMaterial3D.new()
+				green_m.albedo_color = Color("2f7a55")
+				green_m.roughness = 0.35
+				green_m.metallic = 0.3
+				var gold_m := StandardMaterial3D.new()
+				gold_m.albedo_color = Color("d9a53a")
+				gold_m.metallic = 0.9
+				gold_m.roughness = 0.25
+				_mesh_box(node, Vector3(0, 3.0, 0), Vector3(17, 7.2, 17), plaster_m)
+				_mesh_box(node, Vector3(0, 6.75, 0), Vector3(17.6, 0.5, 17.6), sand_dark)
+				for e in [Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(-1, 0, 0)]:
+					for k in 3:
+						var along := Vector3(e.z, 0, e.x) * (-5.0 + k * 5.0)
+						_mesh_box(node, Vector3(0, 3.6, 0) + e * 8.53 + along, Vector3(1.6, 3.2, 0.1) if e.x == 0.0 else Vector3(0.1, 3.2, 1.6), dark)
+				_mesh_cyl(node, Vector3(0, 8.2, 0), 5.2, 5.4, 2.4, plaster_m)
+				var dome_mi := MeshInstance3D.new()
+				var dsm := SphereMesh.new()
+				dsm.radius = 5.4
+				dsm.height = 8.6
+				dome_mi.mesh = dsm
+				dome_mi.material_override = green_m
+				dome_mi.position = Vector3(0, 9.4, 0)
+				node.add_child(dome_mi)
+				_mesh_cyl(node, Vector3(0, 14.5, 0), 0.08, 0.14, 2.2, gold_m)
+				var crm := MeshInstance3D.new()
+				var ctm := TorusMesh.new()
+				ctm.inner_radius = 0.35
+				ctm.outer_radius = 0.48
+				crm.mesh = ctm
+				crm.material_override = gold_m
+				crm.position = Vector3(0, 15.9, 0)
+				crm.rotation = Vector3(PI * 0.5, 0, 0)
+				node.add_child(crm)
+				_shape(body, node.position + Vector3(0, 3.2, 0), Vector3(17, 7.0, 17))
+				_cyl_shape(body, node.position + Vector3(0, 10.5, 0), 5.4, 7.0)
+			"souq_stall":
+				# A market stall: a counter with goods, two poles and a striped cloth awning.
+				var sdir: Vector2 = st.get("dir", Vector2(1, 0))
+				node.rotation.y = -atan2(sdir.y, sdir.x) + PI * 0.5
+				var cloth_m := StandardMaterial3D.new()
+				cloth_m.albedo_color = [Color("c0392b"), Color("e1a32b"), Color("2e86c1"), Color("27ae60"), Color("8e44ad"), Color("d35400")][int(st.get("col", 0)) % 6]
+				cloth_m.roughness = 0.9
+				cloth_m.cull_mode = BaseMaterial3D.CULL_DISABLED
+				_mesh_box(node, Vector3(0, 0.5, 0.6), Vector3(4.0, 1.0, 1.2), wood_m)
+				for k in 4:
+					_mesh_box(node, Vector3(-1.4 + k * 0.95, 1.1, 0.6), Vector3(0.6, 0.25, 0.7), [cloth_m, white, sand, red][k])
+				for e in [-1.9, 1.9]:
+					_mesh_box(node, Vector3(e, 1.35, -0.9), Vector3(0.12, 2.7, 0.12), wood_m)
+				var aw := MeshInstance3D.new()
+				var apm := BoxMesh.new()
+				apm.size = Vector3(4.4, 0.06, 2.6)
+				aw.mesh = apm
+				aw.material_override = cloth_m
+				aw.position = Vector3(0, 2.75, 0.1)
+				aw.rotation.x = 0.18
+				node.add_child(aw)
+				_shape_xf(body, node.transform * Transform3D(Basis.IDENTITY, Vector3(0, 0.5, 0.6)), Vector3(4.0, 1.0, 1.2))
+			"well":
+				_mesh_cyl(node, Vector3(0, 0.5, 0), 1.3, 1.4, 1.0, sand)
+				_mesh_cyl(node, Vector3(0, 0.95, 0), 0.95, 0.95, 0.12, dark)
+				for e in [-1.0, 1.0]:
+					_mesh_box(node, Vector3(e * 1.1, 1.6, 0), Vector3(0.18, 2.2, 0.18), wood_m)
+				_mesh_box(node, Vector3(0, 2.75, 0), Vector3(2.8, 0.15, 1.6), wood_m)
+				_mesh_cyl(node, Vector3(0, 2.2, 0), 0.06, 0.06, 0.9, dark)
+				_cyl_shape(body, node.position + Vector3(0, 0.6, 0), 1.4, 1.2)
 			"ruin_wall":
 				# A broken stone wall: one long piece and a higher stub at its end.
 				node.rotation.y = float(st.get("rot_f", 0.0))

@@ -2,6 +2,26 @@ extends Node
 ## Global state (autoload "Game"): settings, player profile, career stats and shared data.
 
 const MAP_SIZE := 8192.0          # metres; shown on the map as an 8×8 grid (1 km squares)
+## The maps: name and size (metres a side). "random" in the settings picks one each match.
+const MAPS := {"seasons": {"name": "جزيرة الفصول", "size": 8192.0, "players": 100},
+	"dunes": {"name": "وادي الرمال", "size": 4096.0, "players": 60}}
+var current_map := "seasons"     # the map of this match (set when the match loads)
+
+func pick_map() -> String:
+	# Tests (a debug run) stay on Seasons Island unless asked: --map=dunes.
+	if OS.is_debug_build():
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--map=") and MAPS.has(a.substr(6)): return a.substr(6)
+		return "seasons"
+	var m: String = settings.get("map", "random")
+	if MAPS.has(m): return m
+	return MAPS.keys()[randi() % MAPS.size()]
+
+func map_name(id := "") -> String:
+	return String(MAPS.get(id if id != "" else current_map, MAPS.seasons).name)
+
+func map_size() -> float:
+	return float(MAPS.get(current_map, MAPS.seasons).size)
 const GRID := 8
 const SAVE_PATH := "user://zero_zone.json"
 const VERSION := "v1.0.0"
@@ -63,6 +83,7 @@ var settings := {
 	"lang": "ar",             # "ar" | "en": the language of the menus and the HUD
 	"difficulty": "normal",
 	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"
+	"map": "random",          # "random" | "seasons" | "dunes"
 	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal
 	"invert_y": false,
 	"keys": {},               # action -> physical keycode, only the ones changed

@@ -1045,12 +1045,30 @@ func _mode_picker() -> void:
 				_picker = null
 				_refresh(), Vector2(156, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if lon else Color(1, 1, 1, 0.06), 8, ACCENT if lon else Color(0, 0, 0, 0), 1, 6), 15))
 		v.add_child(hb)
+	if cur != "war":
+		var mb := HBoxContainer.new()
+		mb.add_theme_constant_override("separation", 6)
+		for mp in [["random", "عشوائية"], ["seasons", "الفصول"], ["dunes", "وادي الرمال"]]:
+			var mid: String = mp[0]
+			var mon: bool = Game.settings.get("map", "random") == mid
+			mb.add_child(UiKit.button(mp[1], func():
+				Game.settings.map = mid
+				Game.save_data()
+				_picker.queue_free()
+				_picker = null
+				_refresh(), Vector2(102, 40), UiKit.style(Color(1, 0.7, 0.1, 0.25) if mon else Color(1, 1, 1, 0.06), 8, ACCENT if mon else Color(0, 0, 0, 0), 1, 6), 14))
+		v.add_child(mb)
 	v.add_child(UiKit.button("كل الخيارات (الصعوبة…) ›", func():
 		_picker.queue_free()
 		_picker = null
 		_open("mode"), Vector2(320, 36), UiKit.style(Color(0, 0, 0, 0), 6), 14, ACCENT))
 	_anchor(pc, Control.PRESET_BOTTOM_RIGHT, Vector2(-16, -204))
 	_picker = pc
+
+## The chosen map's name for the start button ("random" says so).
+func _map_label() -> String:
+	var m: String = Game.settings.get("map", "random")
+	return Game.map_name(m) if Game.MAPS.has(m) else "خريطة عشوائية"
 
 ## Name plates over the line-up (or "+" to bring teammates where a place is free).
 func _lineup_plates() -> void:
@@ -1143,7 +1161,7 @@ func _refresh() -> void:
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
 	var war := mode == "war"
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
-	labels.mode.text = ("حرب الفرق • 4 فرق × 25 • %s" % d) if war else ("باتل رويال • %s • %s • %s" % [Island.MAP_NAME, "50 لاعب" if quick else "100 لاعب", d])
+	labels.mode.text = ("حرب الفرق • 4 فرق × 25 • %s" % d) if war else ("باتل رويال • %s • %s • %s" % [_map_label(), "50 لاعب" if quick else ("60 لاعب" if Game.settings.get("map", "") == "dunes" else "100 لاعب"), d])
 	for id in _mode_chips:
 		var on: bool = id == mode
 		var c: Button = _mode_chips[id]
@@ -2417,6 +2435,7 @@ func _page_mode(body: VBoxContainer) -> void:
 	ov.add_theme_constant_override("separation", 10)
 	opts.add_child(ov)
 	if Game.settings.get("mode", "solo") != "war":
+		ov.add_child(_row("الخريطة", _seg(["random", "seasons", "dunes"], ["عشوائية", "جزيرة الفصول (8 كم)", "وادي الرمال (4 كم)"], "map", "mode")))
 		ov.add_child(_row("طول المباراة", _seg(["classic", "quick"], ["كلاسيكي (100 لاعب، 25 دقيقة)", "سريع (50 لاعب، 10 دقايق)"], "length", "mode")))
 	ov.add_child(_row("مستوى الخصوم", _seg(["easy", "normal", "hard"], ["سهل", "عادي", "صعب"], "difficulty", "mode")))
 	var go := UiKit.yellow_button("تأكيد", func(): _close_panel(), Vector2(220, 52), 24)
