@@ -808,10 +808,19 @@ func _c_top() -> void:
 ## Right: rank and level, your name large, the season and your squad, and
 ## today's three closest missions with thin bars.
 func _c_identity() -> void:
+	# On a smoked-glass card (gold edge on the outer side) so it reads over the scene.
+	var card := PanelContainer.new()
+	var cs := UiKit.style(Color(0.03, 0.04, 0.06, 0.58), 14, ACCENT, 0, 16)
+	cs.border_width_right = 3
+	cs.shadow_color = Color(0, 0, 0, 0.35)
+	cs.shadow_size = 18
+	card.add_theme_stylebox_override("panel", cs)
+	card.mouse_filter = Control.MOUSE_FILTER_PASS
+	_anchor(card, Control.PRESET_TOP_RIGHT, Vector2(-28, 100))
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
 	v.custom_minimum_size = Vector2(340, 0)
-	_anchor(v, Control.PRESET_TOP_RIGHT, Vector2(-36, 112))
+	card.add_child(v)
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 8)
 	top.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -835,8 +844,9 @@ func _c_identity() -> void:
 	labels.squad_line = UiKit.label("", 14, C_DIM, null, 2)
 	row.add_child(labels.squad_line)
 	v.add_child(row)
-	var gap := Control.new()
-	gap.custom_minimum_size = Vector2(0, 22)
+	var gap := HSeparator.new()
+	gap.add_theme_stylebox_override("separator", UiKit.style(Color(1, 1, 1, 0.1), 0, Color(0, 0, 0, 0), 0, 0))
+	gap.add_theme_constant_override("separation", 22)
 	v.add_child(gap)
 	var mv := VBoxContainer.new()
 	mv.add_theme_constant_override("separation", 7)
@@ -863,10 +873,10 @@ func _fill_missions() -> void:
 		row.add_child(hb)
 		var bar := ProgressBar.new()
 		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(0, 3)
+		bar.custom_minimum_size = Vector2(0, 6)
 		bar.value = clampf(float(m.cur) / float(m.goal), 0.0, 1.0) * 100.0
-		bar.add_theme_stylebox_override("background", UiKit.style(Color(1, 1, 1, 0.16), 1, Color(0, 0, 0, 0), 0, 0))
-		bar.add_theme_stylebox_override("fill", UiKit.style(Color("7dff8a") if m.done else ACCENT, 1, Color(0, 0, 0, 0), 0, 0))
+		bar.add_theme_stylebox_override("background", UiKit.style(Color(1, 1, 1, 0.12), 3, Color(0, 0, 0, 0), 0, 0))
+		bar.add_theme_stylebox_override("fill", UiKit.style(Color("7dff8a") if m.done else ACCENT, 3, Color(0, 0, 0, 0), 0, 0))
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(bar)
 		mv.add_child(row)
@@ -1137,7 +1147,10 @@ func _refresh() -> void:
 	for id in _mode_chips:
 		var on: bool = id == mode
 		var c: Button = _mode_chips[id]
-		var st := UiKit.style(Color(1, 0.7, 0.13, 0.2) if on else Color(1, 1, 1, 0.06), 6, ACCENT if on else Color(1, 1, 1, 0.14), 1, 4)
+		var st := UiKit.style(Color(1, 0.7, 0.13, 0.22) if on else Color(0.03, 0.04, 0.06, 0.5), 10, ACCENT if on else Color(1, 1, 1, 0.16), 2 if on else 1, 4)
+		if on:
+			st.shadow_color = Color(1.0, 0.65, 0.1, 0.35)
+			st.shadow_size = 10
 		for k in ["normal", "hover", "pressed"]: c.add_theme_stylebox_override(k, st)
 		for k in ["font_color", "font_hover_color", "font_pressed_color"]: c.add_theme_color_override(k, Color("ffd34d") if on else Color.WHITE)
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()

@@ -176,13 +176,7 @@ func _process(_d: float) -> void:
 
 func _draw() -> void:
 	if not edit and hud.map_open: return
-	# Joystick
-	draw_circle(joy_center, joy_radius, Color(1, 1, 1, 0.08))
-	draw_arc(joy_center, joy_radius, 0, TAU, 48, Color(1, 1, 1, 0.4), 2.0)
-	draw_circle(joy_center + joy_vec * joy_radius, 30.0, Color(1, 1, 1, 0.45))
-	var sp := joy_center + Vector2(0, -joy_radius - 52)
-	draw_rect(Rect2(sp - Vector2(38, 14), Vector2(76, 28)), Color("f2a900") if sprint_lock else Color(0, 0, 0, 0.4))
-	draw_string(font, sp + Vector2(-38, 7), Game.t("ركض ⬆"), HORIZONTAL_ALIGNMENT_CENTER, 76, 14, Color.BLACK if sprint_lock else Color(1, 1, 1, 0.8))
+	_draw_joystick()
 	var pressed := {}
 	for t in touches.values():
 		if t.role == "btn": pressed[t.act] = true
@@ -191,21 +185,101 @@ func _draw() -> void:
 		if b.act == "interact":
 			var label := "التقاط" if edit else _interact_label()
 			if label == "": continue
-			var r := Rect2(b.pos - Vector2(80, 24), Vector2(160, 48))
-			draw_rect(r, Color(0, 0, 0, 0.6))
-			draw_rect(r, Color("ffd34d"), false, 2.0)
-			draw_string(font, Vector2(r.position.x, b.pos.y + 8), Game.t(label), HORIZONTAL_ALIGNMENT_CENTER, 160, 20, Color.WHITE)
+			_draw_interact(b.pos, Game.t(label))
 			continue
 		var down: bool = pressed.has(b.act) or (edit and b.id == selected)
 		var pt: float = 0.0 if edit else hud.world.player.peek_toggle
-		if (b.act == "peek_l" and pt < 0.0) or (b.act == "peek_r" and pt > 0.0): down = true
-		draw_circle(b.pos, b.r, Color(0.95, 0.66, 0.0, 0.5) if down else Color(0.06, 0.08, 0.1, 0.38))
-		draw_arc(b.pos, b.r, 0, TAU, 40, Color(1, 1, 1, 0.6), 1.6)
-		_icon(b.act, b.pos, b.r)
-		if b.label != "":
-			var bl := Game.t(b.label)
-			draw_string_outline(font, b.pos + Vector2(-50, b.r + 15), bl, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, 3, Color(0, 0, 0, 0.6))
-			draw_string(font, b.pos + Vector2(-50, b.r + 15), bl, HORIZONTAL_ALIGNMENT_CENTER, 100, 12, Color(1, 1, 1, 0.9))
+		var on: bool = (b.act == "peek_l" and pt < 0.0) or (b.act == "peek_r" and pt > 0.0)
+		_draw_button(b, down, on)
+
+const GOLD := Color("ffb321")
+const FIRE_RING := Color("ff5a3c")
+
+## A round button like the mobile shooters': a soft shadow, smoked glass with a
+## lighter top, a thin bright rim; pressed it sinks a little and glows gold
+## (the fire button glows red). Toggled buttons (leaning) keep a gold rim.
+func _draw_button(b: Dictionary, down: bool, on: bool) -> void:
+	var fire: bool = b.act == "fire"
+	var r: float = b.r * (0.93 if down else 1.0)
+	var c: Vector2 = b.pos
+	draw_circle(c + Vector2(0, r * 0.06), r + 3.0, Color(0, 0, 0, 0.22))
+	var base := Color(0.05, 0.07, 0.09, 0.46)
+	if down: base = Color(0.55, 0.12, 0.05, 0.62) if fire else Color(0.62, 0.42, 0.02, 0.6)
+	draw_circle(c, r, base)
+	# Glass: a lighter cap over the top half, fading downwards.
+	for i in 4:
+		var k := 1.0 - i * 0.18
+		draw_arc(c, r * k - 1.5, PI * 1.12, PI * 1.88, 24, Color(1, 1, 1, 0.05 + i * 0.012), r * 0.16)
+	var rim := FIRE_RING if fire else (GOLD if (down or on) else Color(1, 1, 1, 0.62))
+	if down or on:
+		draw_arc(c, r + 2.5, 0, TAU, 48, Color(rim.r, rim.g, rim.b, 0.35), 5.0)
+	draw_arc(c, r, 0, TAU, 48, rim, 3.0 if fire else 1.8)
+	if fire:
+		draw_arc(c, r - 7.0, 0, TAU, 48, Color(1, 1, 1, 0.18), 1.2)
+	_icon(b.act, c, r)
+	if b.label != "":
+		var bl := Game.t(b.label)
+		var fs := 12
+		var tw := font.get_string_size(bl, HORIZONTAL_ALIGNMENT_CENTER, -1, fs).x + 12.0
+		var pill := Rect2(c + Vector2(-tw * 0.5, b.r + 4.0), Vector2(tw, 17))
+		draw_style_box(_pill_box(Color(0, 0, 0, 0.42), Color(0, 0, 0, 0)), pill)
+		draw_string(font, Vector2(pill.position.x, pill.position.y + 13), bl, HORIZONTAL_ALIGNMENT_CENTER, tw, fs, Color(1, 1, 1, 0.92))
+
+var _pills := {}
+func _pill_box(bg: Color, border: Color, width := 0) -> StyleBoxFlat:
+	var key := "%s/%s/%d" % [bg, border, width]
+	if not _pills.has(key):
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = bg
+		sb.border_color = border
+		sb.set_border_width_all(width)
+		sb.set_corner_radius_all(9)
+		sb.anti_aliasing = true
+		_pills[key] = sb
+	return _pills[key]
+
+## The move stick: a ring with arrow marks at the four sides, a knob with a
+## highlight, and the run lock above it (gold while locked on).
+func _draw_joystick() -> void:
+	var c := joy_center
+	var r := joy_radius
+	draw_circle(c, r + 2.0, Color(0, 0, 0, 0.16))
+	draw_circle(c, r, Color(0.05, 0.07, 0.09, 0.3))
+	draw_arc(c, r, 0, TAU, 64, Color(1, 1, 1, 0.45), 2.0)
+	draw_arc(c, r * 0.62, 0, TAU, 48, Color(1, 1, 1, 0.1), 1.0)
+	for i in 4:
+		var d := Vector2.UP.rotated(i * PI * 0.5)
+		var t := c + d * (r - 11.0)
+		var sd := d.orthogonal()
+		var lit := joy_vec.length() > 0.3 and joy_vec.normalized().dot(d) > 0.7
+		draw_polyline(PackedVector2Array([t - d * 5.0 + sd * 6.0, t, t - d * 5.0 - sd * 6.0]), GOLD if lit else Color(1, 1, 1, 0.5), 2.0)
+	var kp := c + joy_vec * r
+	draw_circle(kp + Vector2(0, 2), 31.0, Color(0, 0, 0, 0.25))
+	draw_circle(kp, 30.0, Color(0.92, 0.94, 0.96, 0.5))
+	draw_arc(kp, 30.0, 0, TAU, 40, Color(1, 1, 1, 0.8), 2.0)
+	draw_arc(kp, 22.0, PI * 1.15, PI * 1.85, 16, Color(1, 1, 1, 0.45), 5.0)
+	var sp := c + Vector2(0, -r - 50)
+	var pill := Rect2(sp - Vector2(42, 15), Vector2(84, 30))
+	draw_style_box(_pill_box(GOLD if sprint_lock else Color(0, 0, 0, 0.42), Color(1, 1, 1, 0.0 if sprint_lock else 0.35), 0 if sprint_lock else 1), pill)
+	var ic := GOLD.darkened(0.75) if sprint_lock else Color(1, 1, 1, 0.85)
+	for o in [-4.0, 3.0]:
+		draw_polyline(PackedVector2Array([sp + Vector2(-34, 4 + o), sp + Vector2(-28, -2 + o), sp + Vector2(-22, 4 + o)]), ic, 2.0)
+	draw_string(font, sp + Vector2(-16, 6), Game.t("ركض"), HORIZONTAL_ALIGNMENT_CENTER, 50, 15, ic)
+
+## The use / pick-up button: a pill with a gold rim and a hand mark.
+func _draw_interact(c: Vector2, label: String) -> void:
+	var w := maxf(150.0, font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, 19).x + 56.0)
+	var r := Rect2(c - Vector2(w * 0.5, 24), Vector2(w, 48))
+	draw_style_box(_pill_box(Color(0, 0, 0, 0.25), Color(0, 0, 0, 0)), Rect2(r.position + Vector2(0, 3), r.size))
+	var sb := _pill_box(Color(0.06, 0.08, 0.1, 0.72), GOLD, 2)
+	sb.set_corner_radius_all(24)
+	draw_style_box(sb, r)
+	# A hand reaching (fingers up).
+	var h := Vector2(r.position.x + 24, c.y + 2)
+	draw_rect(Rect2(h + Vector2(-7, -2), Vector2(14, 11)), GOLD)
+	for i in 4:
+		draw_rect(Rect2(h + Vector2(-7 + i * 3.6, -11 + absf(i - 1.5) * 1.5), Vector2(2.6, 10)), GOLD)
+	draw_string(font, Vector2(r.position.x + 36, c.y + 8), label, HORIZONTAL_ALIGNMENT_CENTER, w - 44, 19, Color.WHITE)
 
 ## Vector icons in the style of mobile shooters.
 func _icon(act: String, c: Vector2, r: float) -> void:
