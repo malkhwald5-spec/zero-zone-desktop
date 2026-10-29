@@ -1418,7 +1418,7 @@ func _update_camera(delta: float) -> void:
 			shoulder = 0.0
 		"fall":
 			# Close behind and a little above, the body big in the frame (PUBG).
-			length = 4.6 + dive * 1.2
+			length = 4.3 + dive * 0.5
 			head.y -= 0.5
 			shoulder = 0.0
 		"chute":
