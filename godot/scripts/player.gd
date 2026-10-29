@@ -1426,9 +1426,9 @@ func _update_camera(delta: float) -> void:
 		"chute":
 			# Level with the body hanging under the canopy (canopy at the top of
 			# the frame, the player big in the middle), as in PUBG.
-			length = 6.2
+			length = 7.8
 			shoulder = 0.0
-			head.y += 0.9
+			head.y += 1.5
 		"vehicle":
 			head = vehicle.global_position + Vector3(0, 2.2, 0)
 			length = 10.5 if Game.settings.get("veh_cam_far", false) else 7.5
