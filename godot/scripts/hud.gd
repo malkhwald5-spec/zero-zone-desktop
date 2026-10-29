@@ -1313,9 +1313,9 @@ func _draw_heal(c: Control, sz: Vector2, p: Player) -> void:
 func _draw_gauges(c: Control, sz: Vector2, p: Player) -> void:
 	# As in PUBG Mobile: one slim altitude scale on the right with your height
 	# riding down it, and the speed underneath. Out of the way of the view.
-	var h := minf(300.0, sz.y * 0.4)
+	var h := minf(280.0, sz.y * 0.36)
 	var x := sz.x - 150.0
-	var top := sz.y * 0.5 - h * 0.5
+	var top := maxf(sz.y * 0.56 - h * 0.5, 190.0)     # clear of the minimap
 	var alt: float = maxf(0.0, p.global_position.y - world.ground_height(p.global_position))
 	var bold := UiKit.bold()
 	c.draw_rect(Rect2(x - 2, top, 4, h), Color(0, 0, 0, 0.35))
