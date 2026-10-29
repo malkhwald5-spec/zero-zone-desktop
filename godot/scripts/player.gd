@@ -438,6 +438,8 @@ func open_chute() -> void:
 		chute_heading = model.rotation.y
 		chute_swing = 0.35          # the opening shock swings you forward
 		shake = maxf(shake, 0.35)   # and jolts the view
+		# Out of a steep dive the view comes up to look ahead under the canopy.
+		pitch = maxf(pitch, -0.3)
 		chute_flare = 0.0
 		# A light wind from one side, different on every jump.
 		chute_wind = Vector3(1, 0, 0).rotated(Vector3.UP, randf() * TAU) * randf_range(0.8, 2.2)
@@ -1422,9 +1424,11 @@ func _update_camera(delta: float) -> void:
 			head.y -= 0.5
 			shoulder = 0.0
 		"chute":
-			length = 8.5
+			# Level with the body hanging under the canopy (canopy at the top of
+			# the frame, the player big in the middle), as in PUBG.
+			length = 6.2
 			shoulder = 0.0
-			head.y += 2.6
+			head.y += 0.9
 		"vehicle":
 			head = vehicle.global_position + Vector3(0, 2.2, 0)
 			length = 10.5 if Game.settings.get("veh_cam_far", false) else 7.5
