@@ -1417,10 +1417,12 @@ func _update_camera(delta: float) -> void:
 			length = 26.0
 			shoulder = 0.0
 		"fall":
-			length = 6.5 + dive * 1.5
+			# Close behind and a little above, the body big in the frame (PUBG).
+			length = 4.6 + dive * 1.2
+			head.y -= 0.5
 			shoulder = 0.0
 		"chute":
-			length = 10.0
+			length = 8.5
 			shoulder = 0.0
 			head.y += 2.6
 		"vehicle":

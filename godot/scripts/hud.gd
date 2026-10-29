@@ -1311,21 +1311,29 @@ func _draw_heal(c: Control, sz: Vector2, p: Player) -> void:
 	_text(c, ctr + Vector2(0, 52), "جاري استخدام " + h.name + " — الإطلاق يلغيه", 15, Color.WHITE)
 
 func _draw_gauges(c: Control, sz: Vector2, p: Player) -> void:
-	var h := minf(360.0, sz.y * 0.48)
+	# As in PUBG Mobile: one slim altitude scale on the right with your height
+	# riding down it, and the speed underneath. Out of the way of the view.
+	var h := minf(300.0, sz.y * 0.4)
+	var x := sz.x - 150.0
 	var top := sz.y * 0.5 - h * 0.5
-	var alt: float = p.global_position.y - world.ground_height(p.global_position)
-	for g in [[sz.x * 0.5 - 180.0, alt, Player.PLANE_ALT, "الارتفاع", "متر", -1.0], [sz.x * 0.5 + 180.0, minf(234.0, p.air_speed), 250.0, "السرعة", "كم/س", 1.0]]:
-		var x: float = g[0]
-		c.draw_line(Vector2(x, top), Vector2(x, top + h), Color(1, 1, 1, 0.8), 2.0)
-		for i in 11:
-			var yy := top + h * i / 10.0
-			c.draw_line(Vector2(x, yy), Vector2(x + g[5] * (12.0 if i % 5 == 0 else 6.0), yy), Color(1, 1, 1, 0.8), 2.0)
-		var yv := top + h * (1.0 - clampf(g[1] / g[2], 0.0, 1.0))
-		var bx: float = x + g[5] * 50.0
-		c.draw_rect(Rect2(bx - 36, yv - 20, 72, 40), Color(0, 0, 0, 0.5))
-		_text(c, Vector2(bx, yv + 4), str(int(g[1])), 20, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 72)
-		_text(c, Vector2(bx, yv + 17), g[4], 11, Color(0.85, 0.85, 0.85), HORIZONTAL_ALIGNMENT_CENTER, null, 72)
-		_text(c, Vector2(x, top + h + 22), g[3], 14)
+	var alt: float = maxf(0.0, p.global_position.y - world.ground_height(p.global_position))
+	var bold := UiKit.bold()
+	c.draw_rect(Rect2(x - 2, top, 4, h), Color(0, 0, 0, 0.35))
+	c.draw_rect(Rect2(x - 1, top, 2, h), Color(1, 1, 1, 0.75))
+	for i in 7:
+		var yy := top + h * i / 6.0
+		c.draw_line(Vector2(x - 6, yy), Vector2(x + 6, yy), Color(1, 1, 1, 0.7), 1.5)
+	# Where the parachute opens by itself.
+	var ya := top + h * (1.0 - clampf(Player.CHUTE_AUTO / Player.PLANE_ALT, 0.0, 1.0))
+	c.draw_line(Vector2(x - 9, ya), Vector2(x + 9, ya), Color("ffb321"), 2.0)
+	var yv := top + h * (1.0 - clampf(alt / Player.PLANE_ALT, 0.0, 1.0))
+	var pts := PackedVector2Array([Vector2(x - 4, yv), Vector2(x - 14, yv - 7), Vector2(x - 14, yv + 7)])
+	c.draw_colored_polygon(pts, Color.WHITE)
+	c.draw_rect(Rect2(x - 86, yv - 13, 70, 26), Color(0, 0, 0, 0.45))
+	_text(c, Vector2(x - 51, yv + 6), "%d م" % int(alt), 16, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 70)
+	if p.state != "plane":
+		var kmh := int(minf(234.0, p.air_speed))
+		_text(c, Vector2(x, top + h + 26), "%d كم/س" % kmh, 17, Color("ffd34d") if kmh > 200 else Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 120)
 
 func _draw_town_labels(c: Control, p: Player) -> void:
 	var airborne: bool = p.state == "plane" or (p.state in ["fall", "chute"] and p.global_position.y - world.ground_height(p.global_position) > 80.0)

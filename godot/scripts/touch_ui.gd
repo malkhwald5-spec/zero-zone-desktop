@@ -75,6 +75,10 @@ func _layout() -> void:
 
 ## Is this button on screen right now? (the left fire button can be off or only while aiming)
 func shown(b: Dictionary) -> bool:
+	# In the plane and in the air (as in PUBG Mobile) only what you can use
+	# up there: the stick, jump / parachute, free look, the map and the bag.
+	if not edit and hud and hud.world.player and hud.world.player.state in ["plane", "fall", "chute"]:
+		if b.id not in ["freelook", "map", "pause", "interact", "bag"]: return false
 	if b.id == "fire_l" and not edit:
 		var mode: String = Game.settings.get("left_fire", "always")
 		if mode == "off": return false
