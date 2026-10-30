@@ -6,12 +6,14 @@ extends Node3D
 ## - "eruption": the volcano erupts: burning rocks rain down round the crater
 ##               for a minute (they explode where they land), ash in the air;
 ## - "quake":    the ground shakes for a few seconds, dust bursts from the
-##               houses round you.
+##               houses round you;
+## - "sandstorm": Dune Valley only: a wall of sand blows through the whole
+##               valley for a minute, you can barely see 60 m.
 ## Besides these, every few minutes a red zone (as in PUBG): a circle inside
 ## the play area marked on the map, then shelled for half a minute. A roof
 ## and walls keep you safe; out in the open you'd better run.
 
-const KINDS := ["crash", "eruption", "quake"]
+const KINDS := ["crash", "eruption", "quake", "sandstorm"]
 ## Zone phases at whose start an event happens.
 const AT_PHASES := [1, 3]
 
@@ -21,6 +23,7 @@ var _used: Array[String] = []
 var _bombs: Array = []            # {node, vel, life}
 var _erupt_t := 0.0
 var _quake_t := 0.0
+var _storm_t := 0.0
 var _volcano_spots: Array[Vector2] = []
 
 func setup(w: Node) -> void:
@@ -42,9 +45,13 @@ func _process(delta: float) -> void:
 	_tick_eruption(delta)
 	_tick_quake(delta)
 	_tick_red(delta)
+	_tick_storm(delta)
 
 func _pick() -> String:
-	var left := KINDS.filter(func(k): return not k in _used and (k != "eruption" or not _volcano_spots.is_empty()))
+	var dunes: bool = world.island.map_id == "dunes"
+	var left := KINDS.filter(func(k): return not k in _used and (k != "eruption" or not _volcano_spots.is_empty()) and (k != "sandstorm" or dunes))
+	# Dune Valley always gets its sandstorm.
+	if dunes and not "sandstorm" in _used and _used.size() >= 1: return "sandstorm"
 	return left[randi() % left.size()] if not left.is_empty() else "quake"
 
 func start(kind: String) -> void:
@@ -54,6 +61,9 @@ func start(kind: String) -> void:
 		"eruption":
 			_erupt_t = 60.0
 			_banner("🌋 البركان ثار! ابعد عن الجبل — صخور نار عم تنزل")
+		"sandstorm":
+			_storm_t = 65.0
+			_banner("🌪 عاصفة رملية جاية! الرؤية رح تقل كتير — استغلها وتحرّك")
 		"quake":
 			_quake_t = 6.0
 			_banner("⚠ زلزال! الأرض عم تهتز")
@@ -62,7 +72,7 @@ func _banner(text: String) -> void:
 	if world.hud:
 		world.hud.show_banner(text)
 		world.hud.radio({"crash": "عاجل: طيارة شحن سقطت! الكل رايح ع الحطام", "eruption": "البركان صحي! اللي قريب من الجبل الله يعينه",
-			"quake": "زلزال! تمسّكوا بشي"}.get(_used.back() if not _used.is_empty() else "", "خبر عاجل!"))
+			"quake": "زلزال! تمسّكوا بشي", "sandstorm": "عاصفة رملية! ما حدا شايف حدا — وقت الهجوم أو الهروب"}.get(_used.back() if not _used.is_empty() else "", "خبر عاجل!"))
 
 # ---------- Plane crash ----------
 func _crash() -> void:
@@ -228,3 +238,14 @@ func _tick_quake(delta: float) -> void:
 				at.y = world.ground_height(at) + 1.0
 				world.effects.smoke_cloud(at, 6.0, Color(0.6, 0.55, 0.48))
 				break
+
+# ---------- Sandstorm (Dune Valley) ----------
+func _tick_storm(delta: float) -> void:
+	var fx: RegionFx = world.get("region_fx")
+	if fx == null: return
+	if _storm_t > 0.0:
+		_storm_t -= delta
+		# Builds up over 8 s, holds, and dies away over the last 10 s.
+		fx.storm = move_toward(fx.storm, clampf(_storm_t / 10.0, 0.0, 1.0), delta / 8.0)
+	else:
+		fx.storm = move_toward(fx.storm, 0.0, delta / 6.0)

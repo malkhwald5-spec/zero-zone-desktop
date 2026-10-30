@@ -576,6 +576,7 @@ func _tier(id: String) -> int:
 func _look_for_enemy() -> Node3D:
 	if blind_t > 0.0 or knocked: return null
 	var view: float = (70.0 + skill * 50.0) * (0.75 if world.weather == "rain" else 1.0) * float({"sniper": 1.5, "camper": 1.1, "rusher": 0.9}.get(persona, 1.0))
+	if world.region_fx and world.region_fx.storm > 0.0: view *= 1.0 - 0.6 * world.region_fx.storm     # sandstorm: half blind
 	var facing := Vector3(-sin(yaw), 0, -cos(yaw))
 	var best: Node3D = null
 	var bd := view

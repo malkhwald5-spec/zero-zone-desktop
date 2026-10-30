@@ -62,11 +62,11 @@ func _ground() -> void:
 		cs.position = mi.position
 		body.add_child(cs)
 
-## A house and a shed (the same models as in the towns), solid.
+## Two old houses you can walk into (the same model as in the towns).
 func _buildings() -> void:
 	var body := StaticBody3D.new()
 	add_child(body)
-	for b in [["bld_house", Vector2(-15, -13), 0.0], ["bld_shed", Vector2(17, 9), PI / 2]]:
+	for b in [["bld_abandoned", Vector2(-15, -13), 0.0], ["bld_abandoned", Vector2(17, 9), PI / 2]]:
 		var mh: Array = WorldBuilder._model_building(b[0])
 		var mi := MeshInstance3D.new()
 		mi.mesh = mh[0]
@@ -76,10 +76,14 @@ func _buildings() -> void:
 		var fp: Vector2 = Island.MODEL_BUILDINGS[b[0]]
 		if b[2] != 0.0: fp = Vector2(fp.y, fp.x)
 		var cs := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = Vector3(fp.x, mh[1], fp.y)
-		cs.shape = box
-		cs.position = mi.position + Vector3(0, mh[1] * 0.5, 0)
+		if mh[2]:
+			cs.shape = mh[2]
+			cs.transform = Transform3D(Basis(Vector3.UP, b[2]), mi.position)
+		else:
+			var box := BoxShape3D.new()
+			box.size = Vector3(fp.x, mh[1], fp.y)
+			cs.shape = box
+			cs.position = mi.position + Vector3(0, mh[1] * 0.5, 0)
 		body.add_child(cs)
 		_blocks.append(Rect2(b[1] - fp * 0.5 - Vector2(1.5, 1.5), fp + Vector2(3, 3)))
 

@@ -12,7 +12,8 @@ func quick() -> bool:
 var island: Island
 var builder: WorldBuilder
 var effects: Effects
-var events: MatchEvents           # mid-match surprises: plane crash, eruption, earthquake
+var events: MatchEvents
+var region_fx: RegionFx           # the map's own air: snow, embers, blowing sand, the sandstorm           # mid-match surprises: plane crash, eruption, earthquake
 var birds: Birds
 var player: Player
 var hud: Hud
@@ -152,6 +153,9 @@ func _build() -> void:
 		events = MatchEvents.new()
 		add_child(events)
 		events.setup(self)
+	region_fx = RegionFx.new()
+	add_child(region_fx)
+	region_fx.setup(self)
 	hud = Hud.new()
 	hud.world = self
 	add_child(hud)

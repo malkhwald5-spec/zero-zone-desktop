@@ -993,7 +993,7 @@ func _more_menu() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
 	pc.add_child(v)
-	for it in [["مع صحابك", "friends", "friends"], ["التدريب", "training", "trophy"], ["البريد", "mail", "mail"], ["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"],
+	for it in [["مع صحابك", "friends", "friends"], ["التدريب", "training", "trophy"], ["البريد", "mail", "mail"], ["الإنجازات", "achievements", "trophy"], ["ورشة العمل", "workshop", "wrench"], ["البطاقات والإحصائيات", "cards", "card"],
 			["العشيرة", "clan", "clan"], ["الصناديق", "crate", "crate"], ["الفعاليات", "events", "trophy"], ["طريقة اللعب", "help", "tasks"]]:
 		var key: String = it[1]
 		var b := _icon_button(it[2], it[0], func():
@@ -1434,7 +1434,7 @@ func _missions() -> Array:
 const TITLES := {
 	"inventory": "المخزون", "cards": "الملف الشخصي والرتبة", "workshop": "ورشة العمل", "season": "الموسم — ZERO PASS",
 	"missions": "المهام", "mail": "البريد", "clan": "العشيرة", "shop": "المتجر", "crate": "صندوق القمر الأحمر",
-	"events": "الفعاليات", "settings": "الإعدادات", "keys": "الأزرار", "mode": "اختيار الوضع", "help": "طريقة اللعب",
+	"events": "الفعاليات", "achievements": "الإنجازات", "settings": "الإعدادات", "keys": "الأزرار", "mode": "اختيار الوضع", "help": "طريقة اللعب",
 }
 
 var _page := ""
@@ -1521,6 +1521,7 @@ func _open(which: String) -> void:
 		"workshop": _page_workshop(body)
 		"season": _page_season(body)
 		"missions": _page_missions(body)
+		"achievements": _page_achievements(body)
 		"mail": _page_mail(body)
 		"clan": _page_clan(body)
 		"shop": _page_shop(body)
@@ -1836,16 +1837,31 @@ func _page_season(body: VBoxContainer) -> void:
 		var reached := lvl >= n
 		var gold := 50 * n
 		var zc := 10 if n % 9 == 0 else 0
+		# Levels 15 and 30: an outfit as well (the two dearest ones).
+		var outfit := -1
+		if n in [15, 30]:
+			outfit = _pass_outfit(n)
 		var c := _box_panel(Color(1, 0.82, 0.12, 0.15) if reached else Color(1, 1, 1, 0.05))
 		var v := VBoxContainer.new()
 		v.add_child(UiKit.label("المستوى %d" % n, 14, Color.WHITE, UiKit.bold(), 0))
 		v.add_child(UiKit.label("🪙 %d%s" % [gold, ("  💎 %d" % zc) if zc > 0 else ""], 13, Color("ffd34d"), null, 0))
+		if outfit >= 0: v.add_child(UiKit.label("👕 " + String(Game.WARDROBE[outfit][0]), 13, Color("c79bff"), UiKit.bold(), 0))
 		var claimed := _claimed(id)
-		var btn := _small_btn("مستلم ✓" if claimed else ("استلام" if reached else "🔒"), func(): _claim(id, gold, zc); _open("season"), reached and not claimed)
+		var oi := outfit
+		var btn := _small_btn("مستلم ✓" if claimed else ("استلام" if reached else "🔒"), func():
+			if oi >= 0 and not Game.owns(oi): Game.profile.owned.append(oi)
+			_claim(id, gold, zc)
+			_open("season"), reached and not claimed)
 		btn.custom_minimum_size = Vector2(130, 32)
 		v.add_child(btn)
 		c.add_child(v)
 		grid.add_child(c)
+
+## The outfit a season level gives: the dearest ones, one per reward level.
+func _pass_outfit(n: int) -> int:
+	var order := range(Game.WARDROBE.size())
+	order.sort_custom(func(a, b): return int(Game.WARDROBE[a][3]) > int(Game.WARDROBE[b][3]))
+	return order[0] if n == 30 else order[1]
 
 func _page_missions(body: VBoxContainer) -> void:
 	var list := _missions()
@@ -1902,10 +1918,41 @@ func _mission_card(m: Dictionary) -> Control:
 	hb.add_child(reward)
 	var id: String = m.id
 	var gold: int = m.gold
-	var btn := _small_btn("مستلم ✓" if claimed else ("استلام" if m.done else "قيد التقدم"), func(): _claim(id, gold); _open("missions"), ready)
+	var back := _page
+	var btn := _small_btn("مستلم ✓" if claimed else ("استلام" if m.done else "قيد التقدم"), func(): _claim(id, gold); _open(back), ready)
 	btn.custom_minimum_size = Vector2(130, 44)
 	hb.add_child(btn)
 	return c
+
+## Career goals with a reward each (claimed once, kept for good).
+const ACHIEVEMENTS := [
+	["ach_win1", "أول فوز — آخر واحد واقف", "wins", 1, 500, "trophy"],
+	["ach_win5", "خمس فوزات", "wins", 5, 1500, "trophy"],
+	["ach_win20", "أسطورة المنطقة — 20 فوز", "wins", 20, 5000, "trophy"],
+	["ach_k10", "صياد — 10 إقصاءات", "kills", 10, 300, "tasks"],
+	["ach_k100", "مقاتل — 100 إقصاء", "kills", 100, 1500, "tasks"],
+	["ach_k500", "ما حدا بيوقفك — 500 إقصاء", "kills", 500, 4000, "tasks"],
+	["ach_bk8", "مذبحة — 8 إقصاءات بمباراة وحدة", "best_kills", 8, 1200, "tasks"],
+	["ach_head25", "عين الصقر — 25 طلقة راس", "heads", 25, 800, "globe"],
+	["ach_long300", "قناص — إقصاء من 300 متر", "longest", 300, 1000, "globe"],
+	["ach_top10", "دايماً بالقمة — أول 10 عشر مرات", "top10", 10, 700, "calendar"],
+	["ach_games20", "لاعب ملتزم — 20 مباراة", "games", 20, 600, "calendar"],
+	["ach_games100", "ابن المنطقة — 100 مباراة", "games", 100, 2500, "calendar"],
+	["ach_dmg10k", "عاصفة نار — 10,000 ضرر", "dmg", 10000, 1000, "globe"],
+]
+
+func _page_achievements(body: VBoxContainer) -> void:
+	var list := []
+	for a in ACHIEVEMENTS:
+		var cur := int(Game.stats.get(a[2], 0))
+		list.append({"id": a[0], "text": a[1], "cur": cur, "goal": a[3], "gold": a[4], "icon": a[5], "done": cur >= int(a[3])})
+	var done := list.filter(func(m): return m.done).size()
+	var head := _box_panel(Color(1, 0.82, 0.12, 0.12))
+	head.add_child(UiKit.label("🏆 خلّصت %d من %d إنجاز — كل واحد إلو جائزة" % [done, list.size()], 17, Color("ffd34d"), UiKit.bold(), 0))
+	body.add_child(head)
+	list.sort_custom(func(x, y): return _mission_order(x) < _mission_order(y))
+	for m in list:
+		body.add_child(_mission_card(m))
 
 func _page_mail(body: VBoxContainer) -> void:
 	Game.wallet.mail_read = true
@@ -1919,6 +1966,20 @@ func _page_mail(body: VBoxContainer) -> void:
 	var claimed := _claimed("mail_welcome")
 	v.add_child(_small_btn("مستلم ✓" if claimed else "استلام 🪙 300", func(): _claim("mail_welcome", 300); _open("mail"), not claimed))
 	body.add_child(c)
+	for m in [["mail_dunes", "🏜 خريطة جديدة: وادي الرمال", "مدينة قديمة بأسوار وسوق وجامع، قلعة على التلة، واحة نخيل وميناء صيادين.\nوانتبه: بنص المباراة بتهب عاصفة رملية ما بتخليك تشوف أبعد من إيدك.", 300, 20],
+			["mail_season", "🌙 الموسم الجديد: ليلة القمر الأحمر", "ZERO PASS فيه 30 مستوى، وبالمستوى 15 و30 أغلى لبستين باللعبة هدية.\nوصفحة الإنجازات الجديدة بتعطيك ذهب على كل هدف بتوصلو.", 200, 10]]:
+		var mc := _box_panel()
+		var mv := VBoxContainer.new()
+		mv.add_theme_constant_override("separation", 8)
+		mc.add_child(mv)
+		mv.add_child(UiKit.label(m[1], 19, Color("ffd34d"), UiKit.bold(), 0))
+		mv.add_child(UiKit.label(m[2], 15, Color.WHITE, null, 0))
+		var mid: String = m[0]
+		var mg: int = m[3]
+		var mz: int = m[4]
+		var got := _claimed(mid)
+		mv.add_child(_small_btn("مستلم ✓" if got else "استلام 🪙 %d  💎 %d" % [mg, mz], func(): _claim(mid, mg, mz); _open("mail"), not got))
+		body.add_child(mc)
 
 func _page_clan(body: VBoxContainer) -> void:
 	var le := LineEdit.new()
@@ -1945,7 +2006,47 @@ func _page_shop(body: VBoxContainer) -> void:
 	hb.add_child(v)
 	hb.add_child(_small_btn("افتح", func(): _open("crate")))
 	body.add_child(c)
+	_daily_deals(body)
 	_outfit_grid(body, 6)
+
+## Today's deals: three outfits you don't own at 40% off, new ones every day.
+func _daily_deals(body: VBoxContainer) -> void:
+	var pool := []
+	for i in Game.WARDROBE.size():
+		if not Game.owns(i) and int(Game.WARDROBE[i][3]) > 0: pool.append(i)
+	if pool.is_empty(): return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Game.today())
+	var picks := []
+	while picks.size() < mini(3, pool.size()):
+		var k: int = pool[rng.randi() % pool.size()]
+		if not k in picks: picks.append(k)
+	body.add_child(UiKit.label("🔥 عروض اليوم — خصم 40%، بتتغير كل يوم", 17, Color("ff8a4d"), UiKit.bold(), 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	body.add_child(row)
+	for i in picks:
+		var w: Array = Game.WARDROBE[i]
+		var price := int(int(w[3]) * 0.6)
+		var c := _box_panel(Color(1, 0.45, 0.15, 0.14))
+		var v := VBoxContainer.new()
+		v.add_child(UiKit.label(String(w[0]), 16, Color.WHITE, UiKit.bold(), 0))
+		v.add_child(UiKit.label("🪙 %d  (بدل %d)" % [price, int(w[3])], 14, Color("ffd34d"), null, 0))
+		var idx: int = i
+		v.add_child(_small_btn("اشتري", func():
+			if int(Game.wallet.gold) < price:
+				_toast("ما معك ذهب كافي — العب مباريات وخلّص المهام")
+				return
+			Game.wallet.gold = int(Game.wallet.gold) - price
+			Game.profile.owned.append(idx)
+			Game.profile.outfit = idx
+			Game.coin_sound()
+			Game.save_data()
+			_toast("اشتريت بخصم: %s" % Game.WARDROBE[idx][0])
+			_spawn_soldier()
+			_open("shop")))
+		c.add_child(v)
+		row.add_child(c)
 
 func _page_crate(body: VBoxContainer) -> void:
 	var c := _box_panel(Color(0.55, 0.12, 0.22, 0.3))

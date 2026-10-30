@@ -814,7 +814,17 @@ func _houses(c: Vector2, r: float, count: int, military := false, two_storey := 
 func _city(t: Dictionary) -> void:
 	var c: Vector2 = t.pos
 	var r: float = t.r
-	var models := ["bld_pool", "bld_tower", "bld_tenement", "bld_tower", "bld_tenement", "bld_tower", "bld_tenement", "bld_house", "bld_shed", "bld_warehouse"]
+	# Only the model buildings you can walk into; the tall blocks are built
+	# (apartments with stairs, every floor open) instead of solid models.
+	var models := ["bld_pool", "bld_warehouse", "bld_abandoned"]
+	for k in 6:
+		for attempt in 60:
+			var sz := Vector2(rng.randf_range(14.0, 17.0), rng.randf_range(11.0, 13.0))
+			var p := c + Vector2(rng.randf_range(40.0, r * 0.55), 0).rotated(rng.randf() * TAU)
+			if not _land_around(p, sz.length() * 0.5 + 2.0): continue
+			if _overlaps(p, sz * 0.5, 9.0) or near_road(p, sz.length() * 0.5 + 3.0): continue
+			_add_building(p, sz, false, rng.randi_range(3, 4), "apartment")
+			break
 	for kind in models:
 		for attempt in 60:
 			var rot := rng.randi_range(0, 3)
@@ -1035,9 +1045,9 @@ func _model_buildings() -> void:
 			want = ["bld_abandoned"]
 		elif t.get("kind", "town") == "town":
 			_minaret(t)
-			want = ["bld_house", "bld_shed", "bld_abandoned"]
+			# Only the model buildings you can walk into (the solid ones are gone).
+			want = ["bld_abandoned"]
 			if rng.randf() < 0.4: want.append("bld_abandoned")
-			if float(t.r) >= 100.0: want.append("bld_tenement" if rng.randf() < 0.5 else "bld_tower")
 		elif t.get("kind", "") == "farm":
 			want = ["bld_abandoned"]
 		for kind in want:
