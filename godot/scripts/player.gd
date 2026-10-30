@@ -403,7 +403,10 @@ func jump_from_plane() -> void:
 	fall_lean = 0.0
 	exit_t = 0.0
 	chute_turn = 0.0
-	message.emit("W مع النظر لتحت = غوص أسرع — W لقدام = طيران لبعيد — A/D يمين ويسار")
+	if Game.settings.controls == "kbm":
+		message.emit("W مع النظر لتحت = غوص أسرع — W لقدام = طيران لبعيد — A/D يمين ويسار")
+	else:
+		message.emit("المقود لقدام مع النظر لتحت = غوص أسرع — لقدام = طيران لبعيد")
 
 ## Boarding the plane after the spawn island: everything picked up there stays
 ## behind, and you start the match fresh.
@@ -1957,7 +1960,7 @@ func enter_vehicle(v: Vehicle) -> void:
 	# Into a car: open the door, turn and sit down (the Mixamo boarding clip).
 	_board_t = 0.0 if v.kind not in ["bike", "boat"] else -1.0
 	if _board_t >= 0.0: model.play_action("car_enter", BOARD_TIME, 1.0, 3.6)
-	message.emit("WASD للقيادة • Space فرامل • F للنزول")
+	message.emit("WASD للقيادة • Space فرامل • F للنزول" if Game.settings.controls == "kbm" else "المقود للقيادة • زر القفز فرامل • زر النزول")
 
 ## Get out (F). From a boat only where you can stand: next to the shore or
 ## in shallow water. `force` (the vehicle blew up): out anyway, on the

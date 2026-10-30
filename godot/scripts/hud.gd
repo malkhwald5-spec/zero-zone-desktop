@@ -777,7 +777,7 @@ func _draw_hud() -> void:
 	elif p.state in ["fall", "chute"]:
 		_draw_gauges(c, sz, p)
 	elif p.state == "plane":
-		_text(c, Vector2(sz.x * 0.5, sz.y * 0.68), "اضغط F للقفز" if world.plane_over_land() else "الطائرة تقترب من الجزيرة…", 20)
+		_text(c, Vector2(sz.x * 0.5, sz.y * 0.68), ("اضغط F للقفز" if Game.settings.controls == "kbm" else "اضغط زر «اقفز»") if world.plane_over_land() else "الطائرة تقترب من الجزيرة…", 20)
 	var view_yaw: float = p.yaw + p.look_off.x
 	for d in dmg_dirs:
 		var rel: float = atan2(d.dir.x, -d.dir.z) + view_yaw
