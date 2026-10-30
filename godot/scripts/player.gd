@@ -9,7 +9,7 @@ signal message(text: String)
 
 const GRAVITY := 18.0
 const PLANE_ALT := 600.0
-const CHUTE_AUTO := 140.0
+const CHUTE_AUTO := 165.0
 # Skydive speeds in m/s (PUBG-like: 126 km/h belly-down, up to 234 km/h diving).
 const FALL_V := 35.0
 const DIVE_V := 65.0
