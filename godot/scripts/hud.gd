@@ -800,6 +800,9 @@ func _draw_hud() -> void:
 		var dz: Array = Zone.DISASTERS[world.zone.disaster_at(p.global_position)]
 		c.draw_rect(Rect2(Vector2.ZERO, sz), dz[1])
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.3), "أنت بـ%s — ارجع للمنطقة الآمنة!" % dz[0], 22, Color(dz[1], 1.0).lightened(0.4), HORIZONTAL_ALIGNMENT_CENTER, bold)
+	if world.region_fx and world.region_fx.storm > 0.01 and p.state != "plane":
+		# The sandstorm: everything goes the colour of the blowing sand.
+		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.78, 0.6, 0.36, 0.38 * world.region_fx.storm))
 	if p.health < 30.0 and p.state != "dead":
 		c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.7, 0, 0, 0.12 + 0.05 * sin(world.time * 6.0)))
 	if p.state == "dead":

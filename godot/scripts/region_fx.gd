@@ -19,7 +19,7 @@ const LOOKS := {
 	"ash": [Color(1.0, 0.5, 0.15, 0.9), 0.035, Vector3(0.2, 0.35, 0.0), 120, Vector3(14, 6, 14)],
 	"leaves": [Color(0.75, 0.8, 0.35, 0.8), 0.06, Vector3(0.6, -0.4, 0.2), 50, Vector3(14, 6, 14)],
 	"sand": [Color(0.9, 0.75, 0.5, 0.55), 0.05, Vector3(4.0, -0.2, 1.0), 160, Vector3(16, 1.5, 16)],
-	"sandstorm": [Color(0.86, 0.68, 0.42, 0.75), 0.09, Vector3(14.0, -0.3, 3.0), 600, Vector3(14, 6, 14)],
+	"sandstorm": [Color(0.86, 0.68, 0.42, 0.75), 0.18, Vector3(14.0, -0.3, 3.0), 600, Vector3(14, 6, 14)],
 }
 
 func setup(w: Node) -> void:
@@ -90,3 +90,4 @@ func _storm_fog(delta: float) -> void:
 	env.fog_enabled = true
 	env.fog_density = lerpf(env.fog_density, _fog_base + 0.022 * storm, minf(1.0, delta * 2.0))
 	env.fog_light_color = _fog_col.lerp(Color(0.8, 0.62, 0.38), clampf(storm, 0.0, 1.0))
+	env.fog_sky_affect = 0.85 * clampf(storm, 0.0, 1.0)
