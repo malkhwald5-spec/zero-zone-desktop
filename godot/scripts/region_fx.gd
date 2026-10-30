@@ -19,7 +19,7 @@ const LOOKS := {
 	"ash": [Color(1.0, 0.5, 0.15, 0.9), 0.035, Vector3(0.2, 0.35, 0.0), 120, Vector3(14, 6, 14)],
 	"leaves": [Color(0.75, 0.8, 0.35, 0.8), 0.06, Vector3(0.6, -0.4, 0.2), 50, Vector3(14, 6, 14)],
 	"sand": [Color(0.9, 0.75, 0.5, 0.55), 0.05, Vector3(4.0, -0.2, 1.0), 160, Vector3(16, 1.5, 16)],
-	"sandstorm": [Color(0.86, 0.68, 0.42, 0.75), 0.18, Vector3(14.0, -0.3, 3.0), 600, Vector3(14, 6, 14)],
+	"sandstorm": [Color(0.86, 0.68, 0.42, 0.55), 0.07, Vector3(14.0, -0.3, 3.0), 900, Vector3(14, 6, 14)],
 }
 
 func setup(w: Node) -> void:
@@ -70,12 +70,13 @@ func _make(kind: String) -> void:
 	_p.initial_velocity_max = 1.2
 	_p.spread = 180.0
 	var qm := QuadMesh.new()
-	qm.size = Vector2.ONE * float(d[1]) * (Vector2(3, 1) if kind in ["sand", "sandstorm"] else Vector2.ONE)
+	qm.size = Vector2.ONE * float(d[1])
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.albedo_color = d[0]
+	m.albedo_texture = _soft_dot()
 	if kind == "ash":
 		m.emission_enabled = true
 		m.emission = Color(1.0, 0.45, 0.1)
@@ -83,6 +84,22 @@ func _make(kind: String) -> void:
 	qm.material = m
 	_p.mesh = qm
 	add_child(_p)
+
+## A soft round speck (white in the middle, fading out): every particle uses it.
+static var _dot: GradientTexture2D
+static func _soft_dot() -> GradientTexture2D:
+	if _dot == null:
+		var g := Gradient.new()
+		g.set_color(0, Color(1, 1, 1, 1))
+		g.set_color(1, Color(1, 1, 1, 0))
+		_dot = GradientTexture2D.new()
+		_dot.gradient = g
+		_dot.fill = GradientTexture2D.FILL_RADIAL
+		_dot.fill_from = Vector2(0.5, 0.5)
+		_dot.fill_to = Vector2(1.0, 0.5)
+		_dot.width = 32
+		_dot.height = 32
+	return _dot
 
 ## The sandstorm thickens the haze over the whole valley and tints it sand.
 func _storm_fog(delta: float) -> void:
@@ -93,6 +110,6 @@ func _storm_fog(delta: float) -> void:
 		_fog_col = env.fog_light_color
 	if storm <= 0.0 and env.fog_density <= _fog_base + 0.0001: return
 	env.fog_enabled = true
-	env.fog_density = lerpf(env.fog_density, _fog_base + 0.022 * storm, minf(1.0, delta * 2.0))
+	env.fog_density = lerpf(env.fog_density, _fog_base + 0.032 * storm, minf(1.0, delta * 2.0))
 	env.fog_light_color = _fog_col.lerp(Color(0.8, 0.62, 0.38), clampf(storm, 0.0, 1.0))
 	env.fog_sky_affect = 0.85 * clampf(storm, 0.0, 1.0)
