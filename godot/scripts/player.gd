@@ -719,12 +719,12 @@ func _freefall(delta: float) -> void:
 	var back := maxf(-move_input.y, 0.0)
 	var side := clampf(move_input.x, -1.0, 1.0)
 	var steep := clampf(inverse_lerp(-0.15, -1.0, pitch), 0.0, 1.0)
-	dive = lerpf(dive, push * lerpf(0.35, 1.0, steep), 1.0 - exp(-1.4 * delta))
+	dive = lerpf(dive, push * lerpf(0.35, 1.0, steep), 1.0 - exp(-2.4 * delta))
 	var v_target := lerpf(FALL_V, DIVE_V, dive) - back * 5.0 - absf(side) * 2.0
 	var h_target := fwd * (push * lerpf(GLIDE_H, 7.0, steep) - back * 6.0) + right * side * 18.0
 	var h := Vector3(velocity.x, 0, velocity.z).lerp(h_target, 1.0 - exp(-1.6 * delta))
 	# Eases towards the target speed, but never falls faster than gravity allows.
-	var vy := lerpf(velocity.y, -v_target, 1.0 - exp(-0.9 * delta))
+	var vy := lerpf(velocity.y, -v_target, 1.0 - exp(-1.5 * delta))
 	vy = maxf(vy, velocity.y - 9.8 * delta)
 	velocity = Vector3(h.x, vy, h.z)
 	fall_lean = lerpf(fall_lean, side, 1.0 - exp(-4.0 * delta))
@@ -1443,6 +1443,8 @@ func _update_camera(delta: float) -> void:
 			head = vehicle.global_position + Vector3(0, 2.2, 0)
 			length = 10.5 if Game.settings.get("veh_cam_far", false) else 7.5
 			shoulder = 0.0
+	if is_sprinting and state == "ground" and not aiming:
+		length += 0.35          # sprinting: the camera drops back a touch (feel of speed)
 	if aiming and state == "ground":
 		length = 0.0 if scoped() else 1.5
 		shoulder = 0.0 if scoped() else 0.45

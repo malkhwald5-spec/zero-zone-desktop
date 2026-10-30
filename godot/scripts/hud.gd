@@ -775,6 +775,7 @@ func _draw_hud() -> void:
 	elif p.state == "vehicle":
 		_draw_vehicle(c, sz, p)
 	elif p.state in ["fall", "chute"]:
+		if p.state == "fall": _draw_speed_lines(c, sz, p)
 		_draw_gauges(c, sz, p)
 	elif p.state == "plane":
 		_text(c, Vector2(sz.x * 0.5, sz.y * 0.68), ("اضغط F للقفز" if Game.settings.controls == "kbm" else "اضغط زر «اقفز»") if world.plane_over_land() else "الطائرة تقترب من الجزيرة…", 20)
@@ -1312,6 +1313,20 @@ func _draw_heal(c: Control, sz: Vector2, p: Player) -> void:
 	c.draw_arc(ctr, 26.0, -PI / 2, -PI / 2 + TAU * k, 40, Color("7dff8a"), 6.0)
 	_text(c, ctr + Vector2(0, 7), "%.1f" % p.heal_t, 16, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, bold, 60)
 	_text(c, ctr + Vector2(0, 52), "جاري استخدام " + h.name + " — الإطلاق يلغيه", 15, Color.WHITE)
+
+## Diving fast: thin streaks rushing out from the middle at the screen's
+## edges, more and longer the faster you fall.
+func _draw_speed_lines(c: Control, sz: Vector2, p: Player) -> void:
+	var k := clampf((p.air_speed - 160.0) / 70.0, 0.0, 1.0)
+	if k <= 0.0: return
+	var ctr := sz * 0.5
+	var t := Time.get_ticks_msec() / 1000.0
+	for i in 28:
+		var a := float(i) * 2.399 + floorf(t * 9.0 + i * 0.37) * 1.7
+		var dir := Vector2(cos(a), sin(a))
+		var r0 := sz.length() * (0.32 + 0.12 * fposmod(sin(i * 12.9 + floorf(t * 9.0)) * 43.7, 1.0))
+		var r1 := r0 + sz.length() * (0.05 + 0.1 * k)
+		c.draw_line(ctr + dir * r0, ctr + dir * r1, Color(1, 1, 1, 0.12 + 0.18 * k), 1.5)
 
 func _draw_gauges(c: Control, sz: Vector2, p: Player) -> void:
 	# As in PUBG Mobile: one slim altitude scale on the right with your height

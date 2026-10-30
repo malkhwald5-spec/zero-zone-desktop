@@ -1584,12 +1584,16 @@ func _place_gun(pose: String, delta: float) -> void:
 		# The rifle across the chest: stock under the right arm, muzzle down
 		# and to the left, canted a little, so it shows past the left side
 		# from behind.
-		pos = Vector3(0.14, 1.29, -0.22) if not pistol else Vector3(0.12, 1.15, -0.28)
-		rot = Vector3(-0.3, 0.46, 0.2) if not pistol else Vector3(-0.6, 0.2, 0)
+		# As in PUBG: stock tucked under the right arm, the rifle along the
+		# right side with the muzzle forward and a little down (seen from the
+		# camera behind the right shoulder it points where you're going).
+		pos = Vector3(0.17, 1.3, -0.26) if not pistol else Vector3(0.12, 1.15, -0.28)
+		rot = Vector3(-0.22, 0.16, 0.1) if not pistol else Vector3(-0.6, 0.2, 0)
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
-			pos = pos.lerp(Vector3(0.14, 1.24, -0.22), low)
-			rot = rot.lerp(Vector3(-0.48, 0.7, 0.32), low)
+			# Running: muzzle lower and a little more across, still forward.
+			pos = pos.lerp(Vector3(0.15, 1.25, -0.25), low)
+			rot = rot.lerp(Vector3(-0.42, 0.34, 0.2), low)
 		pitch_with_aim = low < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
 		# Looking the gun over: brought up in front, turned to one side, then the other.
