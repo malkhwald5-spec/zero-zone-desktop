@@ -1432,7 +1432,7 @@ func _update_camera(delta: float) -> void:
 			shoulder = 0.0
 		"fall":
 			# Close behind and a little above, the body big in the frame (PUBG).
-			length = 4.3 + dive * 0.5
+			length = 3.2 + dive * 0.4
 			head.y -= 0.5
 			shoulder = 0.0
 		"chute":
@@ -1480,7 +1480,7 @@ func _update_camera(delta: float) -> void:
 	if is_sprinting and state == "ground" and zoom <= 1.0:
 		fov += 5.0 * clampf(Vector2(velocity.x, velocity.z).length() / 7.0, 0.0, 1.0)     # speed
 	if state == "fall":
-		fov += clampf((air_speed - 120.0) / 115.0, 0.0, 1.0) * 10.0      # speed rush
+		fov += clampf((air_speed - 120.0) / 115.0, 0.0, 1.0) * 5.0       # speed rush
 		shake = maxf(shake, clampf((air_speed - 150.0) / 85.0, 0.0, 1.0) * 0.12)
 	camera.fov = lerpf(camera.fov, fov, minf(1.0, delta * 6.0))
 	_update_wind()
