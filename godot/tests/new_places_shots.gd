@@ -91,5 +91,22 @@ func _run() -> void:
 		p.pitch = -0.05
 		await wait(1.5)
 		await shot("place_house_close")
+	# The map's own air, from the ground: the sandstorm in Dune Valley, the
+	# snow in the north of Seasons Island.
+	var med: Dictionary = world.island.towns[0]
+	if not dunes:
+		for t in world.island.towns:
+			if t.region == "nordic" and t.kind == "town": med = t
+	var gp := Vector3(med.pos.x + float(med.r) * 0.6, 0, med.pos.y)
+	p.global_position = Vector3(gp.x, world.ground_height(gp) + 0.3, gp.z)
+	p.state = "ground"
+	p.velocity = Vector3.ZERO
+	p.yaw = 0.6
+	p.pitch = -0.05
+	if dunes:
+		if world.events: world.events._storm_t = 40.0
+		world.region_fx.storm = 1.0
+	await wait(3.0)
+	await shot("place_air_fx")
 	print("PLACES SHOTS DONE")
 	tree.quit()

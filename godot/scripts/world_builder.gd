@@ -583,7 +583,7 @@ func _buildings() -> void:
 		# Plains: about a third of the houses are red brick, the rest painted
 		# plaster. Jungle and north: wooden boards. Desert and beach: plaster.
 		var brick: bool = style == "plains" and not b.military and (b.tint + b.roof) % 3 == 0
-		var planks: bool = style in ["jungle", "nordic"] and not b.military
+		var planks: bool = style in ["jungle", "nordic"] and not b.military and kind != "apartment"
 		var st: SurfaceTool = sts.brick if brick else (sts.planks if planks else sts.wall)
 		_lining = sts.wall if (brick or planks) else null
 		_arab = style == "desert" and not b.military and kind not in ["warehouse", "barn", "shop"]
@@ -592,6 +592,8 @@ func _buildings() -> void:
 		var hx := sx * 0.5
 		var hz := sz * 0.5
 		var col: Color = Color("a9ada0") if b.military else (Color.WHITE if brick else (style_tints[style][b.tint] if style_tints.has(style) else tints[b.tint]))
+		# Blocks of flats: light painted render, whatever the region.
+		if kind == "apartment" and not b.military: col = [Color("e6dccb"), Color("d9cbb4"), Color("e8e2d8"), Color("cfd6d8"), Color("e3cfc0")][b.tint]
 		var tcol: Color = Color("5c5f58") if b.military else trims[(b.tint * 3 + b.roof) % trims.size()]
 		if _arab: tcol = [Color("5a3a22"), Color("3f5f6a"), Color("6b4a2c"), Color("2f4f4a")][(b.tint + b.roof) % 4]     # dark wood, or old blue-green paint
 		var doors: Array = b.doors

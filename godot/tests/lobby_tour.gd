@@ -57,7 +57,7 @@ func _run() -> void:
 	await wait(0.4)
 	await shot("tour_mode_picker")
 	lobby._mode_picker()
-	for page in ["inventory", "cards", "workshop", "season", "missions", "mail", "clan", "shop", "crate", "events", "settings", "mode", "help"]:
+	for page in ["inventory", "cards", "workshop", "season", "missions", "achievements", "mail", "clan", "shop", "crate", "events", "settings", "mode", "help"]:
 		lobby._open(page)
 		await wait(0.8)
 		await shot("tour_" + page)
