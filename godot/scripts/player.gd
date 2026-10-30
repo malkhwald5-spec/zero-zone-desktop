@@ -1433,7 +1433,7 @@ func _update_camera(delta: float) -> void:
 		"fall":
 			# Close behind and a little above, the body big in the frame (PUBG).
 			length = 3.2 + dive * 0.4
-			head.y -= 0.5
+			head.y += 0.35        # the view aims a little above the body: it sits in the lower middle
 			shoulder = 0.0
 		"chute":
 			# Level with the body hanging under the canopy (canopy at the top of
