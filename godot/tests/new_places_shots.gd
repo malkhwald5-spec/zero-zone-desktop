@@ -103,6 +103,7 @@ func _run() -> void:
 	p.velocity = Vector3.ZERO
 	p.yaw = 0.6
 	p.pitch = -0.05
+	Game.settings.lite = false     # (the slow test machine trips the auto drop to weak-phone mode)
 	if dunes:
 		if world.events: world.events._storm_t = 40.0
 		world.region_fx.storm = 1.0

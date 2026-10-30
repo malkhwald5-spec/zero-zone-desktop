@@ -29,7 +29,13 @@ func setup(w: Node) -> void:
 func _process(delta: float) -> void:
 	var p: Node3D = world.player
 	var cam := get_viewport().get_camera_3d()
-	if p == null or cam == null or Game.lite(): return
+	if p == null or cam == null: return
+	# The sandstorm's haze is part of the game (it hides you): always on.
+	_storm_fog(delta)
+	# The little particles are only looks: off on weak phones.
+	if Game.lite():
+		if _kind != "": _make("")
+		return
 	var want := ""
 	var q: Vector3 = p.global_position
 	if p.get("state") != "plane":
@@ -44,7 +50,6 @@ func _process(delta: float) -> void:
 	if want != _kind: _make(want)
 	if _p:
 		_p.global_position = cam.global_position + Vector3(0, -1.0 if _kind == "sand" else 2.0, 0)
-	_storm_fog(delta)
 
 func _make(kind: String) -> void:
 	_kind = kind
