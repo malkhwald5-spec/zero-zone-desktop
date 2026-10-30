@@ -1422,8 +1422,8 @@ func _update_camera(delta: float) -> void:
 	var w := weapon()
 	var zoom: float = w.get("zoom", 1.0) if aiming and state == "ground" else 1.0
 	view_zoom = zoom
-	var length := 2.55
-	var shoulder := 0.62
+	var length := 2.85
+	var shoulder := 0.8
 	match state:
 		"plane":
 			length = 26.0
@@ -1446,8 +1446,8 @@ func _update_camera(delta: float) -> void:
 	if is_sprinting and state == "ground" and not aiming:
 		length += 0.35          # sprinting: the camera drops back a touch (feel of speed)
 	if aiming and state == "ground":
-		length = 0.0 if scoped() else 1.5
-		shoulder = 0.0 if scoped() else 0.45
+		length = 0.0 if scoped() else 2.1
+		shoulder = 0.0 if scoped() else 0.62
 	if state == "ground" and absf(peek) > 0.01:
 		# Lean: the eyes move out to the side (not into a wall) and drop a little.
 		var side := cam_rig.global_transform.basis.x * signf(peek)
