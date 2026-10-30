@@ -781,11 +781,18 @@ func _land() -> void:
 		global_position = world.safe_landing(global_position)
 		reset_physics_interpolation()
 		message.emit("اجمع الأسلحة بسرعة!")
-		if hv.length() > 3.0 and (move_input.length() > 0.3 or vy < -6.5):
-			# As in PUBG: down on the feet and straight into a run, no stopping
-			# (coming in fast with W held just carries more speed).
+		if vy < -6.5 and hv.length() > 8.0 and model.ap.has_animation("mx/fall_roll"):
+			# Came in fast (diving with W): feet, knees and over onto the shoulder.
+			velocity = hv * 0.35
+			hard_land_t = 1.0
+			model.play_action("fall_roll", 1.25, 0.5, 2.13)
+		elif vy < -6.5 and model.ap.has_animation("mx/hard_land2"):
+			velocity = Vector3.ZERO
+			hard_land_t = 1.0
+			model.play_action("hard_land2", 1.2, 0.25, 2.0)
+		elif move_input.length() > 0.3 and hv.length() > 3.0:
+			# Flared in still going: run it out, as in PUBG.
 			velocity = hv * 0.6
-			land_t = 0.15
 		else:
 			velocity = Vector3.ZERO
 			# Feet first, knees give, back up (motion capture of a drop).
