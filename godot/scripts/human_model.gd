@@ -1305,7 +1305,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			# The air is never still: a buffet that grows with the speed.
 			var bf := 0.012 + d * 0.03
 			var buf := Vector3(sin(t * 7.3 + _seed) + sin(t * 12.1) * 0.5, 0.0, sin(t * 5.7 + _seed * 2.0) + sin(t * 10.9) * 0.4) * bf
-			body.rotation = Vector3(-d * 1.15 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
+			body.rotation = Vector3(-d * 1.4 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
 			if exit_k > 0.0:
 				# Out of the door feet first, then tipping forward onto the belly
 				# with a little roll and wobble before the arch takes hold.
@@ -1681,7 +1681,10 @@ func _fly_limbs(t: float, d: float) -> void:
 		var now: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Hand"]).origin
 		var swept := hips + up_body * 0.1 + across * sd * 0.3 + Vector3(0, 0.12, 0)
 		var forward := sh + up_body * 0.45 + across * sd * 0.22
-		var want := now.lerp(swept, track * 0.85).lerp(forward, reach * 0.7)
+		# Belly to earth as in PUBG: arms bent up and forward beside the head
+		# (elbows out), not spread out straight.
+		var frog := sh + up_body * 0.3 + across * sd * 0.3 + Vector3(0, 0.12, 0)
+		var want := now.lerp(frog, 0.75).lerp(swept, track * 0.9).lerp(forward, reach * 0.7)
 		# Into a turn: the inside shoulder dips, the outside arm lifts.
 		want += Vector3(0, -sd * _fall_k.z * 0.16, 0)
 		want += Vector3(0, sin(t * 19.0 + sd * 1.7 + _seed) * 0.012 * (1.0 + track), 0)
@@ -1689,7 +1692,9 @@ func _fly_limbs(t: float, d: float) -> void:
 		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Foot"]).origin
 		var knee: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Leg"]).origin
 		var together := hips - up_body * 0.95 + across * sd * 0.1
-		var fw := foot.lerp(together, track * 0.7)
+		# Knees bent, the feet up behind (the arch), together in a dive.
+		var arch := hips - up_body * 0.62 + across * sd * 0.2 + Vector3(0, 0.28, 0)
+		var fw := foot.lerp(arch, 0.6).lerp(together, track * 0.85)
 		fw += Vector3(0, sin(t * 4.1 + sd + _seed) * 0.02, 0)
 		_leg(side[0], fw, (knee - (hips + foot) * 0.5).normalized())
 

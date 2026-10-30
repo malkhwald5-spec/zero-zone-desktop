@@ -19,6 +19,7 @@ const LOOKS := {
 	"ash": [Color(1.0, 0.5, 0.15, 0.9), 0.035, Vector3(0.2, 0.35, 0.0), 120, Vector3(14, 6, 14)],
 	"leaves": [Color(0.75, 0.8, 0.35, 0.8), 0.06, Vector3(0.6, -0.4, 0.2), 50, Vector3(14, 6, 14)],
 	"sand": [Color(0.9, 0.75, 0.5, 0.55), 0.05, Vector3(4.0, -0.2, 1.0), 160, Vector3(16, 1.5, 16)],
+	"clouds": [Color(1, 1, 1, 0.32), 14.0, Vector3.ZERO, 46, Vector3(70, 14, 70)],
 	"sandstorm": [Color(0.86, 0.68, 0.42, 0.55), 0.07, Vector3(14.0, -0.3, 3.0), 900, Vector3(14, 6, 14)],
 }
 
@@ -38,7 +39,11 @@ func _process(delta: float) -> void:
 		return
 	var want := ""
 	var q: Vector3 = p.global_position
-	if p.get("state") != "plane":
+	var alt: float = q.y - world.ground_height(q)
+	if p.get("state") == "fall" and alt > 230.0:
+		# High up in the freefall: wisps of cloud rush past (as in PUBG).
+		want = "clouds"
+	elif p.get("state") != "plane":
 		if world.island.map_id == "dunes":
 			want = "sandstorm" if storm > 0.3 else "sand"
 		else:
@@ -49,7 +54,8 @@ func _process(delta: float) -> void:
 	if p.get("state") == "ground" and world.roofed_at(q) >= 0 and want != "sandstorm": want = ""
 	if want != _kind: _make(want)
 	if _p:
-		_p.global_position = cam.global_position + Vector3(0, -1.0 if _kind == "sand" else 2.0, 0)
+		var off := -1.0 if _kind == "sand" else (-45.0 if _kind == "clouds" else 2.0)
+		_p.global_position = cam.global_position + Vector3(0, off, 0)
 
 func _make(kind: String) -> void:
 	_kind = kind
@@ -61,7 +67,7 @@ func _make(kind: String) -> void:
 	var d: Array = LOOKS[kind]
 	_p = CPUParticles3D.new()
 	_p.amount = d[3]
-	_p.lifetime = 3.0 if kind in ["snow", "ash", "leaves"] else 1.4
+	_p.lifetime = 3.0 if kind in ["snow", "ash", "leaves"] else (2.2 if kind == "clouds" else 1.4)
 	_p.local_coords = false
 	_p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
 	_p.emission_box_extents = d[4]

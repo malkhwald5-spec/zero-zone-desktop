@@ -398,7 +398,9 @@ func _tick_revive(delta: float) -> void:
 func jump_from_plane() -> void:
 	state = "fall"
 	reset_physics_interpolation()
-	velocity = world.plane_velocity() * 0.5
+	# Out of the door straight into the fall at about 126 km/h (as in PUBG).
+	var pv: Vector3 = world.plane_velocity()
+	velocity = Vector3(pv.x, 0, pv.z).normalized() * 18.0 + Vector3(0, -29.0, 0)
 	dive = 0.0
 	fall_lean = 0.0
 	exit_t = 0.0
@@ -1518,7 +1520,11 @@ func _process(delta: float) -> void:
 	if camera.far != far: camera.far = far
 	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.03
 	_update_sway(delta)
-	cam_pivot.rotation = Vector3(clampf(pitch + look_off.y, -1.35, 1.0) + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh
+	# Skydiving the view stays behind the back (looking down steers the dive,
+	# the camera only tips part of the way) so the body stays big in frame.
+	var cam_pitch := clampf(pitch + look_off.y, -1.35, 1.0)
+	if state == "fall": cam_pitch = clampf(cam_pitch * 0.55, -0.62, 0.3)
+	cam_pivot.rotation = Vector3(cam_pitch + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh
 	if _cam_low_water:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 
@@ -1582,7 +1588,7 @@ func _update_model(delta: float) -> void:
 	var target_yaw := yaw
 	if state == "fall" and move_input.length() > 0.1 and move_input.y < 0.0:
 		target_yaw = yaw    # backing up: keep facing forward
-	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (4.0 if state == "fall" else 12.0)))
+	var ry := lerp_angle(model.rotation.y, target_yaw, minf(1.0, delta * (9.0 if state == "fall" else 12.0)))
 	# Standing still empty-handed and turning the camera: the body stays put
 	# until the look is well round, then steps round 90° on the spot. With a
 	# gun in hand the body always turns with the camera (the gun points where
@@ -1650,7 +1656,7 @@ func _update_model(delta: float) -> void:
 	model.lean = fall_lean if state == "fall" else 0.0
 	model.fall_in = move_input if state == "fall" else Vector2.ZERO
 	if state == "fall": exit_t += delta
-	model.exit_k = 1.0 - smoothstep(0.0, 1.3, exit_t) if state == "fall" else 0.0
+	model.exit_k = 1.0 - smoothstep(0.0, 0.55, exit_t) if state == "fall" else 0.0
 	model.peek = peek if state == "ground" else 0.0
 	land_t = maxf(land_t - delta, 0.0)
 	var pose := "stand"
@@ -1698,7 +1704,7 @@ func _update_wind() -> void:
 			vol = -10.0
 			pitch_s = 0.45
 		"fall":
-			vol = lerpf(-14.0, -2.0, clampf((air_speed - 80.0) / 150.0, 0.0, 1.0))
+			vol = lerpf(-8.0, -1.0, clampf((air_speed - 100.0) / 134.0, 0.0, 1.0))
 			pitch_s = lerpf(0.8, 1.4, clampf(air_speed / 234.0, 0.0, 1.0))
 		"chute":
 			vol = -20.0 + (1.0 - model.chute_open) * 14.0
