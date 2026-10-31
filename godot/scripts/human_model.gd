@@ -1311,7 +1311,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			# The air is never still: a buffet that grows with the speed.
 			var bf := 0.004 + d * 0.008
 			var buf := Vector3(sin(t * 7.3 + _seed) + sin(t * 12.1) * 0.5, 0.0, sin(t * 5.7 + _seed * 2.0) + sin(t * 10.9) * 0.4) * bf
-			body.rotation = Vector3(-d * 1.4 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
+			body.rotation = Vector3(-d * 0.9 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
 			if exit_k > 0.0:
 				# Out of the door feet first, then tipping forward onto the belly
 				# with a little roll and wobble before the arch takes hold.
@@ -1680,13 +1680,9 @@ func _place_gun(pose: String, delta: float) -> void:
 ## body and brings the legs together (a "track"), backing off reaches the
 ## arms forward, steering drops one shoulder; the hands flutter in the wind.
 func _fly_limbs(t: float, d: float) -> void:
-	# Clean set poses (as in PUBG), worked out in the body's own frame, eased
-	# from one to the next; only a faint flutter on top.
-	#   belly to earth: upper arms out to the sides, elbows bent, hands
-	#     level with the head; knees bent, the feet up behind;
-	#   dive: head down, arms straight down along the body a little out,
-	#     legs straight and together;
-	#   backing off: arms reach forward.
+	# A clean set pose (as in PUBG), worked out in the body's own frame and
+	# eased; only a faint flutter on top: arms straight down beside the body
+	# a little out, legs straight and together; backing off, arms reach forward.
 	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
 	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
 	var lsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["LeftArm"]).origin
@@ -1705,17 +1701,16 @@ func _fly_limbs(t: float, d: float) -> void:
 		var nm: String = side[0]
 		var sd: float = side[1]
 		var sh: Vector3 = side[2]
-		var spread := sh + across * sd * 0.42 + up_body * 0.16 + belly * 0.1
-		var along := hips + across * sd * 0.3 - up_body * 0.02 - belly * 0.06
+		# As in PUBG: arms straight down beside the body, a little out, palms
+		# out; legs straight and together. Calm, the same flat or diving.
+		var side_hand := hips + across * sd * 0.34 + up_body * 0.08 - belly * 0.04
 		var ahead := sh + up_body * 0.46 + across * sd * 0.24
-		var hand := spread.lerp(along, dive_k).lerp(ahead, reach * 0.8)
+		var hand := side_hand.lerp(ahead, reach * 0.8)
 		# Turning: the inside arm drops a touch.
-		hand += belly * (sd * _fall_k.z * 0.06)
-		hand += up_body * (sin(t * 9.0 + sd * 1.3 + _seed) * 0.006)
-		var elbow := (across * sd - belly * 0.6).normalized().lerp(-belly, dive_k)
-		var foot_bent := hips - up_body * 0.55 + across * sd * 0.17 - belly * 0.38
-		var foot_straight := hips - up_body * 0.97 + across * sd * 0.07
-		var foot := foot_bent.lerp(foot_straight, dive_k)
+		hand += belly * (sd * _fall_k.z * 0.05)
+		hand += up_body * (sin(t * 9.0 + sd * 1.3 + _seed) * 0.004)
+		var elbow := (across * sd * 0.6 - belly).normalized()
+		var foot := hips - up_body * 0.97 + across * sd * 0.08
 		var knee := (belly - up_body * 0.3).normalized()
 		var ht: Vector3 = _fl_targets.get(nm + "h", hand)
 		var ft: Vector3 = _fl_targets.get(nm + "f", foot)

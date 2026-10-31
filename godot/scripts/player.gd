@@ -1434,9 +1434,7 @@ func _update_camera(delta: float) -> void:
 		"fall":
 			# Close behind and a little above, the body big in the frame (PUBG).
 			length = 3.2 + dive * 0.4
-			# Belly down the view aims a little above the body (it sits in the lower
-			# middle); head-down in a dive the body hangs below the hips, so lower.
-			head.y += lerpf(0.35, -0.9, dive)
+			head.y -= 0.75        # the view centres on the back, not above the head
 			shoulder = 0.0
 		"chute":
 			# Level with the body hanging under the canopy (canopy at the top of
@@ -1528,7 +1526,10 @@ func _process(delta: float) -> void:
 	# Skydiving the view stays behind the back (looking down steers the dive,
 	# the camera only tips part of the way) so the body stays big in frame.
 	var cam_pitch := clampf(pitch + look_off.y, -1.35, 1.0)
-	if state == "fall": cam_pitch = clampf(cam_pitch * lerpf(0.55, 0.8, dive), lerpf(-0.62, -0.95, dive), 0.3)
+	# Skydiving (as in PUBG) the view looks down on your back from above:
+	# the island below fills the screen, your head points the way you fly.
+	# Looking down a bit more (the dive) tips it right over; up, eases off.
+	if state == "fall": cam_pitch = clampf(-1.15 + (pitch + look_off.y) * 0.3, -1.45, -0.7)
 	var roll := -peek * 0.12 + (chute_bank * 0.25 if state == "chute" else 0.0)     # under the canopy the view leans into turns
 	cam_pivot.rotation = Vector3(cam_pitch + recoil_kick * 0.004 + _sway.y, _sway.x, roll) + sh
 	if _cam_low_water:
