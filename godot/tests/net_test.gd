@@ -20,6 +20,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a == "--join": role = "join"
 	Game.settings.controls = "touch"
+	Game.settings.net_bots = false      # just the two of them (see net_bots_test for the host's bots)
 	Game.profile.name = "HOST" if role == "host" else "GUEST"
 	_run.call_deferred()
 

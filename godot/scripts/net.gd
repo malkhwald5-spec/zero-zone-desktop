@@ -23,6 +23,11 @@ var is_host := false
 var roster := {}                  # peer id -> {name, outfit}
 var rooms := {}                   # host address -> {name, players, t}
 var match_seed := 0
+var bot_count := 0                # bots the host runs in this match (everyone sees them)
+## Online the host fills the island with bots up to this many players, so a
+## match with two friends isn't an empty island (fewer on a phone host).
+const FILL_DESKTOP := 32
+const FILL_PHONE := 20
 var weather := "clear"
 var map_id := "seasons"
 var world: Node = null            # the match, while one is running
@@ -30,6 +35,8 @@ var _udp: PacketPeerUDP
 var _find: PacketPeerUDP
 var _beacon_t := 0.0
 var _send_t := 0.0
+var _bots_t := 0.0
+const BOTS_HZ := 8.0
 var _loaded := {}
 var _budget := {}                 # peer id -> [shots, hits, since] they may still send this second
 const MAX_ROOMS := 16
@@ -89,6 +96,7 @@ func _close() -> void:
 	active = false
 	in_match = false
 	is_host = false
+	bot_count = 0
 	roster = {}
 	_loaded = {}
 	_budget = {}
@@ -146,6 +154,11 @@ func _process(delta: float) -> void:
 			_send_t = 1.0 / SEND_HZ
 			var st: Dictionary = world.net_my_state()
 			if not st.is_empty(): _state.rpc(st)
+		if is_host and bot_count > 0:
+			_bots_t -= delta
+			if _bots_t <= 0.0:
+				_bots_t = 1.0 / BOTS_HZ
+				send_bots(world.net_bot_states())
 
 func _on_connected() -> void:
 	_hello.rpc_id(1, _my_info())
@@ -229,11 +242,14 @@ func _roster(r: Dictionary) -> void:
 ## Host: everyone into the match, on the same island.
 func start_match() -> void:
 	if not is_host: return
-	_begin.rpc(randi(), Game.pick_weather(), Game.pick_map())
+	var fill := FILL_PHONE if Game.phone() else FILL_DESKTOP
+	var n := maxi(0, fill - roster.size()) if bool(Game.settings.get("net_bots", true)) else 0
+	_begin.rpc(randi(), Game.pick_weather(), Game.pick_map(), n)
 
 @rpc("authority", "call_local", "reliable")
-func _begin(s: int, w: String, m := "seasons") -> void:
+func _begin(s: int, w: String, m := "seasons", bots := 0) -> void:
 	match_seed = s
+	bot_count = clampi(bots, 0, 64)
 	weather = w
 	map_id = m if Game.MAPS.has(m) else "seasons"
 	in_match = true
@@ -307,6 +323,47 @@ func send_taken(nid: int) -> void:
 func _taken(nid: int) -> void:
 	var id := multiplayer.get_remote_sender_id()
 	if known(id) and world and is_instance_valid(world): world.net_taken(id, nid)
+
+# ---------------------------------------------------------------- the host's bots
+## Host: where every bot is and what it is doing (a few times a second).
+func send_bots(states: Array) -> void:
+	if in_match and is_host: _bots.rpc(states)
+
+@rpc("authority", "unreliable_ordered")
+func _bots(states: Array) -> void:
+	if world and is_instance_valid(world) and states.size() <= 128: world.net_bots_report(states)
+
+func send_bot_shot(i: int, from: Vector3, to: Vector3, cls: String, gun: String) -> void:
+	if in_match and is_host: _bot_shot.rpc(i, from, to, cls, gun)
+
+@rpc("authority", "unreliable")
+func _bot_shot(i: int, from: Vector3, to: Vector3, cls: String, gun: String) -> void:
+	if world and is_instance_valid(world): world.net_bot_shot(i, from, to, cls, gun)
+
+## You hit one of the host's bots: the host takes it off.
+func send_bot_hit(i: int, amount: float, head: bool) -> void:
+	if in_match and not is_host: _bot_hit.rpc_id(1, i, amount, head)
+
+@rpc("any_peer", "reliable")
+func _bot_hit(i: int, amount: float, head: bool) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if is_host and _spend(id, 1) and world and is_instance_valid(world): world.net_bot_hit(id, i, amount, head)
+
+## Host: a bot hit a friend; their game takes the damage.
+func send_hit_from_bot(victim: int, i: int, amount: float, head: bool) -> void:
+	if in_match and is_host: _hit_from_bot.rpc_id(victim, i, amount, head)
+
+@rpc("authority", "reliable")
+func _hit_from_bot(i: int, amount: float, head: bool) -> void:
+	if world and is_instance_valid(world): world.net_hit_from_bot(i, amount, head)
+
+## Host: a bot died (killer: a player's id, -(bot + 1) for a bot, 0 = the zone).
+func send_bot_died(i: int, killer: int) -> void:
+	if in_match and is_host: _bot_died.rpc(i, killer)
+
+@rpc("authority", "reliable")
+func _bot_died(i: int, killer: int) -> void:
+	if world and is_instance_valid(world): world.net_bot_died(i, killer)
 
 ## Back to the lobby after a match: the room stays open for the next one.
 func match_over() -> void:

@@ -45,6 +45,7 @@ var loading: LoadingScreen
 var ready_done := false
 var _lava_tick := 0.0
 var puppets := {}                  # online match: peer id -> RemotePlayer (the other people)
+var net_bots: Array = []           # online match: the host's bots by number (real on the host, puppets elsewhere)
 var net_started := false           # online match: everyone has loaded, the countdown runs
 var _nid_on := false               # numbering the loot as it is laid out (same on every machine)
 var _nid := 0
@@ -138,6 +139,21 @@ func _build() -> void:
 			rp.global_position = plane_position()
 			bots.append(rp)
 			puppets[int(id)] = rp
+		# The host's bots: real ones on the host, puppets everywhere else.
+		if Net.bot_count > 0:
+			if Net.is_host:
+				var before := bots.size()
+				_spawn_bots(Net.bot_count)
+				net_bots = bots.slice(before)
+			else:
+				for i in Net.bot_count:
+					var bp := RemotePlayer.new()
+					bp.setup(self, -(i + 1), {"name": BOT_NAMES[i % BOT_NAMES.size()], "outfit": (i * 7) % Game.WARDROBE.size()})
+					add_child(bp)
+					bp.global_position = plane_position()
+					bots.append(bp)
+					net_bots.append(bp)
+			for i in net_bots.size(): net_bots[i].net_index = i
 	else:
 		_spawn_bots()
 	if Game.spawn_island:
@@ -246,12 +262,95 @@ func net_shot(id: int, from: Vector3, to: Vector3, cls: String, gun: String) -> 
 	# Only from someone alive, from where they stand, and a sane length.
 	if rp == null or rp.dead or not from.is_finite() or not to.is_finite(): return
 	if from.distance_to(rp.global_position) > 8.0 or from.distance_to(to) > 1200.0: return
+	_show_net_shot(rp, from, to, cls, gun)
+
+func _show_net_shot(rp: RemotePlayer, from: Vector3, to: Vector3, cls: String, gun: String) -> void:
+	if rp.dead or not from.is_finite() or not to.is_finite() or from.distance_to(rp.global_position) > 8.0 or from.distance_to(to) > 1200.0: return
 	if not Game.WEAPONS.has(gun) or not cls in ["pistol", "smg", "shotgun", "ar", "dmr", "sr", "lmg", "crossbow", "melee"]: gun = ""
 	effects.tracer(from, to)
 	if hud and player.global_position.distance_to(from) < 220.0: hud.sound_mark(from, "shot")
 	sound_shot(cls if gun != "" else "ar", from, false, false, gun)
 	rp.model.recoil = 1.0
 	effects.muzzle_flash(from)
+
+# ---------------------------------------------------------------- the host's bots online
+## A person (you or a friend), not a bot: bots treat everyone alike.
+func is_human(n: Node) -> bool:
+	return n == player or (n is RemotePlayer and (n as RemotePlayer).peer > 0)
+
+## Who did it, as a number every game understands: a player's id, -(bot + 1)
+## for one of the host's bots, 0 for nobody (the zone, a fall).
+func net_killer_id(n: Node) -> int:
+	if n == null or not is_instance_valid(n): return 0
+	if n == player: return Net.me()
+	if n is RemotePlayer: return (n as RemotePlayer).peer
+	if n is Bot and (n as Bot).net_index >= 0: return -((n as Bot).net_index + 1)
+	return 0
+
+func net_node(id: int) -> Node:
+	if id == 0: return null
+	if id == Net.me(): return player
+	if id < 0:
+		var i := -id - 1
+		return net_bots[i] if i < net_bots.size() else null
+	return puppets.get(id)
+
+## Host: every living bot's state (the same fields as a player's report).
+func net_bot_states() -> Array:
+	var out := []
+	for b in net_bots:
+		var bot: Bot = b
+		if bot.dead: continue
+		var st := {"p": bot.global_position, "y": bot.yaw, "s": bot.state, "st": bot.net_stance, "v": bot.velocity,
+			"w": bot.weapon_id, "a": bot.model.aiming, "sp": bot.model.sprinting, "rl": bot.model.reload_p, "h": bot.health,
+			"k": bot.knocked, "dv": bot.model.dive, "fl": bot.is_on_floor() or bot.state != "ground",
+			"gv": int(bot.gear.vest), "gh": int(bot.gear.helmet), "gp": int(bot.gear.pack)}
+		if bot.state == "vehicle" and bot.vehicle:
+			st.vn = int(bot.vehicle.get_meta("nid", -1))
+			st.vx = bot.vehicle.global_transform
+		out.append([bot.net_index, st])
+	return out
+
+## The host's report on its bots.
+func net_bots_report(states: Array) -> void:
+	if Net.is_host: return
+	for e in states:
+		if typeof(e) != TYPE_ARRAY or e.size() != 2 or typeof(e[0]) != TYPE_INT or typeof(e[1]) != TYPE_DICTIONARY: continue
+		var i: int = e[0]
+		if i < 0 or i >= net_bots.size(): continue
+		var clean := _net_clean_state(e[1])
+		if not clean.is_empty(): net_bots[i].apply(clean)
+
+func net_bot_shot(i: int, from: Vector3, to: Vector3, cls: String, gun: String) -> void:
+	if Net.is_host or i < 0 or i >= net_bots.size(): return
+	_show_net_shot(net_bots[i], from, to, cls, gun)
+
+## Host: a friend hit one of the bots.
+func net_bot_hit(id: int, i: int, amount: float, head: bool) -> void:
+	var rp: RemotePlayer = puppets.get(id)
+	if rp == null or rp.dead or i < 0 or i >= net_bots.size() or not is_finite(amount) or amount <= 0.0: return
+	var b: Bot = net_bots[i]
+	if b.dead or rp.global_position.distance_to(b.global_position) > 1100.0: return
+	b.take_damage(minf(amount, NET_MAX_HIT), rp, head)
+
+## A bot (on the host) hit you.
+func net_hit_from_bot(i: int, amount: float, head: bool) -> void:
+	if spawn != null or player.state == "dead" or i < 0 or i >= net_bots.size(): return
+	var bp: RemotePlayer = net_bots[i]
+	if bp.dead or not is_finite(amount) or amount <= 0.0: return
+	player.take_damage(minf(amount, NET_MAX_HIT), bp, head)
+
+## Host: a bot is dead.
+func net_bot_died(i: int, killer: int) -> void:
+	if Net.is_host or i < 0 or i >= net_bots.size(): return
+	var bp: RemotePlayer = net_bots[i]
+	if bp.dead: return
+	if killer == Net.me() and Time.get_ticks_msec() - bp.hit_by_me_t > 8000: killer = 0
+	var by: Node = net_node(killer)
+	if by == player:
+		player.kills += 1
+		player.hit_confirmed.emit(false, true, bp.global_position + Vector3(0, 1.2, 0))
+	bp._die(by)
 
 ## Most one hit can do (a Kar98k to an unprotected head, with room to spare).
 const NET_MAX_HIT := 260.0
@@ -270,7 +369,7 @@ func net_died(id: int, killer: int) -> void:
 	if rp == null or rp.dead: return
 	# Credit for the kill only if we really hit them a moment ago.
 	if killer == Net.me() and Time.get_ticks_msec() - rp.hit_by_me_t > 8000: killer = 0
-	var by: Node = player if killer == Net.me() else puppets.get(killer)
+	var by: Node = net_node(killer)
 	if by == player:
 		player.kills += 1
 		player.hit_confirmed.emit(false, true, rp.global_position + Vector3(0, 1.2, 0))
@@ -281,7 +380,7 @@ func net_taken(id: int, nid: int) -> void:
 	var rp: RemotePlayer = puppets.get(id)
 	# Only something within reach of whoever says they took it.
 	if rp == null or rp.dead: return
-	if it and is_instance_valid(it) and it.global_position.distance_to(rp.global_position) < 10.0:
+	if it and is_instance_valid(it) and (it.global_position.distance_to(rp.global_position) < 10.0 or (id == 1 and Net.bot_count > 0)):
 		_net_removing = true
 		_remove_pickup(it)
 		_net_removing = false
@@ -729,6 +828,7 @@ const PERSONA_TAGS := {"sniper": " 🎯", "rusher": " ⚡", "camper": " 🛡"}
 
 ## The bot that killed you last match is back, and comes looking for you.
 func _place_rival() -> void:
+	if Net.in_match: return       # online everyone sees the same bots
 	var rv: Dictionary = Game.profile.get("rival", {})
 	if rv.is_empty(): return
 	for b in bots:
@@ -740,14 +840,34 @@ func _place_rival() -> void:
 		if hud: create_tween().tween_callback(hud.show_banner.bind("☠ %s — اللي قتلك آخر مرة — موجود بهالمباراة وجاي يدوّر عليك!" % b.display_name)).set_delay(10.0)
 		return
 
-func _spawn_bots() -> void:
+## How the player has been doing lately: 0 (always out early, no kills) ..
+## 1 (winning, many kills); 0.5 = an average player. Bots follow it a little
+## so nobody is crushed every match or bored winning every one.
+func player_form() -> float:
+	var h: Array = Game.stats.get("history", []) if typeof(Game.stats.get("history")) == TYPE_ARRAY else []
+	if h.size() < 2: return 0.5
+	var place := 0.0
+	var kills := 0.0
+	var n := mini(h.size(), 5)
+	for i in n:
+		var m: Dictionary = h[i] if typeof(h[i]) == TYPE_DICTIONARY else {}
+		var teams := maxf(float(m.get("teams", 50)), 2.0)
+		place += 1.0 - clampf((float(m.get("rank", teams)) - 1.0) / (teams - 1.0), 0.0, 1.0)
+		kills += float(m.get("kills", 0))
+	return clampf(place / n * 0.7 + clampf(kills / n / 8.0, 0.0, 1.0) * 0.3, 0.0, 1.0)
+
+func _spawn_bots(count := -1) -> void:
 	var dir := plane_to - plane_from
-	team_size = Game.team_size()
+	team_size = Game.team_size() if not Net.in_match else 1
 	var lead_dest := Vector3.ZERO
 	var lead_jump := 0.5
 	var n_bots := BOT_COUNT_MOBILE if OS.has_feature("mobile") or quick() else BOT_COUNT
 	# The small map holds fewer (60 players on 4 km, as on the mobile shooters' small maps).
 	n_bots = mini(n_bots, int(Game.MAPS.get(Game.current_map, Game.MAPS.seasons).players) - 1)
+	if count >= 0: n_bots = count
+	# Offline the bots follow your form a little (up to ±0.12); online they
+	# play to the room's setting for everyone alike.
+	var form_adj := 0.0 if Net.in_match else clampf((player_form() - 0.5) * 0.3, -0.12, 0.12)
 	for i in n_bots:
 		var b := Bot.new()
 		b.world = self
@@ -761,11 +881,13 @@ func _spawn_bots() -> void:
 		else:
 			b.team = 1 + (i - (team_size - 1)) / team_size
 			b.slot = (i - (team_size - 1)) % team_size
-		b.skill = clampf({"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + randf_range(-0.15, 0.15), 0.05, 0.95)
+		b.skill = clampf({"easy": 0.25, "normal": 0.5, "hard": 0.8}.get(Game.settings.difficulty, 0.5) + form_adj + randf_range(-0.15, 0.15), 0.05, 0.95)
 		# The first two matches go easy on a new player.
-		if Game.stats.games < 2: b.skill = minf(b.skill, randf_range(0.12, 0.3))
+		if Game.stats.games < 2 and not Net.in_match: b.skill = minf(b.skill, randf_range(0.12, 0.3))
+		# Your teammates are worth having: never the weakest.
+		if b.buddy: b.skill = clampf(maxf(b.skill, 0.5) + 0.05, 0.05, 0.85)
 		# Some play a way of their own (shown after the name in the kill feed).
-		if not b.buddy and b.team != 0:
+		if not b.buddy and b.team != 0 and not Net.in_match:
 			var r := randf()
 			b.persona = "sniper" if r < 0.15 else ("rusher" if r < 0.3 else ("camper" if r < 0.42 else ""))
 			b.display_name += PERSONA_TAGS.get(b.persona, "")

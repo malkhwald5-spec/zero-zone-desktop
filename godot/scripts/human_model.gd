@@ -1630,8 +1630,8 @@ func _place_gun(pose: String, delta: float) -> void:
 		_still_k = move_toward(_still_k, still if pose == "stand" and not pistol else 0.0, delta * 3.0)
 		if _still_k > 0.0:
 			var ks := smoothstep(0.0, 1.0, _still_k)
-			var across := Basis.looking_at(Vector3(-0.76, -0.44, -0.48).normalized(), Vector3(0.1, 1.0, 0.3).normalized())
-			pos = pos.lerp(Vector3(0.15, 1.28, -0.23), ks)
+			var across := Basis.looking_at(Vector3(-0.8, -0.27, -0.53).normalized(), Vector3(0.1, 1.0, 0.3).normalized())
+			pos = pos.lerp(Vector3(0.13, 1.38, -0.3), ks)
 			rot = rot.lerp(across.get_euler(EULER_ORDER_YXZ), ks)
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:

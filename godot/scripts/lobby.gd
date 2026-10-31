@@ -1310,6 +1310,13 @@ func _friends_fill() -> void:
 		var ips := Net.local_addresses()
 		if not ips.is_empty():
 			v.add_child(UiKit.label("عنوان غرفتك: " + ", ".join(ips), 15, Color(1, 1, 1, 0.7), null, 0))
+		# Bots fill the island up for everyone (on by default; off = only you lot).
+		var bots_on := bool(Game.settings.get("net_bots", true))
+		var fill := Net.FILL_PHONE if Game.phone() else Net.FILL_DESKTOP
+		v.add_child(_small_btn(("🤖 بوتات معكم: شغّالة (%d لاعب بالمباراة)" % fill) if bots_on else "🤖 بوتات معكم: طافية (بس انتو)", func():
+			Game.settings.net_bots = not bots_on
+			Game.save_data()
+			_friends_fill(), true, bots_on))
 		var go := UiKit.yellow_button("ابدأ المباراة", func(): Net.start_match(), Vector2(280, 56), 24)
 		go.disabled = Net.roster.size() < 2
 		go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

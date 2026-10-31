@@ -1410,7 +1410,7 @@ func _die(attacker: Node, _head: bool) -> void:
 	dead_t = 0.0
 	firing = false
 	world.on_actor_killed(self, attacker)
-	if Net.in_match: Net.send_died(attacker.peer if attacker is RemotePlayer else 0)
+	if Net.in_match: Net.send_died(world.net_killer_id(attacker))
 	died.emit(attacker.display_name if attacker and "display_name" in attacker else "")
 
 # ---------- Camera and model ----------

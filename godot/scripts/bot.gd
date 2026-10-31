@@ -60,6 +60,8 @@ var _pose_dt := 0.0
 var hurt_t := 99.0           # seconds since it was last shot
 var blind_t := 0.0           # seconds left blinded by a flashbang
 var team := 0                # same team = no friendly fire, revive each other
+var net_index := -1          # online: this bot's number in the host's list (-1 = not shared)
+var net_stance := "stand"    # how it stands (sent to the other games online)
 var slot := 0                # number in its team (colour)
 var buddy := false           # your teammate: drops with you, follows you
 var knocked := false         # down in a team match: crawls and bleeds out
@@ -186,6 +188,7 @@ func _die(attacker: Node) -> void:
 	velocity = Vector3.ZERO
 	model.set_pose("dead", 0.0, false, 0.016, 0.0)
 	world.on_actor_killed(self, attacker)
+	if net_index >= 0 and Net.is_host: Net.send_bot_died(net_index, world.net_killer_id(attacker))
 
 # ---------------------------------------------------------------- per frame
 func _physics_process(delta: float) -> void:
@@ -386,7 +389,8 @@ func _ground(delta: float) -> void:
 		model.downed = knocked
 		model.reviving = revive_mate != null and is_instance_valid(revive_mate) and global_position.distance_to(revive_mate.global_position) < 2.2
 		model.foot_ik = on_screen and is_on_floor() and d_player < 30.0
-		model.set_pose("prone" if knocked else ("crouch" if low else "stand"), Vector2(velocity.x, velocity.z).length(), armed() and not knocked, _pose_dt, world.time)
+		net_stance = "prone" if knocked else ("crouch" if low else "stand")
+		model.set_pose(net_stance, Vector2(velocity.x, velocity.z).length(), armed() and not knocked, _pose_dt, world.time)
 		_pose_dt = 0.0
 
 # ---------------------------------------------------------------- decisions
@@ -908,7 +912,8 @@ func _shoot(e: Node3D) -> void:
 	var ev: Vector3 = e.velocity if "velocity" in e else Vector3.ZERO
 	var moving := Vector2(ev.x, ev.z).length() > 2.0
 	var err := (0.25 + dist * (0.012 + (1.0 - skill) * 0.02)) * settle * (1.4 if moving else 1.0)
-	if e == world.player: err *= 1.6   # be fair to the human
+	var human: bool = world.is_human(e)
+	if human: err *= 1.6   # be fair to the humans (you and your friends alike)
 	var pellets: int = w.get("pellets", 1)
 	var range_m: float = w.range
 	for i in pellets:
@@ -925,12 +930,14 @@ func _shoot(e: Node3D) -> void:
 			var close := Geometry3D.get_closest_point_to_segment(head, origin, end)
 			if close.distance_to(head) < 3.0 and close.distance_to(origin) > 8.0:
 				world.sound_flyby(close)
+		if i == 0 and net_index >= 0:
+			Net.send_bot_shot(net_index, origin, end, w.cls, weapon_id)
 		if i == 0 and not far:
 			model.recoil = 1.0
 			world.effects.tracer(model.muzzle_position() if model.visible and model.weapon_node else origin + Vector3(0, -0.15, 0), end)
 		if hit and hit.collider and hit.collider.has_method("take_damage"):
 			var head: bool = end.y > hit.collider.global_position.y + _aim_height(hit.collider) * 0.8
-			var dmg: float = float(w.dmg) * (0.5 if hit.collider == world.player else 0.8) * (1.8 if head else 1.0)
+			var dmg: float = float(w.dmg) * (0.5 if world.is_human(hit.collider) else 0.8) * (1.8 if head else 1.0)
 			if hit.collider.take_damage(dmg, self, head):
 				kills += 1
 				if target == hit.collider: target = null

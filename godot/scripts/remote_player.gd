@@ -12,6 +12,7 @@ var _to_yaw := 0.0
 var _ride: Vehicle = null
 var _gear_key := ""
 var hit_by_me_t := -100000        # when you last hit them (ms), for kill credit
+var _since := 0.0                 # seconds since their last report
 
 func setup(w: Node, id: int, info: Dictionary) -> void:
 	world = w
@@ -39,6 +40,7 @@ func _ready() -> void:
 func apply(st: Dictionary) -> void:
 	if dead: return
 	_st = st
+	_since = 0.0
 	_to = st.get("p", global_position)
 	_to_yaw = float(st.get("y", yaw))
 	if global_position.distance_to(_to) > 25.0 or state == "plane":
@@ -61,9 +63,15 @@ func apply(st: Dictionary) -> void:
 func take_damage(amount: float, attacker: Node, head := false) -> bool:
 	if dead: return false
 	if attacker != null and attacker == world.player:
-		Net.send_hit(peer, amount, head)
+		if peer < 0: Net.send_bot_hit(-peer - 1, amount, head)    # one of the host's bots
+		else: Net.send_hit(peer, amount, head)
 		hit_by_me_t = Time.get_ticks_msec()
 		world.player.dmg_dealt += minf(amount, maxf(health, 0.0))
+		if model.visible: model.hit(amount / 40.0)
+	elif attacker is Bot and not (attacker is RemotePlayer) and Net.is_host and peer > 0 and (attacker as Bot).net_index >= 0:
+		# Host: one of our bots hit this friend; their game takes it.
+		if world.same_team(self, attacker): return false
+		Net.send_hit_from_bot(peer, (attacker as Bot).net_index, amount, head)
 		if model.visible: model.hit(amount / 40.0)
 	return false
 
@@ -83,8 +91,12 @@ func _physics_process(delta: float) -> void:
 	if s == "plane":
 		global_position = world.plane_position() + Vector3(0, -3, 0)
 		return
-	global_position = global_position.lerp(_to, minf(1.0, delta * 12.0))
 	velocity = _st.get("v", Vector3.ZERO)
+	# Between reports (a few a second) keep going the way they were moving,
+	# for a moment only, so they glide instead of stepping from one to the next.
+	_since += delta
+	if _since < 0.3 and s != "vehicle": _to += velocity * delta
+	global_position = global_position.lerp(_to, minf(1.0, delta * 12.0))
 	yaw = lerp_angle(yaw, _to_yaw, minf(1.0, delta * 14.0))
 	model.rotation.y = yaw
 	if s == "vehicle":
