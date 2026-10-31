@@ -18,15 +18,13 @@ var labels := {}
 var t := 0.0
 var drag_rot := 0.0
 var _dragging := false
-var _props: Array = []            # the plane's propellers
-var _runway_mat: StandardMaterial3D
 var _plates: Array = []           # [Control, slot index] name plates over the line-up
 
 const ACCENT := Color("ffb321")
 const CYAN := Color("3fd0ff")
 const GLASS := Color(0.03, 0.05, 0.08, 0.62)
 ## Where each member of the squad stands (you first).
-const SLOTS := [Vector3(0, 0, 0), Vector3(1.45, 0, -0.7), Vector3(-1.45, 0, -0.7), Vector3(-2.9, 0, -1.5)]
+const SLOTS := [Vector3(0, 0, 0), Vector3(1.22, 0, -0.95), Vector3(-1.22, 0, -0.95), Vector3(2.45, 0, -1.9)]
 const MATE_NAMES := ["صقر_الليل", "Falcon_IQ", "ليث", "Viper_SY", "شاهين", "Storm_MA"]
 
 func _ready() -> void:
@@ -268,10 +266,14 @@ func _build_scene() -> void:
 	sky_mat.shader = load("res://shaders/sky_photo.gdshader")
 	sky_mat.set_shader_parameter("pano", load("res://assets/textures/sky_sunset.jpg"))
 	sky_mat.set_shader_parameter("photo_sun", Vector2(0.499, 0.465))
-	sky_mat.set_shader_parameter("energy", 1.15)
-	sky_mat.set_shader_parameter("sun_boost", 2.2)
+	sky_mat.set_shader_parameter("energy", 0.82)
+	sky_mat.set_shader_parameter("sun_boost", 1.6)
 	sky_mat.set_shader_parameter("haze", Color("e9a878"))
-	sky_mat.set_shader_parameter("haze_amount", 0.2)
+	sky_mat.set_shader_parameter("haze_amount", 0.08)
+	sky_mat.set_shader_parameter("saturation", 1.4)
+	sky_mat.set_shader_parameter("deepen", 0.35)
+	sky_mat.set_shader_parameter("sea_below", true)
+	sky_mat.set_shader_parameter("sea_color", Color("1d3a48"))
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
@@ -282,18 +284,18 @@ func _build_scene() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
 	env.tonemap_exposure = 1.08
 	env.glow_enabled = true
-	env.glow_intensity = 0.75
-	env.glow_bloom = 0.06
+	env.glow_intensity = 0.55
+	env.glow_bloom = 0.025
 	env.glow_hdr_threshold = 0.9
 	env.fog_enabled = true
 	env.fog_light_color = Color("d99a72")
 	env.fog_sun_scatter = 0.3
-	env.fog_density = 0.0022
-	env.fog_aerial_perspective = 0.4
+	env.fog_density = 0.00045
+	env.fog_aerial_perspective = 0.75
 	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.1
-	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 1.18
+	env.adjustment_contrast = 1.14
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -314,18 +316,9 @@ func _build_scene() -> void:
 	Game.apply_quality(env, sun)
 	_light_lobby(env, sun)
 
-	_backdrop()
-	var apron := ShaderMaterial.new()
-	apron.shader = load("res://shaders/lobby_apron.gdshader")
-	apron.set_shader_parameter("tex", load("res://assets/textures/concrete_col.jpg"))
-	apron.set_shader_parameter("noise", _noise(0.02, 7))
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(80, 50)
-	_mesh(pm, apron, Vector3(0, 0, -10))
-	_plane()
-	_hangar()
-	_runway_lights()
-	_props_around()
+	# Behind the squad: the game itself (the headland, the island, the zone,
+	# the plane and the chutes).
+	add_child(LobbyVista.new())
 	_stage()
 	_dust()
 	holder = Node3D.new()
@@ -338,8 +331,6 @@ func _build_scene() -> void:
 	add_child(cam)
 	cam.look_at_from_position(CAM_AT, CAM_LOOK)
 	cam.current = true
-
-var _art: MeshInstance3D
 
 ## The lobby shows only a small corner of a world: the big-world effects
 ## (global illumination, screen-space reflections, volumetric fog) cost a lot
@@ -359,88 +350,14 @@ func _light_lobby(env: Environment, sun: DirectionalLight3D) -> void:
 	if vp.msaa_3d > Viewport.MSAA_2X: vp.msaa_3d = Viewport.MSAA_2X
 	RenderingServer.directional_shadow_atlas_set_size(2048, true)
 
-# A film shot: low and a little to the right, so the squad stands in the left
-# two thirds and your name and the start have the right of the frame.
-const CAM_AT := Vector3(1.55, 1.38, 6.7)
-const CAM_LOOK := Vector3(1.2, 1.08, -0.6)
+# Straight on, as on a character screen: you stand in the middle of the
+# frame, the squad either side and behind, the island over your shoulders.
+const CAM_AT := Vector3(0.0, 1.22, 4.3)
+const CAM_LOOK := Vector3(0.0, 1.02, 0.0)
 
-## The transport plane parked behind the squad, side on, its four propellers
-## turning slowly (the same plane the match starts in).
-func _plane() -> void:
-	var plane: Node3D = PlaneModel.make()
-	add_child(plane)
-	plane.position = Vector3(-9.0, 0.0, -34.0)
-	plane.rotation.y = -1.1
-	for k in 4:
-		var p := plane.find_child("prop%d" % k, true, false)
-		if p: _props.append(p)
 
-## A hangar off to the right: corrugated walls, the doors open on a lit inside.
-func _hangar() -> void:
-	var h := Node3D.new()
-	add_child(h)
-	h.position = Vector3(40.0, 0, -46.0)
-	h.rotation.y = -0.9
-	var wall := WorldBuilder._static_wall("corrugated", 2.0, 0.4, 0.6)
-	wall.set_shader_parameter("tint", Color("8a9198"))
-	for x in [-6.0, 6.0]:
-		_mesh(_box(Vector3(0.3, 7.0, 14.0)), wall, Vector3(x, 3.5, 0), Vector3.ZERO, h)
-	_mesh(_box(Vector3(12.3, 0.3, 14.0)), wall, Vector3(0, 7.1, 0), Vector3.ZERO, h)
-	_mesh(_box(Vector3(12.0, 7.0, 0.3)), wall, Vector3(0, 3.5, -7.0), Vector3.ZERO, h)
-	# The far wall inside: warm work lights, not a glowing white sheet.
-	_mesh(_box(Vector3(11.6, 6.8, 0.1)), _mat(Color("3a3026"), 0.9, 0.12), Vector3(0, 3.4, -6.8), Vector3.ZERO, h)
-	for lx in [-3.5, 0.0, 3.5]:
-		_mesh(_box(Vector3(1.6, 0.12, 0.2)), _mat(Color("ffd9a0"), 0.5, 2.5), Vector3(lx, 6.4, -6.6), Vector3.ZERO, h)
-	var lamp := OmniLight3D.new()
-	lamp.light_color = Color("ffd7a0")
-	lamp.light_energy = 3.0
-	lamp.omni_range = 12.0
-	lamp.position = Vector3(0, 5, -2)
-	h.add_child(lamp)
-	# Its number painted on the front.
-	var lb := Label3D.new()
-	lb.text = "ZERO 01"
-	lb.font = load("res://assets/fonts/Cairo.ttf")
-	lb.font_size = 160
-	lb.pixel_size = 0.01
-	lb.modulate = Color(1, 1, 1, 0.75)
-	lb.position = Vector3(-6.2, 5.2, 4.0)
-	lb.rotation.y = -PI * 0.5
-	h.add_child(lb)
 
-## Blue taxiway lights and white runway lights running off into the dusk.
-func _runway_lights() -> void:
-	_runway_mat = _mat(Color("ffe9c8"), 0.5, 4.0)
-	var blue := _mat(Color("4aa8ff"), 0.5, 4.0)
-	var dot := SphereMesh.new()
-	dot.radius = 0.09
-	dot.height = 0.18
-	dot.radial_segments = 8
-	dot.rings = 4
-	for k in 18:
-		var x := -26.0 + k * 3.2
-		_mesh(dot, _runway_mat, Vector3(x, 0.1, -28.0))
-		_mesh(dot, _runway_mat, Vector3(x + 1.6, 0.1, -36.0))
-	for k in 8:
-		_mesh(dot, blue, Vector3(-12.0 + k * 3.0, 0.08, 3.6))
 
-## A jeep, crates and fuel drums round the squad.
-func _props_around() -> void:
-	var jeep := MeshInstance3D.new()
-	jeep.mesh = CarModels.imported("jeep").body
-	jeep.position = Vector3(-6.5, 0.45, -6.5)
-	jeep.rotation.y = 0.7
-	add_child(jeep)
-	var wood := WorldBuilder._static_wall("planks", 1.2, 0.3, 0.85)
-	for c in [[Vector3(-5.6, 0.45, -3.6), 0.2], [Vector3(-4.7, 0.45, -3.3), -0.1], [Vector3(-5.1, 1.35, -3.5), 0.35], [Vector3(-3.8, 0.45, 0.4), 0.6]]:
-		_mesh(_box(Vector3(0.9, 0.9, 0.9)), wood, c[0], Vector3(0, c[1], 0))
-	var drum := CylinderMesh.new()
-	drum.top_radius = 0.3
-	drum.bottom_radius = 0.3
-	drum.height = 0.9
-	var red := _mat(Color("8c2a1e"), 0.6, 0.0, 0.4)
-	for p in [Vector3(-4.3, 0.45, -1.2), Vector3(-3.7, 0.45, -1.6), Vector3(-6.4, 0.45, -1.8)]:
-		_mesh(drum, red, p)
 
 ## Where the squad stands: a low dark platform with a glowing edge under each
 ## place, a spotlight on the line-up and warm and blue rim lights behind.
@@ -511,31 +428,15 @@ func _dust() -> void:
 	p.mesh = q
 	add_child(p)
 
-## The war camp painted far away behind the airfield, softened by the haze.
-func _backdrop() -> void:
-	var tex: Texture2D = load("res://assets/textures/ui/art_desert.jpg")
-	var q := QuadMesh.new()
-	var w := 190.0
-	q.size = Vector2(w, w * float(tex.get_height()) / tex.get_width())
-	var m := ShaderMaterial.new()
-	m.shader = load("res://shaders/lobby_backdrop.gdshader")
-	m.set_shader_parameter("tex", tex)
-	_art = MeshInstance3D.new()
-	_art.mesh = q
-	_art.material_override = m
-	_art.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_art.position = Vector3(0, q.size.y * 0.5 - 16.0, -95)
-	add_child(_art)
 
 func _spawn_soldier() -> void:
 	if soldier: soldier.queue_free()
 	soldier = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character(), Game.outfit_dyed())
 	soldier.set_style(Game.outfit_style())
 	soldier.set_gear(0, 0, 0)
-	# Ready for the match: rifle in hand, carried low (the emotes put it away).
-	soldier.set_weapon("m416")
-	soldier.set_back_weapon("kar98")
-	soldier.rotation.y = PI - 0.15
+	# As on a character screen: empty-handed, standing easy, facing you.
+	soldier.idle_clip = "u_idle"
+	soldier.rotation.y = PI
 	holder.add_child(soldier)
 	_idle_t = 0.0
 	_idle_i = 0
@@ -598,17 +499,20 @@ func _idle_director(delta: float) -> void:
 	soldier.look_yaw = lerpf(soldier.look_yaw, yaw, w)
 	soldier.look_pitch = lerpf(soldier.look_pitch, pitch, w)
 
+var _relax := 1.0
+
 func _process(delta: float) -> void:
 	t += delta
 	holder.rotation.y = drag_rot
 	_idle_director(delta)
-	soldier.set_pose("stand", 0.0, true, delta, t)
+	soldier.set_pose("stand", 0.0, false, delta, t)
+	# Arms hanging easy at the sides (not while an emote plays).
+	_relax = move_toward(_relax, 0.0 if soldier.is_acting() else 1.0, delta * 3.0)
+	if _relax > 0.0: soldier.relax_arms(t, smoothstep(0.0, 1.0, _relax))
 	for i in mates.size():
 		var m: HumanModel = mates[i]
 		m.look_yaw = sin(t * 0.3 + i * 1.7) * 0.5
 		m.set_pose("stand", 0.0, true, delta, t + i * 1.3)
-	for p in _props: p.rotate_object_local(Vector3.BACK, delta * 6.0)
-	if _runway_mat: _runway_mat.emission_energy_multiplier = 2.5 + 2.0 * maxf(0.0, sin(t * 2.4))
 	if panel == null:
 		cam.look_at_from_position(CAM_AT + Vector3(sin(t * 0.17) * 0.12, sin(t * 0.29) * 0.04, 0), CAM_LOOK)
 	_tick_ui(delta)
@@ -637,37 +541,23 @@ func _build_ui() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(root)
-	# Dark bands top and bottom so the menus read over the scene.
+	# Soft night-blue shade at the top (under the title) and a deep one at the
+	# bottom (under the start and the dock), the film look of the design.
 	for top in [true, false]:
 		var band := TextureRect.new()
-		band.texture = UiKit.gradient(Color(0, 0, 0, 0.6) if top else Color(0, 0, 0, 0), Color(0, 0, 0, 0) if top else Color(0, 0, 0, 0.7))
+		band.texture = UiKit.gradient(Color(0.03, 0.05, 0.12, 0.62) if top else Color(0, 0, 0, 0), Color(0, 0, 0, 0) if top else Color(0.01, 0.01, 0.03, 0.78))
 		band.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		band.stretch_mode = TextureRect.STRETCH_SCALE
 		band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		root.add_child(band)
 		band.set_anchors_preset(Control.PRESET_TOP_WIDE if top else Control.PRESET_BOTTOM_WIDE)
-		if top: band.offset_bottom = 130
-		else: band.offset_top = -170
-	# Shade on the right, under your name and the start.
-	var side := TextureRect.new()
-	var sg := Gradient.new()
-	sg.offsets = PackedFloat32Array([0.0, 0.42, 1.0])
-	sg.colors = PackedColorArray([Color(0.02, 0.03, 0.05, 0.0), Color(0.02, 0.03, 0.05, 0.72), Color(0.02, 0.03, 0.05, 0.9)])
-	var st := GradientTexture2D.new()
-	st.gradient = sg
-	st.width = 128
-	st.height = 8
-	side.texture = st
-	side.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	side.stretch_mode = TextureRect.STRETCH_SCALE
-	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(side)
-	side.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	side.offset_left = -640
+		if top: band.offset_bottom = 160
+		else: band.offset_top = -230
 	_c_top()
 	_c_identity()
 	_c_play()
 	_c_news()
+	_c_dock()
 	_lineup_plates()
 	_refresh()
 
@@ -763,132 +653,184 @@ static func _round_rect(r: Rect2, rad: float) -> PackedVector2Array:
 			pts.append(c[0] + Vector2(cos(a), sin(a)) * rad)
 	return pts
 
-## Top: the logo on the right, the sections in the middle, money and the
-## small icons on the left.
+## Smoked glass with a thin gold edge: every card of the lobby.
+const GOLD := Color("f2c46b")
+const GOLD_DARK := Color("c8913a")
+func _glass(radius := 15, margin := 12) -> StyleBoxFlat:
+	var st := UiKit.style(Color(0.04, 0.08, 0.16, 0.58), radius, Color(0.95, 0.77, 0.42, 0.38), 1, margin)
+	st.shadow_color = Color(0, 0, 0, 0.32)
+	st.shadow_size = 14
+	return st
+
+func _glass_panel(radius := 15, margin := 12) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", _glass(radius, margin))
+	pc.mouse_filter = Control.MOUSE_FILTER_PASS
+	return pc
+
+## Top: the big gold title in the middle, who you are on the right (a glass
+## card), money and the small icons on the left (glass pills).
 func _c_top() -> void:
-	var logo := HBoxContainer.new()
-	logo.add_theme_constant_override("separation", 10)
-	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var z1 := UiKit.label("ZERO", 26, Color.WHITE, UiKit.spaced(6, 800), 0)
-	var z2 := UiKit.label("ZONE", 26, ACCENT, UiKit.spaced(6, 800), 0)
-	logo.add_child(z1)
-	logo.add_child(z2)
-	logo.layout_direction = Control.LAYOUT_DIRECTION_LTR
-	_anchor(logo, Control.PRESET_TOP_RIGHT, Vector2(-36, 18))
-	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 26)
-	tabs.layout_direction = Control.LAYOUT_DIRECTION_RTL
-	_anchor(tabs, Control.PRESET_CENTER_TOP, Vector2(0, 16))
-	for tb in [["لعب", ""], ["المخزون", "inventory"], ["المتجر", "shop"], ["الموسم", "season"], ["المهام", "missions"]]:
-		var key: String = tb[1]
-		var on := key == ""
-		var b := _txt_button(tb[0], 19, Color.WHITE if on else C_DIM, func(): if key != "": _open(key))
-		if on:
-			b.draw.connect(func(): b.draw_rect(Rect2(b.size.x * 0.5 - 18, b.size.y - 4, 36, 3), ACCENT))
-		tabs.add_child(b)
-		if key == "missions": labels.missions_dot = _tag(b, "", Color("e53935"), Vector2(-14, 2))
+	var title := VBoxContainer.new()
+	title.add_theme_constant_override("separation", -6)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t1 := UiKit.label("منطقة الصفر", 44, GOLD, UiKit.italic(), 0)
+	t1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t1.add_theme_color_override("font_shadow_color", Color(0.25, 0.12, 0.0, 0.75))
+	t1.add_theme_constant_override("shadow_offset_y", 3)
+	t1.add_theme_constant_override("shadow_offset_x", 0)
+	t1.add_theme_constant_override("shadow_outline_size", 8)
+	t1.add_theme_color_override("font_outline_color", Color("7a4e14"))
+	t1.add_theme_constant_override("outline_size", 2)
+	title.add_child(t1)
+	var t2 := UiKit.label("Z E R O   Z O N E", 12, Color(0.92, 0.86, 0.75, 0.85), UiKit.bold(), 3)
+	t2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_child(t2)
+	_anchor(title, Control.PRESET_CENTER_TOP, Vector2(0, 8))
+	labels.title = t1
+	# Money and the small icons (left).
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
-	_anchor(row, Control.PRESET_TOP_LEFT, Vector2(28, 14))
-	var clear := Color(0, 0, 0, 0)
-	if not Game.phone():
-		row.add_child(_icon_button("expand", "", func(): _toggle_fullscreen(), Vector2(38, 38), false, clear, C_DIM, 19))
-	row.add_child(_icon_button("gear", "", func(): _open("settings"), Vector2(38, 38), false, clear, C_DIM, 19))
-	var more := _icon_button("plus", "", _more_menu, Vector2(38, 38), false, clear, C_DIM, 19)
-	row.add_child(more)
-	labels.more_btn = more
-	labels.mail_dot = _tag(more, "1", Color("e53935"), Vector2(24, 0))
-	var z := _icon_button("gem", "", func(): _open("crate"), Vector2(104, 38), false, clear, Color("7fd8ff"), 19)
-	labels.zc = z.get_meta("label")
-	row.add_child(z)
-	var g := _icon_button("coin", "", func(): _open("shop"), Vector2(116, 38), false, clear, Color("ffd34d"), 19)
+	row.add_theme_constant_override("separation", 7)
+	_anchor(row, Control.PRESET_TOP_LEFT, Vector2(20, 22))
+	var pill := Color(0.04, 0.08, 0.16, 0.58)
+	var g := _icon_button("coin", "", func(): _open("shop"), Vector2(112, 36), false, pill, Color("ffd34d"), 18)
 	labels.gold = g.get_meta("label")
 	row.add_child(g)
+	var z := _icon_button("gem", "", func(): _open("crate"), Vector2(96, 36), false, pill, Color("7fd8ff"), 18)
+	labels.zc = z.get_meta("label")
+	row.add_child(z)
+	row.add_child(_icon_button("gear", "", func(): _open("settings"), Vector2(36, 36), false, pill, Color.WHITE, 18))
+	if not Game.phone():
+		row.add_child(_icon_button("expand", "", func(): _toggle_fullscreen(), Vector2(36, 36), false, pill, Color.WHITE, 18))
+	var more := _icon_button("plus", "", _more_menu, Vector2(36, 36), false, pill, GOLD, 18)
+	row.add_child(more)
+	labels.more_btn = more
+	for b in row.get_children():
+		var st: StyleBoxFlat = (b as Button).get_theme_stylebox("normal")
+		st.border_color = Color(0.95, 0.77, 0.42, 0.35)
 
-## Right: rank and level, your name large, the season and your squad, and
-## today's three closest missions with thin bars.
+## Top right: your card (rank badge as the picture, name, level and rank),
+## and under it today's missions with rings, the season and your squad.
 func _c_identity() -> void:
-	# On a smoked-glass card (gold edge on the outer side) so it reads over the scene.
-	var card := PanelContainer.new()
-	var cs := UiKit.style(Color(0.03, 0.04, 0.06, 0.58), 14, ACCENT, 0, 16)
-	cs.border_width_right = 3
-	cs.shadow_color = Color(0, 0, 0, 0.35)
-	cs.shadow_size = 18
-	card.add_theme_stylebox_override("panel", cs)
-	card.mouse_filter = Control.MOUSE_FILTER_PASS
-	_anchor(card, Control.PRESET_TOP_RIGHT, Vector2(-28, 100))
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
-	v.custom_minimum_size = Vector2(340, 0)
-	card.add_child(v)
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 8)
-	top.alignment = BoxContainer.ALIGNMENT_BEGIN
-	var rb := RankBadge.new(int(Game.stats.rp), 20.0)
-	top.add_child(rb)
+	var card := _glass_panel(18, 8)
+	_anchor(card, Control.PRESET_TOP_RIGHT, Vector2(-20, 18))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	card.add_child(hb)
+	var rb := RankBadge.new(int(Game.stats.rp), 22.0)
+	rb.custom_minimum_size = Vector2(44, 44)
+	hb.add_child(rb)
 	labels.rank_badge = rb
-	labels.rank = UiKit.label("", 14, C_DIM, UiKit.bold(), 2)
-	top.add_child(labels.rank)
-	v.add_child(top)
-	var nb := _txt_button("", 44, Color.WHITE, func(): _open("cards"))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", -4)
+	hb.add_child(v)
+	var nb := _txt_button("", 19, Color.WHITE, func(): _open("cards"))
 	nb.alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	nb.add_theme_constant_override("outline_size", 6)
-	nb.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.35))
 	v.add_child(nb)
 	labels.name = nb
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	var sp := UiKit.button("", func(): _open("season"), Vector2(0, 30), UiKit.style(Color(1, 0.7, 0.13, 0.16), 15, ACCENT, 1, 12), 13, Color("ffd34d"))
-	row.add_child(sp)
-	labels.pass_level = sp
-	labels.squad_line = UiKit.label("", 14, C_DIM, null, 2)
-	row.add_child(labels.squad_line)
-	v.add_child(row)
-	var gap := HSeparator.new()
-	gap.add_theme_stylebox_override("separator", UiKit.style(Color(1, 1, 1, 0.1), 0, Color(0, 0, 0, 0), 0, 0))
-	gap.add_theme_constant_override("separation", 22)
-	v.add_child(gap)
+	labels.rank = UiKit.label("", 11, GOLD, UiKit.bold(), 2)
+	labels.rank.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.add_child(labels.rank)
+	var sp := Control.new()
+	sp.custom_minimum_size = Vector2(6, 0)
+	hb.add_child(sp)
+	hb.layout_direction = Control.LAYOUT_DIRECTION_RTL
+	# Today's missions.
+	var mc := _glass_panel(18, 14)
+	_anchor(mc, Control.PRESET_TOP_RIGHT, Vector2(-20, 100))
 	var mv := VBoxContainer.new()
-	mv.add_theme_constant_override("separation", 7)
-	var head := _txt_button("مهام اليوم  ›", 13, ACCENT, func(): _open("missions"))
+	mv.add_theme_constant_override("separation", 9)
+	mv.custom_minimum_size = Vector2(252, 0)
+	mc.add_child(mv)
+	var head := _txt_button("مهام اليوم  ›", 15, GOLD, func(): _open("missions"))
 	head.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	mv.add_child(head)
-	v.add_child(mv)
-	labels.mission_list = mv
+	labels.missions_dot = _tag(head, "", Color("e53935"), Vector2(-4, 2))
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 8)
+	mv.add_child(list)
+	labels.mission_list = list
+	var line := ColorRect.new()
+	line.color = Color(0.95, 0.77, 0.42, 0.22)
+	line.custom_minimum_size = Vector2(0, 1)
+	mv.add_child(line)
+	var pass_btn := _txt_button("", 12, GOLD, func(): _open("season"))
+	pass_btn.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mv.add_child(pass_btn)
+	labels.pass_level = pass_btn
+	labels.squad_line = UiKit.label("", 11, C_DIM, null, 2)
+	labels.squad_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mv.add_child(labels.squad_line)
 
-## The three missions closest to done, with their bars (refreshed with the rest).
+## The three missions closest to done, each with a ring that fills.
 func _fill_missions() -> void:
 	var mv: VBoxContainer = labels.mission_list
-	for k in range(mv.get_child_count() - 1, 0, -1): mv.get_child(k).queue_free()
+	for c in mv.get_children(): c.queue_free()
 	var ms := _missions().filter(func(m): return not _claimed(m.id))
 	ms.sort_custom(func(a, b): return float(a.cur) / a.goal > float(b.cur) / b.goal)
 	for m in ms.slice(0, 3):
-		var row := VBoxContainer.new()
-		row.add_theme_constant_override("separation", 3)
 		var hb := HBoxContainer.new()
-		var tl := UiKit.label(m.text, 14, Color(1, 1, 1, 0.92), null, 3)
+		hb.add_theme_constant_override("separation", 10)
+		hb.layout_direction = Control.LAYOUT_DIRECTION_RTL
+		var k := clampf(float(m.cur) / float(m.goal), 0.0, 1.0)
+		var ring := Control.new()
+		ring.custom_minimum_size = Vector2(32, 32)
+		ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var done: bool = m.done
+		var txt := "✓" if done else "%d/%d" % [mini(int(m.cur), int(m.goal)), int(m.goal)]
+		ring.draw.connect(func():
+			var c := ring.size * 0.5
+			ring.draw_circle(c, 13.0, Color(0.07, 0.12, 0.23, 0.95))
+			ring.draw_arc(c, 14.0, 0.0, TAU, 40, Color(1, 1, 1, 0.15), 3.0, true)
+			if k > 0.0: ring.draw_arc(c, 14.0, -PI / 2.0, -PI / 2.0 + TAU * k, 40, Color("7dff8a") if done else GOLD, 3.0, true))
+		var rl := UiKit.label(txt, 9 if not done else 13, Color.WHITE, UiKit.bold(), 0)
+		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		rl.set_anchors_preset(Control.PRESET_FULL_RECT)
+		ring.add_child(rl)
+		hb.add_child(ring)
+		var tl := UiKit.label(m.text, 13, Color(1, 1, 1, 0.92), null, 3)
 		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tl.custom_minimum_size = Vector2(200, 0)
 		hb.add_child(tl)
-		hb.add_child(UiKit.label(("✓" if m.done else "%d/%d" % [mini(int(m.cur), int(m.goal)), int(m.goal)]), 13, Color("7dff8a") if m.done else C_DIM, UiKit.bold(), 3))
-		row.add_child(hb)
-		var bar := ProgressBar.new()
-		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(0, 6)
-		bar.value = clampf(float(m.cur) / float(m.goal), 0.0, 1.0) * 100.0
-		bar.add_theme_stylebox_override("background", UiKit.style(Color(1, 1, 1, 0.12), 3, Color(0, 0, 0, 0), 0, 0))
-		bar.add_theme_stylebox_override("fill", UiKit.style(Color("7dff8a") if m.done else ACCENT, 3, Color(0, 0, 0, 0), 0, 0))
-		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(bar)
-		mv.add_child(row)
+		mv.add_child(hb)
 
-## Bottom right: the three modes as chips, and the start: wide, warm, glowing,
-## with a light sweeping across it.
+## Bottom left: the mode card (tap: the quick picker), the three modes as a
+## segmented row, and the start: wide, gold, glowing, a light sweeping it.
 func _c_play() -> void:
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
-	_anchor(v, Control.PRESET_BOTTOM_RIGHT, Vector2(-36, -30))
+	v.add_theme_constant_override("separation", 8)
+	v.custom_minimum_size = Vector2(350, 0)
+	_anchor(v, Control.PRESET_BOTTOM_LEFT, Vector2(20, -18))
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.custom_minimum_size = Vector2(350, 58)
+	for k in ["normal", "focus"]: card.add_theme_stylebox_override(k, _glass(16, 10))
+	var hv := _glass(16, 10)
+	hv.bg_color = Color(0.08, 0.13, 0.24, 0.7)
+	for k in ["hover", "pressed"]: card.add_theme_stylebox_override(k, hv)
+	card.pressed.connect(_mode_picker)
+	v.add_child(card)
+	var cv := VBoxContainer.new()
+	cv.add_theme_constant_override("separation", -4)
+	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cv.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cv.offset_right = -16
+	cv.offset_left = 56
+	cv.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.add_child(cv)
+	var m1 := UiKit.label("", 16, Color.WHITE, UiKit.bold(), 3)
+	m1.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	cv.add_child(m1)
+	var m2 := UiKit.label("", 11, Color(1, 1, 1, 0.78), null, 2)
+	m2.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	cv.add_child(m2)
+	labels.mode_title = m1
+	labels.mode = m2
+	card.draw.connect(func(): Icons.draw(card, "globe", Vector2(30, card.size.y * 0.5), 15.0, GOLD))
 	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 8)
+	chips.add_theme_constant_override("separation", 6)
 	chips.layout_direction = Control.LAYOUT_DIRECTION_RTL
 	v.add_child(chips)
 	for m in MODES:
@@ -896,89 +838,127 @@ func _c_play() -> void:
 		var c := UiKit.button(String(m[1]).replace("⚔ ", ""), func():
 			Game.settings.mode = id
 			Game.save_data()
-			_refresh(), Vector2(88, 40), null, 16)
+			_refresh(), Vector2(0, 36), null, 15)
+		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		c.add_theme_font_override("font", UiKit.bold())
 		chips.add_child(c)
 		_mode_chips[id] = c
-	chips.add_child(UiKit.button("⋯", func(): _open("mode"), Vector2(44, 40), UiKit.style(Color(1, 1, 1, 0.06), 6, Color(1, 1, 1, 0.14), 1, 4), 18))
 	var start := Button.new()
-	start.custom_minimum_size = Vector2(412, 88)
+	start.custom_minimum_size = Vector2(350, 70)
 	start.focus_mode = Control.FOCUS_NONE
 	start.clip_contents = true
 	var empty := StyleBoxEmpty.new()
-	for s in ["normal", "hover", "pressed", "focus"]: start.add_theme_stylebox_override(s, empty)
+	for st in ["normal", "hover", "pressed", "focus"]: start.add_theme_stylebox_override(st, empty)
 	start.pressed.connect(_start)
 	start.draw.connect(func():
 		var r := Rect2(Vector2.ZERO, start.size)
-		var poly := _round_rect(r, 9.0)
+		var poly := _round_rect(r, 17.0)
 		var cols := PackedColorArray()
-		for p in poly: cols.append(Color("ffd34d").lerp(Color("ff7a18"), p.x / maxf(r.size.x, 1.0)))
+		for p in poly:
+			var y := p.y / maxf(r.size.y, 1.0)
+			cols.append(Color("ffe2a0").lerp(GOLD, smoothstep(0.0, 0.45, y)).lerp(GOLD_DARK, smoothstep(0.45, 1.0, y)))
 		start.draw_polygon(poly, cols)
-		# Chevrons each side of the word.
-		for sd in [-1.0, 1.0]:
-			for k in 2:
-				var x: float = r.size.x * 0.5 + sd * (118.0 + k * 14.0)
-				start.draw_polyline(PackedVector2Array([Vector2(x - sd * 6, 30), Vector2(x + sd * 2, 42), Vector2(x - sd * 6, 54)]), Color(0.1, 0.06, 0.0, 0.5 - k * 0.2), 3.0))
+		start.draw_polyline(_round_rect(Rect2(Vector2(1, 1), r.size - Vector2(2, 2)), 16.0) + PackedVector2Array([_round_rect(Rect2(Vector2(1, 1), r.size - Vector2(2, 2)), 16.0)[0]]), Color(1, 1, 1, 0.45), 1.5))
 	v.add_child(start)
 	var glow := Panel.new()
 	var gs := StyleBoxFlat.new()
 	gs.bg_color = Color(0, 0, 0, 0)
-	gs.shadow_color = Color(1.0, 0.6, 0.1, 0.4)
-	gs.shadow_size = 26
-	gs.set_corner_radius_all(9)
+	gs.shadow_color = Color(0.95, 0.77, 0.42, 0.45)
+	gs.shadow_size = 24
+	gs.set_corner_radius_all(17)
 	glow.add_theme_stylebox_override("panel", gs)
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	glow.show_behind_parent = true
 	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
 	start.add_child(glow)
 	var shine := ColorRect.new()
-	shine.color = Color(1, 1, 1, 0.32)
-	shine.size = Vector2(34, 150)
+	shine.color = Color(1, 1, 1, 0.3)
+	shine.size = Vector2(30, 140)
 	shine.rotation = 0.35
 	shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	start.add_child(shine)
 	labels.shine = shine
-	var sl := UiKit.label("ابدأ", 42, UiKit.INK, UiKit.bold(), 0)
+	var sl := UiKit.label("ابدأ  ◂", 36, Color("241604"), UiKit.bold(), 0)
 	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sl.size = Vector2(412, 58)
-	sl.position = Vector2(0, 2)
+	sl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	sl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	start.add_child(sl)
-	var sub := UiKit.label("", 13, Color(0.12, 0.07, 0.0, 0.8), null, 0)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.size = Vector2(412, 20)
-	sub.position = Vector2(0, 60)
-	start.add_child(sub)
-	labels.mode = sub
 	labels.start = start
 
-## Bottom left: a couple of small actions, the news line and the status.
-const TIPS := ["جديد: خريطة وادي الرمال — مدينة قديمة وقلعة وواحة بالصحرا", "نصيحة: اقفز فوق المدينة لغنائم أكتر بس انتبه من الزحمة",
+## Top left under the money: what's new (the desert map), with the tips
+## turning over under it; tapping it picks that map. Two small actions.
+const TIPS := ["مدينة قديمة بأسوار، قلعة، واحة نخيل… وعاصفة رملية بنص المباراة", "نصيحة: اقفز فوق المدينة لغنائم أكتر بس انتبه من الزحمة",
 	"راديو الصفر بيحكيلك شو عم يصير بالمباراة", "اللي قتلك بيرجع بالمباراة الجاية… وبيدوّر عليك", "برّا المنطقة الآمنة الجزيرة بتنقلب عليك",
 	"المهام اليومية بتعطيك ذهب — شوفها من القائمة"]
 var _tip_i := 0
 var _tip_t := 0.0
 
 func _c_news() -> void:
+	var card := _glass_panel(18, 12)
+	_anchor(card, Control.PRESET_TOP_LEFT, Vector2(20, 100))
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	_anchor(v, Control.PRESET_BOTTOM_LEFT, Vector2(30, -26))
+	v.add_theme_constant_override("separation", 7)
+	v.custom_minimum_size = Vector2(262, 0)
+	card.add_child(v)
+	var head := _txt_button("جديد: وادي الرمال  ›", 15, GOLD, func():
+		Game.settings.map = "dunes"
+		Game.save_data()
+		_toast("اخترت خريطة وادي الرمال")
+		_refresh())
+	head.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.add_child(head)
+	var pic := TextureRect.new()
+	pic.texture = load("res://assets/textures/ui/art_desert.jpg")
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	pic.custom_minimum_size = Vector2(262, 96)
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pic.clip_contents = true
+	var mask := Panel.new()
+	mask.add_theme_stylebox_override("panel", UiKit.style(Color.WHITE, 12, Color(0, 0, 0, 0), 0, 0))
+	mask.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
+	mask.custom_minimum_size = Vector2(262, 96)
+	mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mask.add_child(pic)
+	pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.add_child(mask)
+	var tip := UiKit.label(TIPS[0], 12, Color(1, 1, 1, 0.88), null, 2)
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip.custom_minimum_size = Vector2(262, 36)
+	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.add_child(tip)
+	labels.tip = tip
 	var icons := HBoxContainer.new()
 	icons.add_theme_constant_override("separation", 6)
 	for ic in [["hand", _emote], ["question", func(): _open("help")]]:
-		icons.add_child(_icon_button(ic[0], "", ic[1], Vector2(40, 40), false, Color(0, 0, 0, 0.35), Color.WHITE, 20))
-	v.add_child(icons)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 10)
-	var mark := ColorRect.new()
-	mark.color = ACCENT
-	mark.custom_minimum_size = Vector2(3, 20)
-	hb.add_child(mark)
-	var tip := UiKit.label(TIPS[0], 15, Color(1, 1, 1, 0.9), null, 3)
-	hb.add_child(tip)
-	labels.tip = tip
-	v.add_child(hb)
-	var status := UiKit.label("", 11, Color(1, 1, 1, 0.45), null, 2)
+		var b := _icon_button(ic[0], "", ic[1], Vector2(38, 38), false, Color(0.04, 0.08, 0.16, 0.58), Color.WHITE, 19)
+		icons.add_child(b)
+	_anchor(icons, Control.PRESET_TOP_LEFT, Vector2(20, 336))
+	var status := UiKit.label("", 10, Color(1, 1, 1, 0.42), null, 2)
 	labels.status = status
-	v.add_child(status)
+	_anchor(status, Control.PRESET_CENTER_BOTTOM, Vector2(0, -4))
+
+## Bottom right: the sections as a glass dock of icons, a red count where
+## something waits.
+func _c_dock() -> void:
+	var dock := _glass_panel(18, 6)
+	_anchor(dock, Control.PRESET_BOTTOM_RIGHT, Vector2(-20, -18))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	dock.add_child(hb)
+	# (right to left on screen: added from the left end)
+	for it in [["صحابك", "friends", "friends"], ["البريد", "mail", "mail"], ["صناديق", "crate", "gift"], ["إنجازات", "achievements", "crown"],
+			["الموسم", "season", "trophy"], ["المتجر", "shop", "cart"], ["المخزون", "inventory", "shirt"], ["لعب", "", "home"]]:
+		var key: String = it[1]
+		var on := key == ""
+		var b := _icon_button(it[2], it[0], func():
+			if key == "friends": _friends_room()
+			elif key != "": _open(key), Vector2(62, 58), true, Color(0.95, 0.77, 0.42, 0.18) if on else Color(0, 0, 0, 0), GOLD if on else Color.WHITE, 13)
+		(b.get_meta("label") as Label).add_theme_font_size_override("font_size", 11)
+		if on: (b.get_meta("label") as Label).add_theme_color_override("font_color", GOLD)
+		hb.add_child(b)
+		if key == "mail": labels.mail_dot = _tag(b, "1", Color("e53935"), Vector2(36, 2))
+		if key == "achievements": labels.ach_dot = _tag(b, "", Color("e53935"), Vector2(36, 2))
 
 var _more_box: Control
 
@@ -1060,7 +1040,7 @@ func _mode_picker() -> void:
 		_picker.queue_free()
 		_picker = null
 		_open("mode"), Vector2(320, 36), UiKit.style(Color(0, 0, 0, 0), 6), 14, ACCENT))
-	_anchor(pc, Control.PRESET_BOTTOM_RIGHT, Vector2(-16, -204))
+	_anchor(pc, Control.PRESET_BOTTOM_LEFT, Vector2(20, -212))
 	_picker = pc
 
 ## The chosen map's name for the start button ("random" says so).
@@ -1075,19 +1055,23 @@ func _lineup_plates() -> void:
 	for i in SLOTS.size():
 		var c: Control
 		if i == 0 or i - 1 < mates.size():
+			# A glass pill: the name, and your level or a mate's "ready".
 			var pc := PanelContainer.new()
-			pc.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+			var ps := _glass(14, 0)
+			ps.content_margin_left = 12
+			ps.content_margin_right = 12
+			ps.content_margin_top = 1
+			ps.content_margin_bottom = 2
+			if i == 0: ps.border_color = GOLD
+			pc.add_theme_stylebox_override("panel", ps)
 			pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			var v := VBoxContainer.new()
-			v.add_theme_constant_override("separation", 0)
+			var v := HBoxContainer.new()
+			v.add_theme_constant_override("separation", 8)
+			v.layout_direction = Control.LAYOUT_DIRECTION_RTL
 			pc.add_child(v)
 			var nm := Game.player_name() if i == 0 else String(MATE_NAMES[(i - 1) % MATE_NAMES.size()])
-			var l1 := UiKit.label(nm, 15, Color.WHITE, UiKit.bold(), 5)
-			l1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			v.add_child(l1)
-			var l2 := UiKit.label(("المستوى %d" % Game.level()) if i == 0 else "✓ جاهز", 12, ACCENT if i == 0 else Color("7dff8a"), UiKit.bold(), 4)
-			l2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			v.add_child(l2)
+			v.add_child(UiKit.label(nm, 14 if i == 0 else 12, Color.WHITE, UiKit.bold(), 0))
+			v.add_child(UiKit.label(("★ %d" % Game.level()) if i == 0 else "✓", 12, GOLD if i == 0 else Color("7dff8a"), UiKit.bold(), 0))
 			c = pc
 		else:
 			var b := Button.new()
@@ -1112,8 +1096,9 @@ func _place_plates() -> void:
 		var c: Control = p[0]
 		var i: int = p[1]
 		var occupied: bool = i == 0 or i - 1 < mates.size()
-		var wp: Vector3 = SLOTS[i] + Vector3(0, 2.05 if occupied else 1.1, 0)
-		if i == 0: wp = soldier.global_position + Vector3(0, 2.05, 0)
+		# Under each one's feet, on the front edge of the disc (an empty place: a
+		# "+" over it).
+		var wp: Vector3 = SLOTS[i] + (Vector3(0, -0.02, 0.8) if occupied else Vector3(0, 1.1, 0))
 		var sp := cam.unproject_position(wp)
 		c.position = sp - c.size * 0.5
 
@@ -1129,7 +1114,7 @@ func _tick_ui(delta: float) -> void:
 		labels.start.pivot_offset = labels.start.size * 0.5
 		# The light sweeps across every few seconds.
 		var sw := fmod(t, 3.2) / 0.8
-		labels.shine.position = Vector2(lerpf(-80.0, 490.0, clampf(sw, 0.0, 1.0)), -30)
+		labels.shine.position = Vector2(lerpf(-80.0, 420.0, clampf(sw, 0.0, 1.0)), -30)
 	if labels.has("tip"):
 		_tip_t += delta
 		var lt: Label = labels.tip
@@ -1152,26 +1137,31 @@ func _refresh() -> void:
 	labels.rank_badge.rp = int(Game.stats.rp)
 	labels.gold.text = "%d" % int(Game.wallet.gold)
 	labels.zc.text = "%d" % int(Game.wallet.zc)
-	labels.pass_level.text = "  الموسم • %d/%d  " % [Game.pass_level(), Game.PASS_MAX]
+	labels.pass_level.text = "ZERO PASS • مستوى %d من %d" % [Game.pass_level(), Game.PASS_MAX]
 	var mode: String = Game.settings.get("mode", "solo")
 	var n := _mate_count()
 	labels.squad_line.text = "لحالك" if n == 0 else "الفريق %d/%d جاهزين" % [n + 1, n + 1]
 	var d := {"easy": "سهل", "normal": "عادي", "hard": "صعب"}[Game.settings.difficulty] as String
 	var quick: bool = Game.settings.get("length", "classic") == "quick"
-	labels.mode.text = ("باتل رويال • %s • %s • %s" % [_map_label(), "50 لاعب" if quick else ("60 لاعب" if Game.settings.get("map", "") == "dunes" else "100 لاعب"), d])
+	labels.mode_title.text = "باتل رويال • %s" % ("سريع" if quick else "كلاسيكي")
+	labels.mode.text = ("%s • %s • %s" % [_map_label(), "50 لاعب" if quick else ("60 لاعب" if Game.settings.get("map", "") == "dunes" else "100 لاعب"), d])
 	for id in _mode_chips:
 		var on: bool = id == mode
 		var c: Button = _mode_chips[id]
-		var st := UiKit.style(Color(1, 0.7, 0.13, 0.22) if on else Color(0.03, 0.04, 0.06, 0.5), 10, ACCENT if on else Color(1, 1, 1, 0.16), 2 if on else 1, 4)
+		var st := UiKit.style(GOLD if on else Color(1, 1, 1, 0.08), 12, Color(0, 0, 0, 0) if on else Color(1, 1, 1, 0.16), 0 if on else 1, 4)
 		if on:
-			st.shadow_color = Color(1.0, 0.65, 0.1, 0.35)
-			st.shadow_size = 10
+			st.bg_color = GOLD.lerp(GOLD_DARK, 0.25)
+			st.shadow_color = Color(0.95, 0.7, 0.3, 0.35)
+			st.shadow_size = 8
 		for k in ["normal", "hover", "pressed"]: c.add_theme_stylebox_override(k, st)
-		for k in ["font_color", "font_hover_color", "font_pressed_color"]: c.add_theme_color_override(k, Color("ffd34d") if on else Color.WHITE)
+		for k in ["font_color", "font_hover_color", "font_pressed_color"]: c.add_theme_color_override(k, Color("1f1405") if on else Color.WHITE)
 	var ready := _missions().filter(func(m): return m.done and not _claimed(m.id)).size()
 	labels.missions_dot.text = str(ready)
 	labels.missions_dot.get_parent().visible = ready > 0
 	labels.mail_dot.get_parent().visible = not bool(Game.wallet.mail_read)
+	var ach := _achievements_ready()
+	labels.ach_dot.text = str(ach)
+	labels.ach_dot.get_parent().visible = ach > 0
 	_fill_missions()
 	if mates.size() != _mate_count():
 		_spawn_mates()
@@ -1940,6 +1930,13 @@ const ACHIEVEMENTS := [
 	["ach_games100", "ابن المنطقة — 100 مباراة", "games", 100, 2500, "calendar"],
 	["ach_dmg10k", "عاصفة نار — 10,000 ضرر", "dmg", 10000, 1000, "globe"],
 ]
+
+## Achievements reached but not yet collected (the red count on the dock).
+func _achievements_ready() -> int:
+	var n := 0
+	for a in ACHIEVEMENTS:
+		if int(Game.stats.get(a[2], 0)) >= int(a[3]) and not _claimed(a[0]): n += 1
+	return n
 
 func _page_achievements(body: VBoxContainer) -> void:
 	var list := []

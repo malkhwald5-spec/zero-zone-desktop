@@ -882,6 +882,10 @@ static func panda_mesh() -> ArrayMesh:
 func wave(seconds: float) -> void:
 	_wave = seconds
 
+## A whole-body action (or a wave) is playing.
+func is_acting() -> bool:
+	return _action_t > 0.0 or _wave > 0.0
+
 const DEATHS := ["death_front", "death_back", "death_right", "death_head", "death_back_head"]
 var death_anim := ""            # pick a specific death ("death_crouch", "death_walk"...); "" = random
 var vel_y := 0.0                # vertical speed (jump / fall animations)
@@ -1739,6 +1743,33 @@ func _fly_limbs(t: float, d: float) -> void:
 		_leg(nm, ft, knee)
 
 var _fl_targets := {}
+
+## The lobby stance (as on a character screen): standing easy, facing you,
+## arms hanging straight down a little out from the hips, elbows soft, with
+## a slow breath. Called after set_pose; k eases it in (0..1).
+func relax_arms(t: float, k := 1.0) -> void:
+	if not (_bone.has("LeftArm") and _bone.has("RightArm") and _bone.has("Hips")): return
+	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
+	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
+	var lsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["LeftArm"]).origin
+	var rsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["RightArm"]).origin
+	var up := ((lsh + rsh) * 0.5 - hips).normalized()
+	var across := (rsh - lsh).normalized()
+	var fwd := up.cross(across).normalized()
+	var breath := sin(t * 1.6 + _seed) * 0.5 + 0.5
+	for side in [["Left", -1.0, lsh], ["Right", 1.0, rsh]]:
+		var nm: String = side[0]
+		var sd: float = side[1]
+		var sh: Vector3 = side[2]
+		var el: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "ForeArm"]).origin
+		var hd: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Hand"]).origin
+		var reach := (sh.distance_to(el) + el.distance_to(hd)) * 0.975
+		var out := 0.2 + breath * 0.025
+		var dir := (-up * cos(out) + across * sd * sin(out) + fwd * 0.06).normalized()
+		var want := sh + dir * reach
+		var hand := hd.lerp(want, clampf(k, 0.0, 1.0))
+		_arm(nm, hand, (-fwd * 0.7 + across * sd * 0.5).normalized())
+
 var _idle_k := 1.0         # 1 = the still skydiver pose (out of the door, stick let go)
 var _belly_sign := 0.0
 
