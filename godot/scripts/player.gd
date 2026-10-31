@@ -773,6 +773,7 @@ func _canopy_flight(delta: float) -> void:
 	model.brake = brake
 	model.chute_wind = gust * chute_wind.length() / 2.2
 	model.chute_open = opening
+	model.chute_push = push
 
 func _land() -> void:
 	if state == "chute":
@@ -1464,7 +1465,9 @@ func _update_camera(delta: float) -> void:
 	# at once).
 	_cam_offset = head - (vehicle.global_position if state == "vehicle" else global_position)
 	shake = move_toward(shake, 0.0, delta * 1.5)
-	spring.spring_length = lerpf(spring.spring_length, length, minf(1.0, delta * 12.0))
+	# The parachute opening: the camera eases back to take in the canopy.
+	var cam_k := 2.5 if state == "chute" and chute_t < 2.5 else 12.0
+	spring.spring_length = lerpf(spring.spring_length, length, minf(1.0, delta * cam_k))
 	_cam_low_water = state == "ground" and head.y < Island.WATER + 1.5
 	# The over-the-shoulder offset must not poke through a wall next to you
 	# (the camera arm cannot see a wall it starts inside of).
@@ -1524,7 +1527,8 @@ func _process(delta: float) -> void:
 	# the camera only tips part of the way) so the body stays big in frame.
 	var cam_pitch := clampf(pitch + look_off.y, -1.35, 1.0)
 	if state == "fall": cam_pitch = clampf(cam_pitch * 0.55, -0.62, 0.3)
-	cam_pivot.rotation = Vector3(cam_pitch + recoil_kick * 0.004 + _sway.y, _sway.x, -peek * 0.12) + sh
+	var roll := -peek * 0.12 + (chute_bank * 0.25 if state == "chute" else 0.0)     # under the canopy the view leans into turns
+	cam_pivot.rotation = Vector3(cam_pitch + recoil_kick * 0.004 + _sway.y, _sway.x, roll) + sh
 	if _cam_low_water:
 		cam_pivot.rotation.x = maxf(cam_pivot.rotation.x, -0.25)   # don't look down into the water
 

@@ -77,6 +77,9 @@ var _hip_drop := 0.0
 var _flinch_side := 0.0
 var steer := 0.0              # parachute toggles: -1 pull left .. 1 pull right
 var brake := 0.0              # parachute flare 0..1
+var chute_push := 0.0         # parachute: pushing on (0..1)
+var _steer_s := 0.0           # smoothed toggles for the arms and the canopy
+var _brake_s := 0.0
 var chute_open := 1.0         # 0 = just pulled (bunched up) .. 1 = fully open
 var chute_wind := 0.5         # how hard the wind blows on the canopy (0..1)
 var _pend := Vector2.ZERO     # body swing under the canopy: x = pitch, y = roll (radians)
@@ -1259,7 +1262,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_play("mx/chute_hang", 1.0)
 	elif pose == "fall" and ap.has_animation("mx/skydive"):
 		# Belly to earth, arched, arms and legs out (Mixamo skydive clip).
-		_play("mx/skydive", 1.0)
+		_play("mx/skydive", 0.15)    # nearly held: the pose is set below, the clip only gives the base
 	else:
 		_play("Idle", 1.0)
 	if _loco_on: _loco.apply(_loco_mix)
@@ -1275,6 +1278,9 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		pickup_t += delta / PICKUP_TIME
 		if pickup_t >= 1.0 or pose not in ["stand", "crouch"]: pickup_t = -1.0
 	canopy.visible = pose == "chute"
+	if pose != "fall" and _belly_sign != 0.0:
+		_belly_sign = 0.0          # (worked out again on the next jump)
+		_fl_targets.clear()
 	if canopy.visible:
 		_canopy_look(t)
 	else:
@@ -1303,14 +1309,14 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			var d := clampf(dive, 0.0, 1.0)
 			_fall_k = _fall_k.lerp(Vector3(maxf(fall_in.y, 0.0), maxf(-fall_in.y, 0.0), fall_in.x), minf(1.0, delta * 3.0))
 			# The air is never still: a buffet that grows with the speed.
-			var bf := 0.012 + d * 0.03
+			var bf := 0.004 + d * 0.008
 			var buf := Vector3(sin(t * 7.3 + _seed) + sin(t * 12.1) * 0.5, 0.0, sin(t * 5.7 + _seed * 2.0) + sin(t * 10.9) * 0.4) * bf
 			body.rotation = Vector3(-d * 1.4 + _fall_k.y * 0.35, -lean * 0.22, -lean * 0.5) + buf
 			if exit_k > 0.0:
 				# Out of the door feet first, then tipping forward onto the belly
 				# with a little roll and wobble before the arch takes hold.
 				var e := ease(exit_k, 0.6)
-				body.rotation += Vector3(PI * 0.45 * e, sin(t * 3.1) * 0.25 * e, sin(t * 4.3 + 1.0) * 0.35 * e)
+				body.rotation += Vector3(PI * 0.4 * e, 0.0, 0.0)
 			var hip := Vector3(0, 1.0, 0)
 			body.position = hip - body.basis * hip
 			_fly_limbs(t, d)
@@ -1351,21 +1357,28 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 			body.position = piv - body.basis * piv
 			# Hands on the toggles (they hang from the canopy, so they stay put
 			# while the body swings); pulling one down turns, both down flares.
-			var pl := 0.4 * maxf(-steer, 0.0) + 0.42 * brake
-			var pr := 0.4 * maxf(steer, 0.0) + 0.42 * brake
-			_arm("Left", Vector3(-0.27, 2.05 - pl, -0.02 - 0.08 * brake), Vector3(-1, 0, 0.3))
-			_arm("Right", Vector3(0.27, 2.05 - pr, -0.02 - 0.08 * brake), Vector3(1, 0, 0.3))
-			if not ap.has_animation("mx/chute_hang"):
-				var sw := sin(t * 1.7) * 0.05
-				_leg("Left", body.transform * Vector3(-0.13, 0.06, -0.12 + sw), Vector3(0, 0, -1))
-				_leg("Right", body.transform * Vector3(0.13, 0.04, -0.06 - sw), Vector3(0, 0, -1))
-			elif brake > 0.05:
-				# Flaring for the touch-down: knees up and the feet out in front.
-				var k := clampf(brake, 0.0, 1.0)
-				for side in [["Left", -1.0], ["Right", 1.0]]:
-					var sd: float = side[1]
-					var foot := Vector3(sd * 0.14, 0.02, 0.0).lerp(Vector3(sd * 0.15, 0.28, -0.32), k)
-					_leg(side[0], body.transform * foot, body.basis * Vector3(0, 0.3, -1))
+			# Both arms up, level, hands on the toggles above the head (as in
+			# PUBG); a turn draws one hand down smoothly, a flare both.
+			_steer_s = lerpf(_steer_s, steer, minf(1.0, delta * 5.0))
+			_brake_s = lerpf(_brake_s, brake, minf(1.0, delta * 5.0))
+			var pl := 0.42 * maxf(-_steer_s, 0.0) + 0.45 * _brake_s
+			var pr := 0.42 * maxf(_steer_s, 0.0) + 0.45 * _brake_s
+			_arm("Left", Vector3(-0.24, 2.14 - pl, -0.03 - 0.08 * _brake_s), Vector3(-1, -0.2, 0.25))
+			_arm("Right", Vector3(0.24, 2.14 - pr, -0.03 - 0.08 * _brake_s), Vector3(1, -0.2, 0.25))
+			# Legs hang straight and together, swaying a little as one with
+			# the swing; flaring for the touch-down, knees come up in front.
+			var sw := sin(t * 1.3 + _seed) * 0.035 - _pend.x * 0.08
+			var kf := clampf(_brake_s, 0.0, 1.0) * smoothstep(0.2, 0.6, _brake_s)
+			for side in [["Left", -1.0], ["Right", 1.0]]:
+				var sd: float = side[1]
+				var foot := Vector3(sd * 0.11, 0.03, -0.04 + sw).lerp(Vector3(sd * 0.15, 0.28, -0.32), kf)
+				_leg(side[0], body.transform * foot, body.basis * Vector3(0, 0.3, -1))
+			# The head looks round into the turn.
+			if _bone.has("Head"):
+				var hi: int = _bone["Head"]
+				var inv := sk.get_bone_global_pose(hi).basis.inverse()
+				var up_sk := ((sk.global_transform.affine_inverse() * global_transform).basis * Vector3.UP).normalized()
+				sk.set_bone_pose_rotation(hi, sk.get_bone_pose_rotation(hi) * Quaternion((inv * up_sk).normalized(), -_steer_s * 0.45))
 	_lean_into_moves(pose, speed, delta)
 	if sliding > 0.0 and pose == "crouch":
 		# On the hip: leaning back, low, the lead leg out in front.
@@ -1667,36 +1680,54 @@ func _place_gun(pose: String, delta: float) -> void:
 ## body and brings the legs together (a "track"), backing off reaches the
 ## arms forward, steering drops one shoulder; the hands flutter in the wind.
 func _fly_limbs(t: float, d: float) -> void:
+	# Clean set poses (as in PUBG), worked out in the body's own frame, eased
+	# from one to the next; only a faint flutter on top.
+	#   belly to earth: upper arms out to the sides, elbows bent, hands
+	#     level with the head; knees bent, the feet up behind;
+	#   dive: head down, arms straight down along the body a little out,
+	#     legs straight and together;
+	#   backing off: arms reach forward.
 	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
 	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
 	var lsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["LeftArm"]).origin
 	var rsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["RightArm"]).origin
 	var up_body := ((lsh + rsh) * 0.5 - hips).normalized()       # hips to shoulders
 	var across := (rsh - lsh).normalized()
-	var track := clampf(maxf(d, _fall_k.x * 0.6), 0.0, 1.0)
-	var reach := clampf(maxf(_fall_k.y, exit_k * 0.9), 0.0, 1.0) * (1.0 - track)     # out of the door: arms up and out for balance
+	# The belly side: worked out once, flat on the belly at the start.
+	var belly := up_body.cross(across).normalized() * _belly_sign
+	if _belly_sign == 0.0 or belly.length() < 0.5:
+		_belly_sign = 1.0 if up_body.cross(across).dot(Vector3.DOWN) >= 0.0 else -1.0
+		belly = up_body.cross(across).normalized() * _belly_sign
+	var dive_k := smoothstep(0.0, 1.0, clampf(maxf(d, _fall_k.x * 0.5), 0.0, 1.0))
+	var reach := clampf(_fall_k.y, 0.0, 1.0) * (1.0 - dive_k)
+	var k := minf(1.0, get_process_delta_time() * 7.0)
 	for side in [["Left", -1.0, lsh], ["Right", 1.0, rsh]]:
+		var nm: String = side[0]
 		var sd: float = side[1]
 		var sh: Vector3 = side[2]
-		var now: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Hand"]).origin
-		var swept := hips + up_body * 0.1 + across * sd * 0.3 + Vector3(0, 0.12, 0)
-		var forward := sh + up_body * 0.45 + across * sd * 0.22
-		# Belly to earth as in PUBG: arms bent up and forward beside the head
-		# (elbows out), not spread out straight.
-		var frog := sh + up_body * 0.3 + across * sd * 0.3 + Vector3(0, 0.12, 0)
-		var want := now.lerp(frog, 0.75).lerp(swept, track * 0.9).lerp(forward, reach * 0.7)
-		# Into a turn: the inside shoulder dips, the outside arm lifts.
-		want += Vector3(0, -sd * _fall_k.z * 0.16, 0)
-		want += Vector3(0, sin(t * 19.0 + sd * 1.7 + _seed) * 0.012 * (1.0 + track), 0)
-		_arm(side[0], want, (want - sh).cross(across * sd).normalized() + Vector3(0, -0.3, 0))
-		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Foot"]).origin
-		var knee: Vector3 = to_m * sk.get_bone_global_pose(_bone[side[0] + "Leg"]).origin
-		var together := hips - up_body * 0.95 + across * sd * 0.1
-		# Knees bent, the feet up behind (the arch), together in a dive.
-		var arch := hips - up_body * 0.62 + across * sd * 0.2 + Vector3(0, 0.28, 0)
-		var fw := foot.lerp(arch, 0.6).lerp(together, track * 0.85)
-		fw += Vector3(0, sin(t * 4.1 + sd + _seed) * 0.02, 0)
-		_leg(side[0], fw, (knee - (hips + foot) * 0.5).normalized())
+		var spread := sh + across * sd * 0.42 + up_body * 0.16 + belly * 0.1
+		var along := hips + across * sd * 0.3 - up_body * 0.02 - belly * 0.06
+		var ahead := sh + up_body * 0.46 + across * sd * 0.24
+		var hand := spread.lerp(along, dive_k).lerp(ahead, reach * 0.8)
+		# Turning: the inside arm drops a touch.
+		hand += belly * (sd * _fall_k.z * 0.06)
+		hand += up_body * (sin(t * 9.0 + sd * 1.3 + _seed) * 0.006)
+		var elbow := (across * sd - belly * 0.6).normalized().lerp(-belly, dive_k)
+		var foot_bent := hips - up_body * 0.55 + across * sd * 0.17 - belly * 0.38
+		var foot_straight := hips - up_body * 0.97 + across * sd * 0.07
+		var foot := foot_bent.lerp(foot_straight, dive_k)
+		var knee := (belly - up_body * 0.3).normalized()
+		var ht: Vector3 = _fl_targets.get(nm + "h", hand)
+		var ft: Vector3 = _fl_targets.get(nm + "f", foot)
+		ht = ht.lerp(hand, k)
+		ft = ft.lerp(foot, k)
+		_fl_targets[nm + "h"] = ht
+		_fl_targets[nm + "f"] = ft
+		_arm(nm, ht, elbow)
+		_leg(nm, ft, knee)
+
+var _fl_targets := {}
+var _belly_sign := 0.0
 
 func _chute_pendulum(delta: float, t: float) -> void:
 	var dt := maxf(delta, 1e-3)
@@ -1736,7 +1767,10 @@ func _canopy_look(t: float) -> void:
 	var flut := sin(t * 13.0 + _seed) * 0.006 + sin(t * 21.0) * 0.004 + g * 0.012 + (1.0 - k) * sin(t * 30.0) * 0.03
 	canopy.scale = Vector3(sx * (1.0 + flut), sy * (1.0 - flut * 1.5), sz * (1.0 + flut * 0.5))
 	# Leans with the gusts, and back when the toggles flare it.
-	canopy.rotation = Vector3(g * 0.03 + brake * 0.1, 0.0, g * 0.05)
+	# The canopy leads: banks into a turn before the body follows, dips its
+	# nose when pushed on, lifts it when flared; and it breathes slowly.
+	canopy.rotation = Vector3(g * 0.03 + _brake_s * 0.12 - chute_push * 0.1, 0.0, g * 0.05 + _steer_s * 0.22)
+	canopy.scale.y *= 1.0 + sin(t * 0.8 + _seed) * 0.012 * k
 
 ## Hit: the upper body jerks back and a little to one side, the head snaps.
 func hit(strength := 1.0) -> void:
