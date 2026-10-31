@@ -129,6 +129,7 @@ func _ready() -> void:
 
 	model = HumanModel.new(Game.outfit_color(), Color("f2a900"), Game.pants_color(), Game.outfit_character(), Game.outfit_dyed())
 	model.set_style(Game.outfit_style())
+	model.weapon_skin = String(Game.profile.get("gun_skin", ""))
 	add_child(model)
 	_refresh_gear()
 

@@ -96,6 +96,8 @@ func _ready() -> void:
 	max_slides = 3
 	model = HumanModel.new(Color.from_hsv(randf(), 0.35, 0.45), Color.from_hsv(randf(), 0.6, 0.85), Color.from_hsv(randf(), 0.2, 0.25),
 		HumanModel.BOT_CHARACTERS[randi() % HumanModel.BOT_CHARACTERS.size()], randf() < 0.6)
+	# Some carry skinned guns, as real players do.
+	if randf() < 0.25: model.weapon_skin = WeaponSkins.SKINS.keys()[randi() % WeaponSkins.SKINS.size()]
 	add_child(model)
 	model.set_gear(0, 0, 0)
 	_frame = randi() % 4

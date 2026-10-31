@@ -223,7 +223,7 @@ func pick_weather() -> String:
 	var r := randf()
 	return "clear" if r < 0.45 else ("rain" if r < 0.65 else ("sunset" if r < 0.82 else "fog"))
 const LOLA := 10            # WARDROBE index of the Lola character (the default look)
-var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA]}
+var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA], "gun_skin": "", "skins": []}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0,
 	"rp": 1000, "top10": 0, "dmg": 0, "heads": 0, "longest": 0, "best_kills": 0, "time": 0,
 	"modes": {}, "history": [],

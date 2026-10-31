@@ -457,6 +457,7 @@ func _spawn_mates() -> void:
 		var who: String = ["bundeswehr", "albu", "survivor"][i % 3]
 		var m := HumanModel.new(Color.from_hsv(0.3 + i * 0.2, 0.3, 0.4), Color("c84f3a"), Color.from_hsv(0.1, 0.2, 0.25), who)
 		m.set_gear(1 + i % 2, 1, 1)
+		m.weapon_skin = ["neon", "desert", "dragon"][i % 3]
 		m.set_weapon(guns[i])
 		add_child(m)
 		m.position = SLOTS[i + 1]
@@ -2004,7 +2005,48 @@ func _page_shop(body: VBoxContainer) -> void:
 	hb.add_child(_small_btn("افتح", func(): _open("crate")))
 	body.add_child(c)
 	_daily_deals(body)
+	_skin_shop(body)
 	_outfit_grid(body, 6)
+
+## Weapon skins: a colour scheme on all your guns. Buy once, wear or take off.
+func _skin_shop(body: VBoxContainer) -> void:
+	body.add_child(UiKit.label("🔫 سكنات الأسلحة — بتنحط على كل أسلحتك", 17, GOLD, UiKit.bold(), 0))
+	var grid := GridContainer.new()
+	grid.columns = 7
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	body.add_child(grid)
+	var cur: String = String(Game.profile.get("gun_skin", ""))
+	var owned: Array = Game.profile.get("skins", [])
+	for id in [""] + WeaponSkins.SKINS.keys():
+		var sid: String = id
+		var have := sid == "" or owned.has(sid)
+		var on := sid == cur
+		var c := _box_panel(Color(0.95, 0.77, 0.42, 0.2) if on else Color(1, 1, 1, 0.06))
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 4)
+		c.add_child(v)
+		var pic := TextureRect.new()
+		pic.custom_minimum_size = Vector2(96, 44)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.texture = WeaponSkins.swatch(sid) if sid != "" else UiKit.gradient(Color("2a2c30"), Color("15161a"), true)
+		v.add_child(pic)
+		v.add_child(UiKit.label("بدون سكن" if sid == "" else String(WeaponSkins.SKINS[sid][0]), 13, Color.WHITE, UiKit.bold(), 0))
+		var price: int = 0 if sid == "" else int(WeaponSkins.SKINS[sid][1])
+		var txt := "✓ لابسه" if on else ("البسه" if have else "🪙 %d" % price)
+		v.add_child(_small_btn(txt, func():
+			if not have:
+				if int(Game.wallet.gold) < price:
+					_toast("ما معك ذهب كافي — العب مباريات وخلّص المهام")
+					return
+				Game.wallet.gold = int(Game.wallet.gold) - price
+				Game.profile.skins.append(sid)
+				Game.coin_sound()
+			Game.profile.gun_skin = sid
+			Game.save_data()
+			_toast("سكن الأسلحة: %s" % ("بدون" if sid == "" else String(WeaponSkins.SKINS[sid][0])))
+			_open("shop"), not on))
+		grid.add_child(c)
 
 ## Today's deals: three outfits you don't own at 40% off, new ones every day.
 func _daily_deals(body: VBoxContainer) -> void:

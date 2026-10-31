@@ -1,6 +1,6 @@
 extends Node
-## In-match screenshots of the player holding weapons: ready, aiming, sprinting,
-## reloading, crouched and a bot seen from the front.
+## How the rifle is held standing still (across the body) and walking off,
+## from the front, the side and the game camera.
 ## Run: godot --path godot res://tests/hold_shots.tscn -- --out=/dir
 
 var out := "user://"
@@ -16,8 +16,13 @@ func shot(name: String) -> void:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.substr(6)
+		if a.begins_with("--skin="): Game.profile.gun_skin = a.substr(7)
 	Game.settings.controls = "touch"
-	Game.settings.quality = "high"
+	Game.settings.weather = "clear"
+	Game.settings.mode = "solo"
+	Game.settings.map = "dunes"
+	Game.settings.lite = false
+	Game.spawn_island = false
 	_run.call_deferred()
 
 func _run() -> void:
@@ -32,85 +37,48 @@ func _run() -> void:
 		await wait(0.1)
 	var p: Player = world.player
 	p.health = 1e9
-	world.hud.visible = false
-	for b in world.bots: b.set_physics_process(false)
 	p.jump_from_plane()
-	var c: Vector2 = world.island.towns[0].pos + Vector2(40, 0)
-	p.global_position = Vector3(c.x, world.ground_height(Vector3(c.x, 0, c.y)) + 1.0, c.y)
+	for b in world.bots: b.set_physics_process(false)
+	# Open flat ground away from the houses.
+	var t: Dictionary = world.island.towns[0]
+	var at := Vector3(t.pos.x + float(t.r) + 40.0, 0, t.pos.y)
+	at.y = world.ground_height(at)
+	p.global_position = at + Vector3(0, 0.5, 0)
+	p.velocity = Vector3.ZERO
+	p.reset_physics_interpolation()
 	p._land()
-	p.give_weapon("akm", 30)
-	p.give_weapon("m416", 30)
-	p.ammo["556"] = 200
-	p.yaw = 0.4
+	p.yaw = 0.0
 	p.pitch = -0.12
-	await wait(1.5)
-	await shot("hold_ready")
-	p.aiming = true
-	await wait(1.0)
-	await shot("hold_aim")
-	p.aiming = false
-	p.touch_move = Vector2(1, 0)
-	await wait(0.8)
-	await shot("hold_strafe")
-	p.touch_move = Vector2(0, 1)
-	await wait(1.0)
-	await shot("hold_run")
-	p.touch_move = Vector2.ZERO
-	await wait(0.5)
-	p.sprinting = true
-	p.touch_move = Vector2(0, 1)
-	await wait(1.2)
-	await shot("hold_sprint")
-	p.touch_move = Vector2.ZERO
-	p.sprinting = false
-	p.slots[p.active].mag = 5
-	p.start_reload()
-	await wait(0.6)
-	await shot("hold_reload")
+	p.give_weapon("m416", 30)
+	p.switch_slot(0)
 	await wait(2.0)
-	p.set_stance("crouch")
-	p.aiming = true
+	p.global_position = Vector3(at.x, world.ground_height(at) + 0.2, at.z)
+	p.velocity = Vector3.ZERO
 	await wait(1.0)
-	await shot("hold_crouch")
-	p.aiming = false
-	p.set_stance("crouch")
-	# A bot facing the camera, aiming.
-	var b: Bot = world.bots[0]
-	b.state = "ground"
-	b.visible = true
-	b.weapon_id = "akm"
-	b.model.set_weapon("akm")
-	b.model.set_gear(2, 2, 2)
-	var fwd := Vector3(-sin(p.yaw), 0, -cos(p.yaw))
-	var bp := p.global_position + fwd * 4.0 + Vector3(cos(p.yaw), 0, -sin(p.yaw)) * 1.0
-	b.global_position = Vector3(bp.x, world.ground_height(bp), bp.z)
-	b.yaw = p.yaw + PI
-	b.model.rotation.y = b.yaw
-	b.target = p
-	b.mode = "fight"
-	b.set_physics_process(true)
-	b.process_mode = Node.PROCESS_MODE_DISABLED
-	b.process_mode = Node.PROCESS_MODE_INHERIT
-	for f in 20:
-		b.model.aiming = true
-		b.model.set_pose("stand", 0.0, true, 0.05, f * 0.05)
-		await get_tree().process_frame
-	b.set_physics_process(false)
-	for f in 10:
-		b.model.aiming = true
-		b.model.set_pose("stand", 0.0, true, 0.05, f * 0.05)
-		await get_tree().process_frame
-	await shot("hold_bot")
-	if OS.get_cmdline_user_args().has("--guns"):
-		# The bot seen from the side holding each gun, aiming.
-		b.yaw = p.yaw + PI * 0.5
-		b.model.rotation.y = b.yaw
-		for g in ["m416", "scar", "ump", "s1897", "vector", "uzi", "beryl", "sks", "mini14", "m249", "crossbow"]:
-			b.weapon_id = g
-			b.model.set_weapon(g)
-			for f in 12:
-				b.model.aiming = true
-				b.model.set_pose("stand", 0.0, true, 0.05, f * 0.05)
-				await get_tree().process_frame
-			await shot("gun_" + g)
+	await shot("hold_0_game")
+	var cam := Camera3D.new()
+	world.add_child(cam)
+	cam.fov = 40.0
+	var base: Vector3 = p.global_position
+	var fwd: Vector3 = -p.global_basis.z
+	var right: Vector3 = p.global_basis.x
+	cam.global_position = base + fwd * 3.6 + Vector3(0, 1.2, 0)
+	cam.look_at(base + Vector3(0, 1.0, 0))
+	cam.current = true
+	world.hud.visible = false
+	await wait(0.5)
+	await shot("hold_1_front")
+	cam.global_position = base + fwd * 2.4 + right * 2.4 + Vector3(0, 1.3, 0)
+	cam.look_at(base + Vector3(0, 1.05, 0))
+	await wait(0.3)
+	await shot("hold_2_front34")
+	cam.global_position = base + right * 3.4 + Vector3(0, 1.2, 0)
+	cam.look_at(base + Vector3(0, 1.0, 0))
+	await wait(0.3)
+	await shot("hold_3_side")
+	cam.current = false
+	world.hud.visible = true
+	p.touch_move = Vector2(0, 1)
+	await wait(1.4)
+	await shot("hold_4_run_game")
 	tree.quit()

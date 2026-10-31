@@ -44,6 +44,7 @@ var bandaging := false        # bandage / first aid: down on one knee, wrapping 
 var sliding := 0.0            # 0..1: sliding on the hip after a sprint (crouch while sprinting)
 var inspect_t := -1.0         # 0..1 through looking the gun over (-1 = not)
 var bolt_p := -1.0            # 0..1 through working the bolt after a shot (bolt-action rifles)
+var weapon_skin := ""          # WeaponSkins id laid over every gun this character carries
 var idle_clip := ""           # standing still: this clip instead of the usual idle (lobby)
 var pickup_t := -1.0          # 0..1 through reaching down for something on the ground (-1 = not)
 const PICKUP_TIME := 0.6
@@ -424,6 +425,12 @@ func draw_weapon() -> void:
 	play_action("draw", 0.6, 0.8, 3.0)
 
 ## Weapon id ("m416") or class ("ar"); "" = empty hands.
+## Changes the skin on the guns already in hand and on the back.
+func set_weapon_skin(id: String) -> void:
+	weapon_skin = id
+	WeaponSkins.apply(weapon_node, id)
+	if _back_holder: WeaponSkins.apply(_back_holder, id)
+
 func set_weapon(id_or_cls: String) -> void:
 	_has_weapon = id_or_cls != ""
 	gun.visible = _has_weapon
@@ -436,6 +443,7 @@ func set_weapon(id_or_cls: String) -> void:
 	_cls = Game.WEAPONS[id_or_cls].cls if Game.WEAPONS.has(id_or_cls) else id_or_cls
 	weapon_node = WeaponModels.build(id_or_cls)
 	gun.add_child(weapon_node)
+	if weapon_skin != "": WeaponSkins.apply(weapon_node, weapon_skin)
 	_att_key = ""
 
 var _att_key := ""
@@ -712,7 +720,9 @@ func set_back_weapon(id: String) -> void:
 	if _band: _band.visible = id != ""
 	if id == "": return
 	_back_holder = Node3D.new()
-	_back_holder.add_child(WeaponModels.build(id))
+	var bw := WeaponModels.build(id)
+	if weapon_skin != "": WeaponSkins.apply(bw, weapon_skin)
+	_back_holder.add_child(bw)
 	_back_att.add_child(_back_holder)
 	_back_dirty = true
 
@@ -1577,6 +1587,7 @@ const WSCALE := 1.0                            # weapons sized to this character
 
 ## Where the weapon should be for this pose (model space), then eased there.
 ## Positions are the pistol grip (right hand); rotations are pitch, yaw, roll.
+var _still_k := 0.0             # 0..1: standing still, the rifle held across the body
 func _place_gun(pose: String, delta: float) -> void:
 	var pistol := _cls in ["pistol", "melee"]
 	var pos: Vector3
@@ -1611,12 +1622,23 @@ func _place_gun(pose: String, delta: float) -> void:
 		# camera behind the right shoulder it points where you're going).
 		pos = Vector3(0.17, 1.3, -0.26) if not pistol else Vector3(0.12, 1.15, -0.28)
 		rot = Vector3(-0.22, 0.16, 0.1) if not pistol else Vector3(-0.6, 0.2, 0)
+		# Standing still (as on PUBG's character art): the rifle held across
+		# the body, stock by the right side of the chest, muzzle down to the
+		# left and a little forward, both hands on it. Moving off it swings
+		# round to point ahead.
+		var still := 1.0 - clampf((_speed - 0.3) / 1.2, 0.0, 1.0)
+		_still_k = move_toward(_still_k, still if pose == "stand" and not pistol else 0.0, delta * 3.0)
+		if _still_k > 0.0:
+			var ks := smoothstep(0.0, 1.0, _still_k)
+			var across := Basis.looking_at(Vector3(-0.76, -0.44, -0.48).normalized(), Vector3(0.1, 1.0, 0.3).normalized())
+			pos = pos.lerp(Vector3(0.15, 1.28, -0.23), ks)
+			rot = rot.lerp(across.get_euler(EULER_ORDER_YXZ), ks)
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
 			# Running: muzzle lower and a little more across, still forward.
 			pos = pos.lerp(Vector3(0.15, 1.25, -0.25), low)
 			rot = rot.lerp(Vector3(-0.42, 0.34, 0.2), low)
-		pitch_with_aim = low < 0.5
+		pitch_with_aim = low < 0.5 and _still_k < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
 		# Looking the gun over: brought up in front, turned to one side, then the other.
 		var ki := sin(clampf(inspect_t, 0.0, 1.0) * PI)
