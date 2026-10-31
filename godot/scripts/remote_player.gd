@@ -63,6 +63,7 @@ func apply(st: Dictionary) -> void:
 func take_damage(amount: float, attacker: Node, head := false) -> bool:
 	if dead: return false
 	if attacker != null and attacker == world.player:
+		if world.same_team(self, attacker): return false     # a friend on your team
 		if peer < 0: Net.send_bot_hit(-peer - 1, amount, head)    # one of the host's bots
 		else: Net.send_hit(peer, amount, head)
 		hit_by_me_t = Time.get_ticks_msec()

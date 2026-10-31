@@ -909,7 +909,7 @@ func _c_news() -> void:
 	head.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	v.add_child(head)
 	var pic := TextureRect.new()
-	pic.texture = load("res://assets/textures/ui/art_desert.jpg")
+	pic.texture = load("res://assets/textures/ui/news_dunes.jpg")
 	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	pic.custom_minimum_size = Vector2(262, 96)
@@ -1317,6 +1317,12 @@ func _friends_fill() -> void:
 			Game.settings.net_bots = not bots_on
 			Game.save_data()
 			_friends_fill(), true, bots_on))
+		if bots_on:
+			var team_on := bool(Game.settings.get("net_team", true))
+			v.add_child(_small_btn("👥 انتو فريق واحد ضد البوتات" if team_on else "⚔ كل واحد لحاله (ضد بعض)", func():
+				Game.settings.net_team = not team_on
+				Game.save_data()
+				_friends_fill(), true, team_on))
 		var go := UiKit.yellow_button("ابدأ المباراة", func(): Net.start_match(), Vector2(280, 56), 24)
 		go.disabled = Net.roster.size() < 2
 		go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

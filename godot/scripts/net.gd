@@ -24,6 +24,7 @@ var roster := {}                  # peer id -> {name, outfit}
 var rooms := {}                   # host address -> {name, players, t}
 var match_seed := 0
 var bot_count := 0                # bots the host runs in this match (everyone sees them)
+var team_play := false            # friends on one team against the bots
 ## Online the host fills the island with bots up to this many players, so a
 ## match with two friends isn't an empty island (fewer on a phone host).
 const FILL_DESKTOP := 32
@@ -244,12 +245,13 @@ func start_match() -> void:
 	if not is_host: return
 	var fill := FILL_PHONE if Game.phone() else FILL_DESKTOP
 	var n := maxi(0, fill - roster.size()) if bool(Game.settings.get("net_bots", true)) else 0
-	_begin.rpc(randi(), Game.pick_weather(), Game.pick_map(), n)
+	_begin.rpc(randi(), Game.pick_weather(), Game.pick_map(), n, bool(Game.settings.get("net_team", true)) and n > 0)
 
 @rpc("authority", "call_local", "reliable")
-func _begin(s: int, w: String, m := "seasons", bots := 0) -> void:
+func _begin(s: int, w: String, m := "seasons", bots := 0, team := false) -> void:
 	match_seed = s
 	bot_count = clampi(bots, 0, 64)
+	team_play = team
 	weather = w
 	map_id = m if Game.MAPS.has(m) else "seasons"
 	in_match = true

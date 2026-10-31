@@ -2068,7 +2068,8 @@ func _hold_gun() -> void:
 		elif p < 0.6: fore = pouch.lerp(mag_pt, (p - 0.45) / 0.15)
 		elif p < 0.8: fore = mag_pt
 		else: fore = mag_pt.lerp(fore, (p - 0.8) / 0.2)
-	_arm("Right", to_local * rgrip, Vector3(1, -1, 0.4))
+	# Holding it across the chest the right elbow hangs down by the side.
+	_arm("Right", to_local * rgrip, Vector3(1, -1, 0.4).lerp(Vector3(0.3, -1, 0.5), _still_k))
 	if _cls in ["pistol", "melee"] and not aiming and reload_p < 0.0:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:

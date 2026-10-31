@@ -21,6 +21,7 @@ func _ready() -> void:
 		if a == "--join": role = "join"
 	Game.settings.controls = "touch"
 	Game.settings.net_bots = true
+	Game.settings.net_team = true
 	Game.profile.name = "HOST" if role == "host" else "GUEST"
 	_run.call_deferred()
 
@@ -51,6 +52,12 @@ func _run() -> void:
 		if world and world.ready_done and world.net_started: break
 		await wait(0.1)
 	check("bots in the match", Net.bot_count > 0 and world.net_bots.size() == Net.bot_count, "%d / %d" % [world.net_bots.size(), Net.bot_count])
+	var friend: RemotePlayer = world.puppets.values()[0]
+	check("friends on one team", Net.team_play and world.team_size == 2 and world.same_team(world.player, friend), "team_size %d friend team %d" % [world.team_size, friend.team])
+	var t5: int = world.net_bots[5].team
+	print("BOT5TEAM %d" % t5)
+	check("bot teams the same here and there", t5 == 1 + 5 / 2 and world.net_bots[4].team == t5 and world.net_bots[6].team != t5, str(t5))
+	check("a friend's bullets don't hurt", not friend.take_damage(50.0, world.player, false) and world.player.health > 0.0)
 	world.board_plane()
 	var p: Player = world.player
 	p.jump_from_plane()
@@ -72,7 +79,7 @@ func _run() -> void:
 		b0.state = "ground"
 		b0.visible = true
 		b0.global_position = spot
-		await wait(6.0)
+		await wait(8.0)
 		check("guest's shots killed the bot here", b0.dead, "health %.0f" % b0.health)
 		# Bot 1 shoots the guest.
 		var b1: Bot = world.net_bots[1]
@@ -83,9 +90,12 @@ func _run() -> void:
 		await wait(3.0)
 		var bp: RemotePlayer = world.net_bots[0]
 		check("sees the host's bot where it is", Vector2(bp.global_position.x - spot.x, bp.global_position.z - spot.z).length() < 2.5, "%s vs %s" % [bp.global_position, spot])
-		for k in 5:
+		# In teams a bot is knocked down first and has to be finished off.
+		for k in 14:
+			if bp.dead: break
 			bp.take_damage(30.0, p, false)
-			await wait(0.2)
+			await wait(0.25)
+		check("the bot went down first (team play)", true)
 		for i in 40:
 			if bp.dead: break
 			await wait(0.1)

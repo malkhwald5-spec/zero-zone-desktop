@@ -130,11 +130,20 @@ func _build() -> void:
 		Game.spawn_island = false
 		team_size = 1
 	elif Net.in_match:
-		team_size = 1
+		# Friends together: one team against the bots (team size: how many of
+		# you, 2 to 4, for the bots' teams too). Or everyone on their own.
+		team_size = clampi(Net.roster.size(), 2, 4) if Net.team_play else 1
+		player.team = 0
+		var k := 0
 		for id in Net.roster:
 			if int(id) == Net.me(): continue
 			var rp := RemotePlayer.new()
 			rp.setup(self, int(id), Net.roster[id])
+			if Net.team_play:
+				k += 1
+				rp.team = 0
+				rp.buddy = true
+				rp.slot = k
 			add_child(rp)
 			rp.global_position = plane_position()
 			bots.append(rp)
@@ -149,6 +158,8 @@ func _build() -> void:
 				for i in Net.bot_count:
 					var bp := RemotePlayer.new()
 					bp.setup(self, -(i + 1), {"name": BOT_NAMES[i % BOT_NAMES.size()], "outfit": (i * 7) % Game.WARDROBE.size()})
+					bp.team = net_bot_team(i)
+					bp.slot = i % maxi(team_size, 1)
 					add_child(bp)
 					bp.global_position = plane_position()
 					bots.append(bp)
@@ -277,6 +288,10 @@ func _show_net_shot(rp: RemotePlayer, from: Vector3, to: Vector3, cls: String, g
 ## A person (you or a friend), not a bot: bots treat everyone alike.
 func is_human(n: Node) -> bool:
 	return n == player or (n is RemotePlayer and (n as RemotePlayer).peer > 0)
+
+## The team of the host's bot number i (the same on every machine).
+func net_bot_team(i: int) -> int:
+	return 1 + i / team_size if team_size > 1 else 1 + i
 
 ## Who did it, as a number every game understands: a player's id, -(bot + 1)
 ## for one of the host's bots, 0 for nobody (the zone, a fall).
@@ -858,7 +873,7 @@ func player_form() -> float:
 
 func _spawn_bots(count := -1) -> void:
 	var dir := plane_to - plane_from
-	team_size = Game.team_size() if not Net.in_match else 1
+	if not Net.in_match: team_size = Game.team_size()
 	var lead_dest := Vector3.ZERO
 	var lead_jump := 0.5
 	var n_bots := BOT_COUNT_MOBILE if OS.has_feature("mobile") or quick() else BOT_COUNT
@@ -874,6 +889,10 @@ func _spawn_bots(count := -1) -> void:
 		b.display_name = BOT_NAMES[i % BOT_NAMES.size()]
 		if team_size == 1:
 			b.team = i + 1
+		elif Net.in_match:
+			# Online the friends are the team; the bots come in teams their size.
+			b.team = net_bot_team(i)
+			b.slot = i % team_size
 		elif i < team_size - 1:
 			b.team = 0
 			b.buddy = true
@@ -895,7 +914,7 @@ func _spawn_bots(count := -1) -> void:
 		var dest := _landing_spot()
 		# Jump where the plane passes closest to that spot.
 		var t := clampf((Vector2(dest.x, dest.z) - Vector2(plane_from.x, plane_from.z)).dot(Vector2(dir.x, dir.z)) / Vector2(dir.x, dir.z).length_squared(), 0.04, 0.96)
-		if team_size > 1 and b.slot > 0 and not b.buddy:
+		if team_size > 1 and b.slot > 0 and not b.buddy and (not Net.in_match or i > 0):
 			# Squad mates drop together, a few houses apart.
 			var off := Vector2(randf_range(12.0, 28.0), 0).rotated(randf() * TAU)
 			var p2 := Vector2(lead_dest.x, lead_dest.z) + off
@@ -1272,6 +1291,9 @@ static func is_gone(a: Node) -> bool:
 ## their feet to pick them up.
 func can_knock(a: Node) -> bool:
 	if team_size <= 1 or is_down(a): return false
+	# Online, people aren't knocked down (picking a friend up would have to be
+	# the same on every machine): they go straight out.
+	if Net.in_match and is_human(a): return false
 	for m in teammates(a):
 		if not is_gone(m) and not is_down(m): return true
 	return false

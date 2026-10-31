@@ -83,6 +83,7 @@ var settings := {
 	"lang": "ar",             # "ar" | "en": the language of the menus and the HUD
 	"difficulty": "normal",
 	"net_bots": true,               # online: the host fills the island up with bots
+	"net_team": true,               # online: friends on one team against the bots
 	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"
 	"map": "random",          # "random" | "seasons" | "dunes"
 	"aim_sens": 0.45,         # look speed while aiming / scoped, relative to normal
