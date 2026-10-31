@@ -1280,6 +1280,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 	canopy.visible = pose == "chute"
 	if pose != "fall" and _belly_sign != 0.0:
 		_belly_sign = 0.0          # (worked out again on the next jump)
+		_idle_k = 1.0
 		_fl_targets.clear()
 	if canopy.visible:
 		_canopy_look(t)
@@ -1319,6 +1320,10 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 				body.rotation += Vector3(PI * 0.4 * e, 0.0, 0.0)
 			var hip := Vector3(0, 1.0, 0)
 			body.position = hip - body.basis * hip
+			# A straight back: the clip bends the spine to one side, which put
+			# the legs off at an angle.
+			for bn in ["Spine", "Spine1", "Spine2"]:
+				if _bone.has(bn): sk.set_bone_pose_rotation(_bone[bn], sk.get_bone_rest(_bone[bn]).basis.get_rotation_quaternion())
 			_fly_limbs(t, d)
 		"fall":
 			# Belly to earth (arms and legs spread) blending into a head-down
@@ -1695,6 +1700,13 @@ func _fly_limbs(t: float, d: float) -> void:
 		_belly_sign = 1.0 if up_body.cross(across).dot(Vector3.DOWN) >= 0.0 else -1.0
 		belly = up_body.cross(across).normalized() * _belly_sign
 	var dive_k := smoothstep(0.0, 1.0, clampf(maxf(d, _fall_k.x * 0.5), 0.0, 1.0))
+	# Just out of the plane, or hanging there with the stick let go: the
+	# classic skydiver (as on PUBG's art): arms spread out ahead, elbows soft,
+	# knees bent with the feet up behind. Moving on, it eases into the flying
+	# pose below (arms down the sides, legs straight).
+	var still := 1.0 if exit_k > 0.0 or (fall_in.length() < 0.15 and d < 0.15) else 0.0
+	_idle_k = move_toward(_idle_k, still, get_process_delta_time() * 1.6)
+	var ik := smoothstep(0.0, 1.0, _idle_k)
 	var reach := clampf(_fall_k.y, 0.0, 1.0) * (1.0 - dive_k)
 	var k := minf(1.0, get_process_delta_time() * 7.0)
 	for side in [["Left", -1.0, lsh], ["Right", 1.0, rsh]]:
@@ -1705,13 +1717,14 @@ func _fly_limbs(t: float, d: float) -> void:
 		# out; legs straight and together. Calm, the same flat or diving.
 		var side_hand := hips + across * sd * 0.34 + up_body * 0.08 - belly * 0.04
 		var ahead := sh + up_body * 0.46 + across * sd * 0.24
-		var hand := side_hand.lerp(ahead, reach * 0.8)
+		var spread := sh + across * sd * 0.4 + up_body * 0.3 + belly * 0.05
+		var hand := side_hand.lerp(spread, ik).lerp(ahead, reach * 0.8)
 		# Turning: the inside arm drops a touch.
 		hand += belly * (sd * _fall_k.z * 0.05)
 		hand += up_body * (sin(t * 9.0 + sd * 1.3 + _seed) * 0.004)
 		var elbow := (across * sd * 0.6 - belly).normalized()
-		var foot := hips - up_body * 0.97 + across * sd * 0.08
-		var knee := (belly - up_body * 0.3).normalized()
+		var foot := (hips - up_body * 0.97 + across * sd * 0.08).lerp(hips - up_body * 0.45 + across * sd * 0.16 - belly * 0.42, ik)
+		var knee := (belly - up_body * lerpf(0.3, 0.8, ik)).normalized()
 		var ht: Vector3 = _fl_targets.get(nm + "h", hand)
 		var ft: Vector3 = _fl_targets.get(nm + "f", foot)
 		ht = ht.lerp(hand, k)
@@ -1722,6 +1735,7 @@ func _fly_limbs(t: float, d: float) -> void:
 		_leg(nm, ft, knee)
 
 var _fl_targets := {}
+var _idle_k := 1.0         # 1 = the still skydiver pose (out of the door, stick let go)
 var _belly_sign := 0.0
 
 func _chute_pendulum(delta: float, t: float) -> void:

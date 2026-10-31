@@ -37,6 +37,9 @@ func _run() -> void:
 		world.plane_t += 0.002
 		await tree.process_frame
 	p.interact()
+	# Still, just out of the plane: the classic skydiver.
+	await wait(1.6)
+	await shot("fall_still")
 	p.pitch = -0.3
 	p.touch_move = Vector2(0, 0.6)
 	await wait(2.5)
