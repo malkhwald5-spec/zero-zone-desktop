@@ -20,6 +20,7 @@ varying vec3 ground_col;
 varying float tip;
 varying float tint;
 varying float dry;
+varying float field;
 
 void vertex() {
 	vec3 base = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -46,7 +47,12 @@ void vertex() {
 	// Same colour as the ground texture under the clump (blurred mip), so blades blend in.
 	ground_col = textureLod(grass_c, base.xz / 4.0, 6.0).rgb;
 	vec3 local = VERTEX - base;
-	local.y *= keep * (0.6 + tint * 0.9) * (1.0 + bio.g * 0.6 - bio.b * 0.2);
+	// Fields of tall dry grass here and there on the open plains (as on the
+	// farmland of the battle royales): waist high and golden, room to hide.
+	float rest = clamp(1.0 - bio.r - bio.g - bio.b - bio.a, 0.0, 1.0);
+	field = smoothstep(0.6, 0.7, textureLod(noise_a, base.xz / 260.0 + vec2(0.71, 0.23), 0.0).r) * rest * keep;
+	local.y *= keep * (0.6 + tint * 0.9) * (1.0 + bio.g * 0.6 - bio.b * 0.2) * (1.0 + field * 1.7);
+	local.xz *= 1.0 + field * 0.25;
 	dry = max(dry, bio.r);
 	local.xz *= mix(0.3, 1.0, keep);
 	float gust = sin(TIME * 0.7 + base.x * 0.03 + base.z * 0.02) * 0.5 + 0.5;
@@ -67,6 +73,7 @@ void fragment() {
 	vec3 col = mix(t.rgb, ground_col * lum * 7.0, 0.4);
 	col *= mix(0.85, 1.15, tint);
 	col = mix(col, col * vec3(1.25, 1.05, 0.6), smoothstep(0.6, 0.85, dry) * 0.6);
+	col = mix(col, vec3(0.8, 0.68, 0.4) * (0.55 + lum * 0.9), field * 0.75);
 	ALBEDO = col * mix(0.55, 1.0, smoothstep(0.0, 0.6, tip));
 	ROUGHNESS = 0.85;
 	SPECULAR = 0.3;
