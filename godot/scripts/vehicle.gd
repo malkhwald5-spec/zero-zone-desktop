@@ -253,9 +253,11 @@ func _build_model() -> void:
 				_tail_mat.emission = Color("ff2a1a")
 				_tail_mat.emission_energy_multiplier = 0.3
 				body.set_surface_override_material(i, _tail_mat)
+	_wear(body)
+	_headlights(body)
 	# Dust from the rear wheels on the move, smoke and fire when badly damaged.
 	for x in [-WHEEL_DUST_X, WHEEL_DUST_X]:
-		var d := _particles(Color(0.62, 0.55, 0.42, 0.55), 1.1, 0.6, 18)
+		var d := _particles(Color(0.62, 0.55, 0.42, 0.55), 1.6, 0.9, 26)
 		d.position = Vector3(x, 0.15, -1.45)
 		d.direction = Vector3(0, 0.6, -1)
 		_dust.append(d)
@@ -271,6 +273,71 @@ func _build_model() -> void:
 	fm.emission_energy_multiplier = 3.0
 
 const WHEEL_DUST_X := 0.82
+
+## The car has been driven: mud on the sills and arches, dust on top; a jeep
+## now and then in camo paint (grey urban or desert).
+static var _noise_tex: NoiseTexture2D
+func _wear(body: MeshInstance3D) -> void:
+	if _noise_tex == null:
+		_noise_tex = NoiseTexture2D.new()
+		_noise_tex.seamless = true
+		var fn := FastNoiseLite.new()
+		fn.frequency = 0.03
+		fn.fractal_octaves = 3
+		_noise_tex.noise = fn
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/car_wear.gdshader")
+	m.set_shader_parameter("noise", _noise_tex)
+	m.set_shader_parameter("dirt", randf_range(0.45, 0.9))
+	if kind == "jeep" and randf() < 0.6:
+		m.set_shader_parameter("camo", 1.0)
+		if randf() < 0.5:
+			m.set_shader_parameter("camo_a", Color("8c7650"))
+			m.set_shader_parameter("camo_b", Color("c9b083"))
+			m.set_shader_parameter("camo_c", Color("4a3c28"))
+		m.set_shader_parameter("window_y", 1.32)
+	body.material_overlay = m
+
+## Headlights: bright lamps on the front that glow (a soft halo you can see
+## by day), and two beams thrown ahead while someone drives (one on phones).
+var _lamps: Array = []
+var _beams: Array = []
+func _headlights(body: MeshInstance3D) -> void:
+	var a: AABB = body.mesh.get_aabb()
+	var y: float = a.position.y + a.size.y * ({"jeep": 0.4, "pickup": 0.3}.get(kind, 0.36) as float)
+	var x: float = a.size.x * 0.34
+	var z: float = a.end.z - 0.04
+	var halo := StandardMaterial3D.new()
+	halo.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	halo.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	halo.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	halo.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	halo.albedo_color = Color(1.0, 0.95, 0.85, 0.75)
+	halo.albedo_texture = _puff_tex()
+	halo.no_depth_test = false
+	var q := QuadMesh.new()
+	q.size = Vector2(0.24, 0.24)
+	q.material = halo
+	for sx in [-1.0, 1.0]:
+		var l := MeshInstance3D.new()
+		l.mesh = q
+		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		l.position = Vector3(x * sx, y, z - (0.14 if kind == "pickup" else 0.03))
+		l.visible = false
+		add_child(l)
+		_lamps.append(l)
+	for sx in ([0.0] if Game.phone() else [-1.0, 1.0]):
+		var sp := SpotLight3D.new()
+		sp.light_color = Color(1.0, 0.95, 0.85)
+		sp.light_energy = 6.0
+		sp.spot_range = 28.0
+		sp.spot_angle = 26.0
+		sp.shadow_enabled = false
+		sp.position = Vector3(x * sx, y, z)
+		sp.rotation = Vector3(-0.08, PI, 0)      # the car faces +Z; lights point along -Z by default
+		sp.visible = false
+		add_child(sp)
+		_beams.append(sp)
 
 ## Car paint (the vehicle's own colour) on the model's surface with that material.
 func _paint_surface(body: MeshInstance3D, mat_name: String, rough: float) -> void:
@@ -367,6 +434,9 @@ func _effects(sp: float) -> void:
 	for d in _dust: d.emitting = moving
 	var braking := brake > 1.0 and driver != null
 	_tail_mat.emission_energy_multiplier = 2.5 if braking else 0.3
+	var lit := driver != null and not dead and near
+	for l in _lamps: l.visible = lit
+	for b in _beams: b.visible = lit and not Game.lite()
 	_smoke.emitting = near and health < max_health * 0.45 and not dead or (dead and near)
 	_fire.emitting = near and (health < max_health * 0.2 or dead)
 	if not Game.settings.sound or DisplayServer.get_name() == "headless": return
