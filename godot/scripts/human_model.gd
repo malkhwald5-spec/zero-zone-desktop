@@ -1694,21 +1694,22 @@ func _fly_limbs(t: float, d: float) -> void:
 	var rsh: Vector3 = to_m * sk.get_bone_global_pose(_bone["RightArm"]).origin
 	var up_body := ((lsh + rsh) * 0.5 - hips).normalized()       # hips to shoulders
 	var across := (rsh - lsh).normalized()
-	# The belly side: worked out once, flat on the belly at the start.
-	var belly := up_body.cross(across).normalized() * _belly_sign
-	if _belly_sign == 0.0 or belly.length() < 0.5:
-		_belly_sign = 1.0 if up_body.cross(across).dot(Vector3.DOWN) >= 0.0 else -1.0
-		belly = up_body.cross(across).normalized() * _belly_sign
+	# The belly side: the body's own "down" (the clip lies flat on its belly
+	# when the body isn't turned), so it holds through the tumble and the dive.
+	var belly_ref: Vector3 = body.transform.basis * Vector3.DOWN
+	var belly := up_body.cross(across).normalized()
+	if belly.dot(belly_ref) < 0.0: belly = -belly
+	_belly_sign = 1.0
 	var dive_k := smoothstep(0.0, 1.0, clampf(maxf(d, _fall_k.x * 0.5), 0.0, 1.0))
 	# Just out of the plane, or hanging there with the stick let go: the
 	# classic skydiver (as on PUBG's art): arms spread out ahead, elbows soft,
 	# knees bent with the feet up behind. Moving on, it eases into the flying
 	# pose below (arms down the sides, legs straight).
 	var still := 1.0 if exit_k > 0.0 or (fall_in.length() < 0.15 and d < 0.15) else 0.0
-	_idle_k = move_toward(_idle_k, still, get_process_delta_time() * 1.6)
+	_idle_k = move_toward(_idle_k, still, get_process_delta_time() * 1.1)
 	var ik := smoothstep(0.0, 1.0, _idle_k)
 	var reach := clampf(_fall_k.y, 0.0, 1.0) * (1.0 - dive_k)
-	var k := minf(1.0, get_process_delta_time() * 7.0)
+	var k := minf(1.0, get_process_delta_time() * 4.5)
 	for side in [["Left", -1.0, lsh], ["Right", 1.0, rsh]]:
 		var nm: String = side[0]
 		var sd: float = side[1]
@@ -1723,8 +1724,11 @@ func _fly_limbs(t: float, d: float) -> void:
 		hand += belly * (sd * _fall_k.z * 0.05)
 		hand += up_body * (sin(t * 9.0 + sd * 1.3 + _seed) * 0.004)
 		var elbow := (across * sd * 0.6 - belly).normalized()
-		var foot := (hips - up_body * 0.97 + across * sd * 0.08).lerp(hips - up_body * 0.45 + across * sd * 0.16 - belly * 0.42, ik)
-		var knee := (belly - up_body * lerpf(0.3, 0.8, ik)).normalized()
+		# Still: knees bent well past square, the feet raised high over the
+		# back of the legs (seen from above they show, as on PUBG's art).
+		var foot_up := hips - up_body * 0.28 + across * sd * 0.17 - belly * 0.5
+		var foot := (hips - up_body * 0.97 + across * sd * 0.08).lerp(foot_up, ik)
+		var knee := (belly - up_body * lerpf(0.3, 1.0, ik)).normalized()
 		var ht: Vector3 = _fl_targets.get(nm + "h", hand)
 		var ft: Vector3 = _fl_targets.get(nm + "f", foot)
 		ht = ht.lerp(hand, k)

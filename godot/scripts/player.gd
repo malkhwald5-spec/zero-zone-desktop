@@ -1529,7 +1529,11 @@ func _process(delta: float) -> void:
 	# Skydiving (as in PUBG) the view looks down on your back from above:
 	# the island below fills the screen, your head points the way you fly.
 	# Looking down a bit more (the dive) tips it right over; up, eases off.
-	if state == "fall": cam_pitch = clampf(-1.15 + (pitch + look_off.y) * 0.3, -1.45, -0.7)
+	if state == "fall":
+		cam_pitch = clampf(-1.15 + (pitch + look_off.y) * 0.3, -1.45, -0.7)
+		# Holding still (the classic skydiver, knees bent and feet up), the
+		# view comes round behind and above so the raised legs show.
+		cam_pitch = lerpf(cam_pitch, -0.78, smoothstep(0.0, 1.0, model._idle_k))
 	var roll := -peek * 0.12 + (chute_bank * 0.25 if state == "chute" else 0.0)     # under the canopy the view leans into turns
 	cam_pivot.rotation = Vector3(cam_pitch + recoil_kick * 0.004 + _sway.y, _sway.x, roll) + sh
 	if _cam_low_water:
