@@ -1,0 +1,12 @@
+Model Information:
+* title:	Tactical Plate Carrier Vest - Game Ready
+* source:	https://sketchfab.com/3d-models/tactical-plate-carrier-vest-game-ready-3b51e6329dbb4b0aa14e43f12eb6c42a
+* author:	Exactly (https://sketchfab.com/txyrm70)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Tactical Plate Carrier Vest - Game Ready" (https://sketchfab.com/3d-models/tactical-plate-carrier-vest-game-ready-3b51e6329dbb4b0aa14e43f12eb6c42a) by Exactly (https://sketchfab.com/txyrm70) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Modified for Zero Zone: the national flag patch on the chest painted over with a blank patch.

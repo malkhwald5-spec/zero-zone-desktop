@@ -767,8 +767,8 @@ static var _gear_cache := {}
 ## 3 tactical): Sketchfab models (see README) baked by tools/prep_prop.gd.
 ## [model front turned to +Z (radians about Y), how it is sized, size m].
 const GEAR_MODELS := {
-	"helmet1": [-PI / 2, "max", 0.31], "helmet2": [-PI / 2, "max", 0.28], "helmet3": [-PI / 2, "max", 0.31],
-	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [0.0, "keep", 1.0],
+	"helmet1": [-PI / 2, "max", 0.31], "helmet2": [0.0, "max", 0.29, "helmet_mich"], "helmet3": [-PI / 2, "max", 0.32, "helmet_tac"],
+	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [-PI / 2, "y", 0.56, "vest_pc", Vector3(0, 0.08, 0.0)],
 	"pack1": [PI, "y", 0.46], "pack2": [PI, "y", 0.52], "pack3": [PI, "y", 0.58],
 }
 ## Fit and colour per model: [scale across, up, front-to-back; colour the
@@ -784,7 +784,7 @@ static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
 	var key := "%s%d" % [kind, clampi(lvl, 1, 3)]
 	if _gear_cache.has(key): return _gear_cache[key]
 	var cfg: Array = GEAR_MODELS[key]
-	var sc: Node3D = load("res://assets/models/gear/%s.glb" % key).instantiate()
+	var sc: Node3D = load("res://assets/models/gear/%s.glb" % (cfg[3] if cfg.size() > 3 else key)).instantiate()
 	var src: Mesh = null
 	for mi: MeshInstance3D in sc.find_children("*", "MeshInstance3D", true, false):
 		if mi.mesh: src = mi.mesh
@@ -796,7 +796,7 @@ static func gear_mesh(kind: String, lvl: int) -> ArrayMesh:
 		"y": k = cfg[2] / a.size.y
 	var fit: Array = GEAR_FIT.get(key, [Vector3.ONE, Color.WHITE])
 	var bas := Basis.from_scale(fit[0] * k) * rot
-	var xf := Transform3D(bas, -(Transform3D(bas, Vector3.ZERO) * src.get_aabb()).get_center())
+	var xf := Transform3D(bas, -(Transform3D(bas, Vector3.ZERO) * src.get_aabb()).get_center() + (cfg[4] if cfg.size() > 4 else Vector3.ZERO))
 	var mesh := ArrayMesh.new()
 	for i in src.get_surface_count():
 		var st := SurfaceTool.new()

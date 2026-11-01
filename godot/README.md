@@ -150,9 +150,10 @@ https://github.com/malkhwald5-spec/zero-zone-desktop/releases/latest/download/Ze
   - الكوماندوز: "Rigged and Textured Mid-Poly Soldier" لـ DenisAlbu — https://sketchfab.com/3d-models/rigged-and-textured-mid-poly-soldier-29883983eddd4808a4f90aec5ca57f16 (رخصة CC-BY-SA-4.0: نسختنا المعدّلة منه `assets/models/chars/albu.glb` تحت نفس الرخصة)
 - العتاد من Sketchfab (رخصة CC-BY-4.0، مخفف بأداة `tools/prep_prop.gd`):
   - خوذة 1: "Street Rider Helmet – SMK Style" لـ sevai — https://sketchfab.com/3d-models/street-rider-helmet-smk-style-a2e5ceb7492242e0a021bb529e0a60f7 (CC-BY 4.0؛ معدّلة: شلنا عنها علامة الشركة والأرقام والكتابة والملصقات وصار لونها أسود مطفي — `tools/helmet_clean.py`)
-  - خوذة 2: "Military Helmet" لـ ED BOX (Elyar) — https://sketchfab.com/3d-models/military-helmet-7b344fdb2ce846539cb420fe4d37fc13
-  - خوذة 3: "altyn_helmet" لـ b4_cobra (sultanbaddad3) — https://sketchfab.com/3d-models/altyn-helmet-c1e7126e091f470597b8ea5447e2b15e
-  - الدروع 1-3: "Vest Armor Holster LowPoly GameReady Pack" لـ 00amza — https://sketchfab.com/3d-models/vest-armor-holster-lowpoly-gameready-pack-7c41d35e505c4057abe60f89537408bd
+  - خوذة 2: "MICH 2001 military helmet" لـ HaizorWill — https://sketchfab.com/3d-models/mich-2001-military-helmet-ad5907514a5343e3aca5ae0357b485a3 (CC-BY 4.0)
+  - خوذة 3: "Tactical Helmet with Headset (Game-Ready)" لـ Exactly — https://sketchfab.com/3d-models/tactical-helmet-with-headset-game-ready-82adf376164f4d99a4e0b2949930e2ad (CC-BY 4.0)
+  - الدروع 1-2: "Vest Armor Holster LowPoly GameReady Pack" لـ 00amza — https://sketchfab.com/3d-models/vest-armor-holster-lowpoly-gameready-pack-7c41d35e505c4057abe60f89537408bd
+  - درع 3: "Tactical Plate Carrier Vest - Game Ready" لـ Exactly — https://sketchfab.com/3d-models/tactical-plate-carrier-vest-game-ready-3b51e6329dbb4b0aa14e43f12eb6c42a (CC-BY 4.0؛ معدّل: شلنا علم الدولة عن الصدر)
   - شنطة 1: "Small Black Backpack" لـ jungle_jim — https://sketchfab.com/3d-models/small-black-backpack-3f584ae6b16e45c8ae69081f4609d75a
   - شنطة 2: "Vintage Military Backpack" لـ SilentSymmetry — https://sketchfab.com/3d-models/vintage-military-backpack-157bb5277b8247899580052806b914d5
   - شنطة 3: "Tactical Backpack – Game Ready PBR" لـ shatlak1998 — https://sketchfab.com/3d-models/tactical-backpack-game-ready-pbr-dea541825b8d4fd5a8c4fbb68f0ed62f

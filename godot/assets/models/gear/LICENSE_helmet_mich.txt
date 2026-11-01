@@ -1,0 +1,11 @@
+Model Information:
+* title:	MICH 2001 military helmet
+* source:	https://sketchfab.com/3d-models/mich-2001-military-helmet-ad5907514a5343e3aca5ae0357b485a3
+* author:	HaizorWill (https://sketchfab.com/HaizorWill)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "MICH 2001 military helmet" (https://sketchfab.com/3d-models/mich-2001-military-helmet-ad5907514a5343e3aca5ae0357b485a3) by HaizorWill (https://sketchfab.com/HaizorWill) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
