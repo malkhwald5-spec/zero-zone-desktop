@@ -573,14 +573,27 @@ func _place_back() -> void:
 		# Against the pack's outside (its middle bulges out; the gun's
 		# magazine sits into the rounded edge).
 		z = minf(z, pack.position.z - pack.mesh.get_aabb().size.z * 0.5 * pack.scale.x + 0.04 * u)
-	var at: Vector3 = rest * Vector3(0, -0.06 * u, z)
-	# Slung diagonally, muzzle up over the left shoulder, top of the gun facing out.
-	var b := Basis.looking_at(Vector3(-0.55, 0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+	# As in PUBG: hanging straight down beside the backpack (or the back),
+	# muzzle down, the stock up by the shoulder blade, top of the gun facing out.
+	var side := _back_side_at(z, -1.0, u)
+	var at: Vector3 = rest * side[0]
+	var b := Basis.looking_at(Vector3(-0.1, -1.0, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
 	_back_base = rest.affine_inverse() * Transform3D(b, at + b * Vector3(0, 0, 0.12))
 	holder.transform = _back_base
-	_back_pivot = _back_base * Vector3(0, 0, -0.38)      # up at the shoulder, where the sling holds it
+	_back_pivot = _back_base * Vector3(0, 0, 0.32)      # up by the stock, where the sling holds it
 	_strap(holder)
 	_chest_band()
+
+## Where a gun hangs on one side of the back (bone space of the upper back):
+## beside the backpack when one is worn, else against the back.
+func _back_side_at(z_out: float, sx: float, u: float) -> Array:
+	var x := 0.13 * u
+	var z := z_out
+	if pack and pack.visible and pack.mesh:
+		var a: AABB = pack.mesh.get_aabb()
+		x = a.size.x * 0.5 * pack.scale.x + 0.035 * u
+		z = pack.position.z
+	return [Vector3(sx * x, -0.1 * u, z)]
 
 ## A bone's rest pose in model space (the body's tilt and lift left out).
 func _bone_rest_model(b: int) -> Transform3D:
@@ -612,7 +625,25 @@ func _sway_back(delta: float) -> void:
 	# In the upper back's space the back is -Z: swing about it (side to side)
 	# and about the shoulders' line (bouncing), round the sling point.
 	var r := Basis(Vector3(0, 0, 1), _sway.x) * Basis(Vector3(1, 0, 0), _sway.y)
+	# Hanging from its sling the gun points down whichever way the body
+	# leans (bent over running, it does not tip over with the back).
+	r = Basis(_hang_fix(_back_base)) * r
 	holder.transform = Transform3D(r, _back_pivot - r * _back_pivot) * _back_base
+	if _back2_att and _back2_att.get_child_count() > 0 and _back2_base != Transform3D():
+		var h2 := _back2_att.get_child(_back2_att.get_child_count() - 1) as Node3D
+		var r2 := Basis(_hang_fix(_back2_base))
+		var piv2 := _back2_base * Vector3(0, 0, 0.32)
+		h2.transform = Transform3D(r2, piv2 - r2 * piv2) * _back2_base
+
+## Turn (in the upper back's bone space) that brings a slung gun's muzzle
+## round to point straight down again.
+func _hang_fix(base: Transform3D) -> Quaternion:
+	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
+	var bb: Basis = (to_m.basis * sk.get_bone_global_pose(_bone.get("Spine2", 0)).basis).orthonormalized()
+	var down: Vector3 = (bb.inverse() * Vector3.DOWN).normalized()
+	var rest_down: Vector3 = (_bone_rest_model(_bone.get("Spine2", 0)).basis.orthonormalized().inverse() * Vector3.DOWN).normalized()
+	var q := Quaternion(rest_down, down)
+	return Quaternion.IDENTITY.slerp(q, 0.85)
 
 ## The sling along the slung gun: a dark strap from the stock to the front,
 ## bowed out a little from it.
@@ -683,7 +714,7 @@ func _pack_straps(on: bool) -> void:
 		att.bone_name = sk.get_bone_name(s1)
 		sk.add_child(att)
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color("2c2d27")
+		m.albedo_color = Color("8f7c58")
 		m.roughness = 0.85
 		for k in 3:
 			var mi := MeshInstance3D.new()
@@ -778,6 +809,7 @@ func set_back_weapon(id: String) -> void:
 ## slung the other way across the first, muzzle up over the right shoulder.
 var _back2_att: BoneAttachment3D
 var _back2_id := ""
+var _back2_base := Transform3D()
 func set_back_weapon2(id: String) -> void:
 	if id == _back2_id: return
 	_back2_id = id
@@ -805,10 +837,10 @@ func _place_back2() -> void:
 		z = minf(z, vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x - 0.03 * u)
 	if pack and pack.visible and pack.mesh:
 		z = minf(z, pack.position.z - pack.mesh.get_aabb().size.z * 0.5 * pack.scale.x + 0.04 * u)
-	z -= 0.05 * u
-	var at: Vector3 = rest * Vector3(0, -0.08 * u, z)
-	var b := Basis.looking_at(Vector3(0.55, 0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+	var at: Vector3 = rest * _back_side_at(z, 1.0, u)[0]
+	var b := Basis.looking_at(Vector3(0.1, -1.0, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
 	h.transform = rest.affine_inverse() * Transform3D(b, at + b * Vector3(0, 0, 0.12))
+	_back2_base = h.transform
 
 ## World position of the muzzle (bullets and flashes start here).
 func muzzle_position() -> Vector3:
@@ -1506,6 +1538,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		_peek_feet(pose)
 		_lean_spine()
 	if pose == "prone" and not downed and speed < 0.2: _prone_legs()
+	if pose == "crouch" and _anim == "mx/crouch_f" and speed < 0.3: _wide_squat()
 	if flinch > 0.0 and pose in ["stand", "crouch", "prone"]:
 		_flinch_spine()
 		flinch = maxf(0.0, flinch - delta * 3.5)
@@ -1730,8 +1763,8 @@ func _place_gun(pose: String, delta: float) -> void:
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
 			# Running: muzzle lower and a little more across, still forward.
-			pos = pos.lerp(Vector3(0.15, 1.25, -0.25), low)
-			rot = rot.lerp(Vector3(-0.42, 0.34, 0.2), low)
+			pos = pos.lerp(Vector3(0.13, 1.1, -0.3), low)
+			rot = rot.lerp(Vector3(-0.72, 0.38, 0.22), low)
 		pitch_with_aim = low < 0.5 and _still_k < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
 		# Looking the gun over: brought up in front, turned to one side, then the other.
@@ -2103,6 +2136,18 @@ func _prone_legs() -> void:
 		var want := Vector3(lerpf(foot.x, hips.x + signf(foot.x - hips.x) * 0.2, 0.75), foot.y, foot.z)
 		_leg(nm, want, (knee - (hips + want) * 0.5).normalized())
 
+## Squatting still: feet planted wider apart, knees out (as in PUBG).
+func _wide_squat() -> void:
+	if not (_bone.has("Hips") and _bone.has("LeftFoot")): return
+	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
+	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
+	for nm in ["Left", "Right"]:
+		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Foot"]).origin
+		var sx := signf(foot.x - hips.x)
+		if sx == 0.0: sx = -1.0 if nm == "Left" else 1.0
+		var want := Vector3(hips.x + sx * maxf(absf(foot.x - hips.x), 0.2), foot.y, foot.z)
+		_leg(nm, want, Vector3(sx * 0.6, 0.0, -1.0).normalized())
+
 var _fwd_lean := 0.0
 const CROUCH_HOLD := 0.0     # seconds into crouch_f where both feet are down
 ## Upper body follows the aim up/down; the head looks a bit further.
@@ -2122,7 +2167,7 @@ func _bend_spine(pose: String) -> void:
 	else:
 		_fwd_lean = lerpf(_fwd_lean, 0.0, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
-	var twist := -0.3 if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
+	var twist := (-0.45 if aiming else -0.3) if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
 	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload") or _anim in ["mx/rifle_idle", "mx/look_around"]: twist = 0.0   # already bladed / turning by itself
 	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
 		if not _bone.has(bn): continue
