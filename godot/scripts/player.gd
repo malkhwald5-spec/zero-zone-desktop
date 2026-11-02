@@ -216,9 +216,9 @@ func action(act: String, pressed: bool) -> void:
 		"peek_r":
 			if Game.settings.get("lean_mode", "tap") == "hold": peek_toggle = 1.0 if pressed else 0.0
 			elif pressed: peek_toggle = 0.0 if peek_toggle > 0.0 else 1.0
-		"slot1": if pressed: switch_slot(0)
-		"slot2": if pressed: switch_slot(1)
-		"slot3": if pressed: switch_slot(2)
+		"slot1": if pressed: tap_slot(0)
+		"slot2": if pressed: tap_slot(1)
+		"slot3": if pressed: tap_slot(2)
 		"emote": if pressed: emote()
 		"inspect": if pressed: inspect_weapon()
 
@@ -318,9 +318,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			"boost": use_heal(best_boost())
 			"throw": start_throw()
 			"throw_kind": switch_throw()
-			"slot1": switch_slot(0)
-			"slot2": switch_slot(1)
-			"slot3": switch_slot(2)
+			"slot1": tap_slot(0)
+			"slot2": tap_slot(1)
+			"slot3": tap_slot(2)
 			"emote": emote()
 			"inspect": inspect_weapon()
 		match event.physical_keycode:
@@ -434,6 +434,7 @@ func strip_for_flight() -> void:
 	if stance != "stand": _force_stance("stand")
 	model.set_weapon("")
 	model.set_back_weapon("")
+	model.set_back_weapon2("")
 	model.set_side_weapon("")
 	_refresh_gear()
 
@@ -479,6 +480,23 @@ func _force_stance(s: String) -> void:
 	capsule.height = maxf(h, capsule.radius * 2.0)
 	shape_node.position.y = capsule.height * 0.5
 
+## A weapon slot pressed: take it in hand, or (pressing the one in hand
+## again, as in PUBG) put it away on the back and go empty-handed.
+func tap_slot(i: int) -> void:
+	if i == active and active >= 0 and not knocked and vehicle == null:
+		holster()
+	else:
+		switch_slot(i)
+
+func holster() -> void:
+	active = -1
+	reload_t = 0.0
+	aiming = false
+	firing = false
+	_inspect_t = -1.0
+	model.set_weapon("")
+	_refresh_back()
+
 func switch_slot(i: int) -> void:
 	if knocked: return
 	if i < 0 or i > 2 or slots[i] == null or active == i: return
@@ -494,8 +512,12 @@ func switch_slot(i: int) -> void:
 
 ## The primary you are not holding hangs on your back.
 func _refresh_back() -> void:
-	var other = slots[1 - active] if active in [0, 1] else (slots[0] if active == 2 else null)
-	model.set_back_weapon(other.id if other != null else "")
+	# Both primaries put away (pistol, fists): one each way across the back.
+	var back: Array = []
+	for i in 2:
+		if i != active and slots[i] != null: back.append(slots[i].id)
+	model.set_back_weapon(back[0] if back.size() > 0 else "")
+	model.set_back_weapon2(back[1] if back.size() > 1 else "")
 	# The pistol in its holster on the thigh when something else is in hand.
 	model.set_side_weapon(slots[2].id if slots[2] != null and active != 2 else "")
 

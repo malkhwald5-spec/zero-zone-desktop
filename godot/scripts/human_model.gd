@@ -558,6 +558,7 @@ var _back_dirty := false
 ## (worked out in model space once the skeleton is posed).
 func _place_back() -> void:
 	_back_dirty = false
+	_place_back2()
 	if _back_holder == null or not is_instance_valid(_back_holder): return
 	var holder := _back_holder
 	var s2: int = _bone.get("Spine2", 0)
@@ -672,6 +673,40 @@ func _chest_band() -> void:
 	_band.transform = rest.affine_inverse() * Transform3D(Basis(x, y, x.cross(y)), c)
 	_band.visible = _back_id != ""
 
+## The backpack's straps over the front (as in PUBG): one down each side of
+## the chest from the shoulder, and a strap across them.
+var _straps: Array = []
+func _pack_straps(on: bool) -> void:
+	var s1: int = _bone.get("Spine1", 0)
+	if _straps.is_empty():
+		var att := BoneAttachment3D.new()
+		att.bone_name = sk.get_bone_name(s1)
+		sk.add_child(att)
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color("2c2d27")
+		m.roughness = 0.85
+		for k in 3:
+			var mi := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(0.045, 0.3, 0.01) if k < 2 else Vector3(0.2, 0.025, 0.01)
+			mi.mesh = bm
+			mi.material_override = m
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			att.add_child(mi)
+			_straps.append(mi)
+	var u := 1.0 / (_skel_scale * _cscale)
+	var m1: Dictionary = _measure(u)
+	var rest := _bone_rest_model(s1)
+	var out := 0.065 if vest and vest.visible else 0.025
+	var z: float = float(m1.front1) + out * u
+	for k in 3:
+		var mi: MeshInstance3D = _straps[k]
+		mi.visible = on
+		var sx := -1.0 if k == 0 else 1.0
+		var c: Vector3 = rest * (Vector3(sx * 0.085 * u, 0.09 * u, z) if k < 2 else Vector3(0, 0.07 * u, z + 0.005 * u))
+		var lean := Basis(Vector3(0, 0, 1), sx * 0.12) if k < 2 else Basis.IDENTITY
+		mi.transform = rest.affine_inverse() * Transform3D(lean, c)
+
 var _side_att: BoneAttachment3D
 var _side_id := ""
 
@@ -739,6 +774,42 @@ func set_back_weapon(id: String) -> void:
 	_back_att.add_child(_back_holder)
 	_back_dirty = true
 
+## A second gun on the back (as in PUBG, with both primaries put away):
+## slung the other way across the first, muzzle up over the right shoulder.
+var _back2_att: BoneAttachment3D
+var _back2_id := ""
+func set_back_weapon2(id: String) -> void:
+	if id == _back2_id: return
+	_back2_id = id
+	if _back2_att == null:
+		_back2_att = BoneAttachment3D.new()
+		_back2_att.bone_name = sk.get_bone_name(_bone.Spine2)
+		sk.add_child(_back2_att)
+	for c in _back2_att.get_children(): c.queue_free()
+	if id == "": return
+	var h := Node3D.new()
+	var bw := WeaponModels.build(id)
+	if weapon_skin != "": WeaponSkins.apply(bw, weapon_skin)
+	h.add_child(bw)
+	_back2_att.add_child(h)
+	_back_dirty = true
+
+func _place_back2() -> void:
+	if _back2_att == null or _back2_att.get_child_count() == 0: return
+	var h := _back2_att.get_child(_back2_att.get_child_count() - 1) as Node3D
+	var u := 1.0 / (_skel_scale * _cscale)
+	var rest := _bone_rest_model(_bone.get("Spine2", 0))
+	# Out past the first gun (or where it would be).
+	var z := _pack_back - 0.045 * u
+	if vest and vest.visible and vest.mesh:
+		z = minf(z, vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x - 0.03 * u)
+	if pack and pack.visible and pack.mesh:
+		z = minf(z, pack.position.z - pack.mesh.get_aabb().size.z * 0.5 * pack.scale.x + 0.04 * u)
+	z -= 0.05 * u
+	var at: Vector3 = rest * Vector3(0, -0.08 * u, z)
+	var b := Basis.looking_at(Vector3(0.55, 0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+	h.transform = rest.affine_inverse() * Transform3D(b, at + b * Vector3(0, 0, 0.12))
+
 ## World position of the muzzle (bullets and flashes start here).
 func muzzle_position() -> Vector3:
 	var z: float = weapon_node.get_meta("muzzle", -0.6) if weapon_node else -0.6
@@ -773,7 +844,8 @@ func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 					mi.position.z -= clampf(float(_measure(u).back1) - outer, 0.0, 0.07 * u)
 				_pack_base = mi.position
 	_skin_vest(vest_lvl)
-	if _back_id != "": _back_dirty = true      # clear of whatever is worn now
+	if _bone.has("Spine1"): _pack_straps(pack_lvl > 0)
+	if _back_id != "" or _back2_id != "": _back_dirty = true      # clear of whatever is worn now
 
 static var _gear_cache := {}
 
@@ -1241,6 +1313,12 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		ap.seek(0.4 + clampf(reload_p, 0.0, 1.0) * 6.0, true)
 	elif pose == "crouch" and pistol and not aiming:
 		_play("mx/pkneel", 1.0)
+	elif pose == "crouch" and not aiming and armed and ap.has_animation("mx/crouch_f"):
+		# Crouched still (as in PUBG): squatting on both feet, knees bent wide,
+		# not down on one knee. The crouch-walk clip held on a frame where both
+		# feet are flat, a slow breath through it.
+		_play("mx/crouch_f", 0.0)
+		ap.seek(CROUCH_HOLD + sin(t * 1.3) * 0.02, true)
 	elif pose == "crouch":
 		_play("mx/idle_crouch_aim" if aiming else "mx/idle_crouch", 1.0)
 	elif pose == "airborne":
@@ -2026,6 +2104,7 @@ func _prone_legs() -> void:
 		_leg(nm, want, (knee - (hips + want) * 0.5).normalized())
 
 var _fwd_lean := 0.0
+const CROUCH_HOLD := 0.0     # seconds into crouch_f where both feet are down
 ## Upper body follows the aim up/down; the head looks a bit further.
 func _bend_spine(pose: String) -> void:
 	if pose == "prone": return
@@ -2393,8 +2472,12 @@ func _pack_bounce(delta: float) -> void:
 	var want := (-la * 0.0025).limit_length(0.035)
 	_pack_sv += ((want - _pack_s) * 220.0 - _pack_sv * 16.0) * dt
 	_pack_s += _pack_sv * dt
-	var u := 1.0 / (_skel_scale * _cscale)
-	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
-	var bone: int = _bone.get("Spine2", 0)
-	var off := sk.get_bone_global_pose(bone).basis.orthonormalized().inverse() * (to_sk.basis.orthonormalized() * _pack_s)
-	pack.position = _pack_base + off * u
+	# Bent forward (running, sprinting) the pack hangs down the back instead
+	# of riding up over the shoulders with the top of the spine.
+	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
+	var s1_up: Vector3 = (to_m.basis * sk.get_bone_global_pose(_bone.get("Spine1", 0)).basis.y).normalized()
+	var tilt := acos(clampf(s1_up.dot(Vector3.UP), -1.0, 1.0))
+	var slide := clampf((tilt - 0.2) / 0.5, 0.0, 1.0)
+	var d := _pack_s + Vector3(0, -0.17, -0.07) * slide
+	var par := pack.get_parent() as Node3D
+	pack.position = _pack_base + par.global_basis.inverse() * (global_basis * d)

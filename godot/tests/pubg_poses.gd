@@ -71,7 +71,7 @@ func _run() -> void:
 	cam.fov = 45.0
 	var poses := [["stand", "", false, Vector2.ZERO, false], ["aim", "", true, Vector2.ZERO, false], ["run", "", false, Vector2(0, 1), false],
 		["sprint", "", false, Vector2(0, 1), true], ["crouch", "crouch", false, Vector2.ZERO, false], ["crouch_aim", "crouch", true, Vector2.ZERO, false],
-		["prone", "prone", false, Vector2.ZERO, false], ["prone_aim", "prone", true, Vector2.ZERO, false]]
+		["prone", "prone", false, Vector2.ZERO, false], ["prone_aim", "prone", true, Vector2.ZERO, false], ["unarmed", "", false, Vector2.ZERO, false]]
 	for ps in poses:
 		var nm: String = ps[0]
 		if not only.is_empty() and not nm in only: continue
@@ -82,6 +82,7 @@ func _run() -> void:
 		p.aiming = ps[2]
 		p.touch_move = ps[3]
 		p.sprinting = ps[4]
+		if nm == "unarmed": p.holster()
 		await wait(1.6)
 		var base: Vector3 = p.global_position
 		var fwd: Vector3 = -p.global_basis.z
@@ -99,6 +100,11 @@ func _run() -> void:
 		cam.look_at(look)
 		await wait(0.1)
 		await shot("pp_%s_back" % nm)
+		if nm == "stand":
+			cam.global_position = base + fwd * 2.4 + right * 0.6 + Vector3(0, h + 0.1, 0)
+			cam.look_at(look)
+			await wait(0.1)
+			await shot("pp_stand_front")
 		cam.current = false
 	p.touch_move = Vector2.ZERO
 	tree.quit()
