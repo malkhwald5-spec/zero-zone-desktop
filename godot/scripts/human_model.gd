@@ -332,9 +332,11 @@ func _build_gear() -> void:
 	helmet = _gear_slot("Head", Vector3(m.head_c.x, m.head_top - (0.075 - _fit[2]) * u, m.head_c.z + 0.005 * u), u * _fit[0] * m.head_k)
 	vest = _gear_slot("Spine1", Vector3(0, (0.03 + _fit[3]) * u, (m.front1 + m.back1) * 0.5 + _fit[4] * u), u * _fit[1] * m.chest_k)
 	pack = _gear_slot("Spine2", Vector3(0, -0.02 * u, m.back2), u * _fit[1])
+	_pack_y = -0.02 * u
 	set_gear(0, 0, 0)
 
 var _pack_back := 0.0
+var _pack_y := 0.0
 static var _measure_cache := {}
 
 ## Body measurements in the bone spaces of Head, Spine1 and Spine2 (skeleton
@@ -750,12 +752,14 @@ func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 			if e[1] == "pack":
 				# The pack's front face sits against the back (its straps reach
 				# about 9 cm further forward, round the shoulders).
-				mi.position.z = _pack_back - (mi.mesh.get_aabb().size.z * 0.5 - 0.09) * mi.scale.x
+				# Snug on the back (as in PUBG), from between the shoulder blades down.
+				mi.position.z = _pack_back - (mi.mesh.get_aabb().size.z * 0.5 - 0.12) * mi.scale.x
+				mi.position.y = _pack_y - mi.mesh.get_aabb().size.y * 0.1 * mi.scale.x
 				if vest.visible and vest.mesh:
 					# Worn over a vest: out by however far the vest stands off the back.
 					var u := 1.0 / (_skel_scale * _cscale)
 					var outer: float = vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x
-					mi.position.z -= clampf(float(_measure(u).back1) - outer, 0.0, 0.12 * u)
+					mi.position.z -= clampf(float(_measure(u).back1) - outer, 0.0, 0.07 * u)
 				_pack_base = mi.position
 	_skin_vest(vest_lvl)
 	if _back_id != "": _back_dirty = true      # clear of whatever is worn now
@@ -769,7 +773,7 @@ static var _gear_cache := {}
 const GEAR_MODELS := {
 	"helmet1": [-PI / 2, "max", 0.31], "helmet2": [0.0, "max", 0.29, "helmet_mich"], "helmet3": [-PI / 2, "max", 0.32, "helmet_tac"],
 	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [-PI / 2, "y", 0.56, "vest_pc", Vector3(0, 0.08, 0.0)],
-	"pack1": [PI, "y", 0.46], "pack2": [PI, "y", 0.52], "pack3": [PI, "y", 0.58],
+	"pack1": [PI, "y", 0.44], "pack2": [PI, "y", 0.48], "pack3": [PI, "y", 0.52],
 }
 ## Fit and colour per model: [scale across, up, front-to-back; colour the
 ## texture is multiplied by]. The soft vest hugs the body (dark police
@@ -1412,6 +1416,7 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		body.position.x += peek * PEEK_SHIFT     # weight onto the outer foot
 		_peek_feet(pose)
 		_lean_spine()
+	if pose == "prone" and not downed and speed < 0.2: _prone_legs()
 	if flinch > 0.0 and pose in ["stand", "crouch", "prone"]:
 		_flinch_spine()
 		flinch = maxf(0.0, flinch - delta * 3.5)
@@ -1609,7 +1614,7 @@ func _place_gun(pose: String, delta: float) -> void:
 		pitch_with_aim = false
 	elif aiming or recoil > 0.05:
 		# Stock in the shoulder, sight in front of the eye.
-		pos = Vector3(0.08, 1.44, -0.24) if not pistol else Vector3(0.03, 1.44, -0.4)
+		pos = Vector3(0.08, 1.39, -0.33) if not pistol else Vector3(0.03, 1.44, -0.4)
 	else:
 		# Ready: muzzle a little down and inwards; lower and across the body
 		# when running (low ready).
@@ -1997,6 +2002,19 @@ func _face_chest(amount: float) -> void:
 		var inv := sk.get_bone_global_pose(b).basis.inverse()
 		sk.set_bone_pose_rotation(b, sk.get_bone_pose_rotation(b) * Quaternion((inv * up_sk).normalized(), -yaw * amount / 3.0))
 
+## Lying still on the belly: legs closer together (the clip spreads them
+## wide), as in PUBG; one knee a touch bent out.
+func _prone_legs() -> void:
+	if not (_bone.has("Hips") and _bone.has("LeftFoot") and _bone.has("RightFoot")): return
+	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
+	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
+	for nm in ["Left", "Right"]:
+		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Foot"]).origin
+		var knee: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Leg"]).origin
+		var want := Vector3(lerpf(foot.x, hips.x + signf(foot.x - hips.x) * 0.2, 0.75), foot.y, foot.z)
+		_leg(nm, want, (knee - (hips + want) * 0.5).normalized())
+
+var _fwd_lean := 0.0
 ## Upper body follows the aim up/down; the head looks a bit further.
 func _bend_spine(pose: String) -> void:
 	if pose == "prone": return
@@ -2004,6 +2022,15 @@ func _bend_spine(pose: String) -> void:
 	var axis_sk := (to_sk.basis * Vector3.RIGHT).normalized()
 	var up_sk := (to_sk.basis * Vector3.UP).normalized()
 	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
+	# As in PUBG: aiming on your feet the upper body leans into the gun;
+	# running it tips forward, sprinting further.
+	if pose == "stand" and not swimming and _action_t <= 0.0:
+		var want := 0.0
+		if aiming and not (_cls in ["pistol", "melee"]): want = -0.2
+		elif _speed > 2.5: want = -clampf((_speed - 2.5) / 3.5, 0.0, 1.0) * (0.34 if sprinting else 0.2)
+		_fwd_lean = lerpf(_fwd_lean, want, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
+	else:
+		_fwd_lean = lerpf(_fwd_lean, 0.0, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
 	var twist := -0.3 if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
 	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload") or _anim in ["mx/rifle_idle", "mx/look_around"]: twist = 0.0   # already bladed / turning by itself
@@ -2014,7 +2041,8 @@ func _bend_spine(pose: String) -> void:
 		var inv := gp.basis.inverse()
 		var share := 0.3 if bn.begins_with("Spine") else 0.12
 		var tw := twist / 3.0 if bn.begins_with("Spine") else -twist * 0.5
-		var q := Quaternion((inv * axis_sk).normalized(), amount * share) * Quaternion((inv * up_sk).normalized(), tw)
+		var lean_b := _fwd_lean / 3.0 if bn.begins_with("Spine") else -_fwd_lean * 0.4
+		var q := Quaternion((inv * axis_sk).normalized(), amount * share + lean_b) * Quaternion((inv * up_sk).normalized(), tw)
 		if bn == "Head" and aiming:
 			q = q * Quaternion((inv * axis_sk).normalized(), -0.12)     # cheek down to the sight
 		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
@@ -2068,8 +2096,11 @@ func _hold_gun() -> void:
 		elif p < 0.6: fore = pouch.lerp(mag_pt, (p - 0.45) / 0.15)
 		elif p < 0.8: fore = mag_pt
 		else: fore = mag_pt.lerp(fore, (p - 0.8) / 0.2)
-	# Holding it across the chest the right elbow hangs down by the side.
-	_arm("Right", to_local * rgrip, Vector3(1, -1, 0.4).lerp(Vector3(0.3, -1, 0.5), _still_k))
+	# Holding it across the chest the right elbow hangs down by the side;
+	# aiming it sticks out to the side, a little up (as in PUBG).
+	var rpole := Vector3(1, -1, 0.4).lerp(Vector3(0.3, -1, 0.5), _still_k)
+	if aiming and not (_cls in ["pistol", "melee"]): rpole = Vector3(1, 0.1, 0.25)
+	_arm("Right", to_local * rgrip, rpole)
 	if _cls in ["pistol", "melee"] and not aiming and reload_p < 0.0:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:
