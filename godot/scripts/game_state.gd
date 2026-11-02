@@ -82,6 +82,7 @@ var settings := {
 	"sound": true,
 	"lang": "ar",             # "ar" | "en": the language of the menus and the HUD
 	"difficulty": "normal",
+	"hide_vest": true,              # the vest is worn under the clothes (as in PUBG): not drawn
 	"net_bots": true,               # online: the host fills the island up with bots
 	"net_team": true,               # online: friends on one team against the bots
 	"weather": "random",      # "random" | "clear" | "rain" | "sunset" | "fog"

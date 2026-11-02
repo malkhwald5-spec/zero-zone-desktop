@@ -2414,6 +2414,7 @@ func _page_settings(body: VBoxContainer) -> void:
 			g.add_child(_cell("زر الإطلاق اليسار", _choice(["always", "scope", "off"], ["دائماً", "مع المنظار", "مخفي"], "left_fire")))
 			g.add_child(_cell("تنبيه العلاج", _onoff("heal_prompt")))
 			g.add_child(_cell("فتح الأبواب تلقائياً", _onoff("auto_door")))
+			g.add_child(_cell("الدرع تحت الملابس (ما يبين)", _onoff("hide_vest", func(): _spawn_soldier())))
 			g.add_child(_cell("لون الإصابة", _choice(["red", "green"], ["أحمر", "أخضر"], "hit_color")))
 			g.add_child(_cell("إظهار عدد الإطارات (FPS)", _onoff("show_fps")))
 			g = _section(body, "المباراة")

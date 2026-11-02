@@ -857,6 +857,9 @@ func shot_origin() -> Vector3:
 
 func set_gear(vest_lvl: int, helmet_lvl: int, pack_lvl: int) -> void:
 	if not CHARACTERS[character].get("vest", true): vest_lvl = 0
+	# As in PUBG: the vest is worn under the clothes and doesn't show (it
+	# still protects; this is only how the body looks). Setting: hide_vest.
+	if bool(Game.settings.get("hide_vest", true)): vest_lvl = 0
 	if not CHARACTERS[character].get("pack", true): pack_lvl = 0
 	for e in [[helmet, "helmet", helmet_lvl], [vest, "vest", vest_lvl], [pack, "pack", pack_lvl]]:
 		var mi: MeshInstance3D = e[0]
