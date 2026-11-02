@@ -332,6 +332,17 @@ func _build_gear() -> void:
 	helmet = _gear_slot("Head", Vector3(m.head_c.x, m.head_top - (0.075 - _fit[2]) * u, m.head_c.z + 0.005 * u), u * _fit[0] * m.head_k)
 	vest = _gear_slot("Spine1", Vector3(0, (0.03 + _fit[3]) * u, (m.front1 + m.back1) * 0.5 + _fit[4] * u), u * _fit[1] * m.chest_k)
 	pack = _gear_slot("Spine2", Vector3(0, -0.02 * u, m.back2), u * _fit[1])
+	# The pack hangs from the middle of the back (Spine1), not the top of it:
+	# leaning forward to run, the top of the spine tips over and would lift
+	# the pack off the lower back. A frame keeps the rest placement.
+	if _bone.has("Spine1") and _bone.has("Spine2"):
+		var att := pack.get_parent() as BoneAttachment3D
+		var frame := Node3D.new()
+		frame.transform = sk.get_bone_global_rest(_bone["Spine1"]).affine_inverse() * sk.get_bone_global_rest(_bone["Spine2"])
+		att.bone_name = sk.get_bone_name(_bone["Spine1"])
+		att.remove_child(pack)
+		frame.add_child(pack)
+		att.add_child(frame)
 	_pack_y = -0.02 * u
 	set_gear(0, 0, 0)
 
@@ -2027,7 +2038,7 @@ func _bend_spine(pose: String) -> void:
 	if pose == "stand" and not swimming and _action_t <= 0.0:
 		var want := 0.0
 		if aiming and not (_cls in ["pistol", "melee"]): want = -0.2
-		elif _speed > 2.5: want = -clampf((_speed - 2.5) / 3.5, 0.0, 1.0) * (0.34 if sprinting else 0.2)
+		elif _speed > 2.5: want = -clampf((_speed - 2.5) / 3.5, 0.0, 1.0) * (0.12 if sprinting else 0.2)
 		_fwd_lean = lerpf(_fwd_lean, want, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
 	else:
 		_fwd_lean = lerpf(_fwd_lean, 0.0, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
