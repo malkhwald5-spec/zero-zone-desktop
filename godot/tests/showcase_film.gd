@@ -127,7 +127,12 @@ func _seasons() -> void:
 		b.global_position = Vector3(9000, -80, 9000)
 		b.visible = false
 	var isl = world.island
+	# A town out on the green plains (not the snow or the desert).
 	var t: Dictionary = isl.towns[0]
+	for tt in isl.towns:
+		if isl.region_at(tt.pos.x, tt.pos.y) == "plains":
+			t = tt
+			break
 	var at := _flat_spot(isl, t.pos + Vector2(float(t.r) + 60.0, 0))
 	place(at)
 	p._land()
