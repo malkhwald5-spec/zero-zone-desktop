@@ -1213,6 +1213,7 @@ func _play(name: String, speed_scale: float) -> void:
 
 ## pose: "stand" | "crouch" | "prone" | "fall" | "chute" | "dead"
 func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -> void:
+	_t = t
 	_pack_bounce(delta)
 	# One-shot action (grenade toss) takes over the whole body for a moment.
 	if _action_t > 0.0:
@@ -1798,33 +1799,13 @@ func _place_gun(pose: String, delta: float) -> void:
 	if absf(_turn_lean) > 0.002 or absf(_go_lean) > 0.002:
 		# The gun leans with the body (it turns about the feet).
 		target = Transform3D(Basis.from_euler(Vector3(_go_lean, 0.0, _turn_lean)), Vector3.ZERO) * target
-	if pose != "prone" and _speed > 0.4 and not sprinting:
-		# Step bob: the gun dips on each footfall (twice a stride) and rolls a
-		# little with the shoulders; much less with the stock in the shoulder.
-		var ph := (_loco.phase if _loco_on and _loco else _phase() / TAU) * TAU
-		var amp := clampf(_speed / 4.5, 0.0, 1.0) * (0.3 if aiming else 1.0)
-		target.origin += Vector3(sin(ph) * 0.01, 0.012 - absf(cos(ph)) * 0.024, 0) * amp
-		target.basis = Basis(Vector3.BACK, sin(ph) * 0.035 * amp) * target.basis
-	# Weight: turning, the gun lags behind the body and catches up with a small
-	# overshoot; stopping short it swings on forward, setting off it dips back.
-	var dt := maxf(delta, 1e-3)
-	var yr := global_rotation.y
-	var yaw_rate := wrapf(yr - _gs_yaw, -PI, PI) / dt if _gs_yaw != INF else 0.0
-	_gs_yaw = yr
-	var accel := (_speed - _gs_speed) / dt
-	_gs_speed = _speed
-	var heavy := 0.35 if aiming else 1.0
-	var want := Vector2(clampf(-yaw_rate * 0.03, -0.14, 0.14), clampf(-accel * 0.012, -0.08, 0.08)) * heavy
-	_gs_v += ((want - _gs) * 150.0 - _gs_v * 13.0) * dt
-	_gs += _gs_v * dt
-	target.basis = Basis(Vector3.UP, _gs.x) * Basis(Vector3.RIGHT, _gs.y) * target.basis
-	target.origin += Vector3(_gs.x * 0.06, _gs.y * 0.05, 0.0)
-	# Kick: back into the shoulder and the muzzle up.
-	target.origin += target.basis * Vector3(0, 0.015, 0.085) * recoil
-	target.basis = target.basis * Basis(Vector3.RIGHT, recoil * 0.12)
 	var k2 := minf(1.0, delta * 14.0)
 	_gun_xf = Transform3D(_gun_xf.basis.slerp(target.basis.orthonormalized(), k2).orthonormalized(), _gun_xf.origin.lerp(target.origin, k2)) if _gun_xf.origin != Vector3.ZERO else target
-	gun.transform = _gun_xf
+	var live := _gun_life(pose, delta, _gun_xf) if detail else _gun_xf
+	# Kick: back into the shoulder and the muzzle up.
+	live.origin += live.basis * Vector3(0, 0.012, 0.06) * recoil
+	live.basis = live.basis * Basis(Vector3.RIGHT, recoil * 0.12)
+	gun.transform = live
 	if weapon_node: weapon_node.scale = Vector3.ONE * WSCALE
 	# Magazine out and back in during a reload.
 	var mag := weapon_node.get_node_or_null("Mag") as Node3D if weapon_node else null
@@ -1835,6 +1816,118 @@ func _place_gun(pose: String, delta: float) -> void:
 		elif p >= 0.6 and p < 0.8: drop = 1.0 - (p - 0.6) / 0.2
 		mag.position = Vector3(0, -0.28 * drop, 0.05 * drop)
 		mag.visible = not (p >= 0.3 and p < 0.45)
+
+## The gun alive in the hands (as in PUBG): never pinned to the body. It
+## rides on the chest as the clip moves it (each step, the shoulders' swing),
+## bobs and swings with the stride (more running, a little crouched, least
+## aiming), breathes and drifts standing still, lags a turn or a look up or
+## down and catches up with a little overshoot, dips on landing and on a
+## change of stance, and kicks a little to one side with each shot.
+var _t := 0.0
+var _chest_ref := Quaternion.IDENTITY
+var _chest_ref_p := Vector3.ZERO
+var _chest_ok := false
+var _chest_f := Quaternion.IDENTITY
+var _chest_f_p := Vector3.ZERO
+var _gs_pitch := INF
+var _gs_h := INF
+var _gs_vy := 0.0
+var _gh := 0.0                   # height lag (m)
+var _gh_v := 0.0
+var _kick_side := 0.0
+var _recoil0 := 0.0
+var _life_pose := ""
+
+func _gun_life(pose: String, delta: float, xf: Transform3D) -> Transform3D:
+	var dt := maxf(delta, 1e-3)
+	var steady := 0.35 if aiming else 1.0
+	if pose != _life_pose:
+		if _life_pose in ["stand", "crouch", "prone"] and pose in ["stand", "crouch", "prone"]:
+			_gs_v.y -= 0.9          # a change of stance: the muzzle dips and comes back
+			_gh_v -= 0.25
+		_life_pose = pose
+		_chest_ok = false
+	# 1. On the chest: how the clip moves the upper body now against where it
+	# has been lately (a slow follow), so the steps and the shoulders' swing
+	# carry the gun, but a change of stance or a lean does not pull it off.
+	if _bone.has("Spine2") and pose != "prone":
+		var chest: Transform3D = _sk_to_model() * sk.get_bone_global_pose(_bone["Spine2"])
+		var cq := chest.basis.get_rotation_quaternion()
+		if not _chest_ok:
+			_chest_ref = cq
+			_chest_ref_p = chest.origin
+			_chest_f = cq
+			_chest_f_p = chest.origin
+			_chest_ok = true
+		# Band-passed: the fast follow takes out the pops where one clip hands
+		# over to the next, the slow one what the pose holds for a while.
+		var kf := minf(1.0, dt * 10.0)
+		_chest_f = _chest_f.slerp(cq, kf)
+		_chest_f_p = _chest_f_p.lerp(chest.origin, kf)
+		var kr := minf(1.0, dt * 3.0)
+		_chest_ref = _chest_ref.slerp(_chest_f, kr)
+		_chest_ref_p = _chest_ref_p.lerp(_chest_f_p, kr)
+		var follow := 0.5 if aiming else 0.8
+		var dq := (_chest_f * _chest_ref.inverse()).normalized()
+		var ang := dq.get_angle()
+		if ang > 0.12: dq = Quaternion.IDENTITY.slerp(dq, 0.12 / ang)
+		var rb := Basis(Quaternion.IDENTITY.slerp(dq, follow * 0.7))
+		var dp := (_chest_f_p - _chest_ref_p).limit_length(0.045) * follow
+		xf = Transform3D(rb * xf.basis, chest.origin + rb * (xf.origin - chest.origin) + dp)
+	var off := Vector3.ZERO
+	var rot := Vector3.ZERO            # pitch, yaw, roll (model axes, about the grip)
+	# 2. The stride: dips on each footfall (twice a stride), swings and rolls
+	# with the shoulders, a figure of eight at the muzzle.
+	if pose != "prone" and _speed > 0.4:
+		var ph := (_loco.phase if _loco_on and _loco else _phase() / TAU) * TAU
+		var amp := clampf(_speed / 4.5, 0.15, 1.1) * steady
+		if pose == "crouch": amp *= 0.75
+		if sprinting: amp = 1.35
+		var fall := cos(ph) * cos(ph)          # (smooth through the footfall)
+		off += Vector3(sin(ph) * 0.013, 0.012 - fall * 0.026, 0.0) * amp
+		rot += Vector3(0.018 - fall * 0.036, sin(ph) * 0.035, sin(ph) * 0.05) * amp
+	# 3. Standing (or lying) still: the breath lifts and lowers it, and the
+	# hands never hold it dead still: a slow drift, each on its own clock.
+	var still := 1.0 - clampf(_speed / 0.8, 0.0, 1.0)
+	if still > 0.0:
+		var t := _t + _seed * 7.0
+		var br := sin(t * 1.7)
+		var k := still * (0.3 if aiming else 1.0) * (0.5 if pose == "prone" else 1.0)
+		off.y += br * 0.007 * k
+		rot += Vector3(br * 0.014 + sin(t * 0.53) * 0.008, sin(t * 0.37) * 0.028 + sin(t * 0.91) * 0.008, sin(t * 0.29) * 0.035 + sin(t * 0.77) * 0.01) * k
+	# 4. Weight: turning or looking up/down the gun lags and catches up with a
+	# small overshoot; stopping short it swings on, setting off it dips back;
+	# going up it sags, landing it drops and springs back.
+	var yr := global_rotation.y
+	var yaw_rate := wrapf(yr - _gs_yaw, -PI, PI) / dt if _gs_yaw != INF else 0.0
+	_gs_yaw = yr
+	var pitch_rate := (aim_pitch - _gs_pitch) / dt if _gs_pitch != INF else 0.0
+	_gs_pitch = aim_pitch
+	var accel := (_speed - _gs_speed) / dt
+	_gs_speed = _speed
+	var h := global_position.y
+	var vy := (h - _gs_h) / dt if _gs_h != INF else 0.0
+	_gs_h = h
+	if absf(vy) > 35.0: vy = 0.0         # moved (a teleport), not a fall
+	if _gs_vy < -3.0 and vy > _gs_vy + 2.5:
+		var land := minf(-_gs_vy, 9.0)
+		_gs_v.y -= land * 0.22 * steady       # landed: the muzzle drops
+		_gh_v -= land * 0.06
+	_gs_vy = vy
+	if recoil > _recoil0 + 0.3:
+		_kick_side = randf_range(-1.0, 1.0)  # a shot: shakes off to a side
+		_gs_v += Vector2(_kick_side * 1.4, 1.2) * (0.45 if aiming else 1.0)
+	_recoil0 = recoil
+	var want := Vector2(clampf(-yaw_rate * 0.03, -0.14, 0.14), clampf(-accel * 0.012 - pitch_rate * 0.035, -0.1, 0.1)) * steady
+	_gs_v += ((want - _gs) * 150.0 - _gs_v * 13.0) * dt
+	_gs += _gs_v * dt
+	_gs = _gs.clamp(Vector2(-0.25, -0.25), Vector2(0.25, 0.25))
+	var want_h := clampf(-vy * 0.006, -0.035, 0.035) * steady
+	_gh_v += ((want_h - _gh) * 120.0 - _gh_v * 12.0) * dt
+	_gh = clampf(_gh + _gh_v * dt, -0.08, 0.08)
+	rot += Vector3(_gs.y, _gs.x, _kick_side * recoil * 0.05)
+	off += Vector3(_gs.x * 0.06, _gs.y * 0.05 + _gh, 0.0)
+	return Transform3D(Basis.from_euler(rot, EULER_ORDER_YXZ) * xf.basis, xf.origin + off)
 
 ## Under the canopy: a pendulum (the body about 1.3 m below the risers),
 ## pushed by how the canopy speeds up, slows and turns, and by the wind.
