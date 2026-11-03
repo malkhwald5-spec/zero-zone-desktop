@@ -225,8 +225,9 @@ func pick_weather() -> String:
 	if w != "random": return w
 	var r := randf()
 	return "clear" if r < 0.45 else ("rain" if r < 0.65 else ("sunset" if r < 0.82 else "fog"))
-const LOLA := 10            # WARDROBE index of the Lola character (the default look)
-var profile := {"name": "", "outfit": LOLA, "clan": "", "owned": [0, 1, 2, LOLA], "gun_skin": "", "skins": []}
+const LOLA := 10            # WARDROBE index of the Lola character
+const COMMANDO := 14        # WARDROBE index of the commando (the default look)
+var profile := {"name": "", "outfit": COMMANDO, "clan": "", "owned": [0, 1, 2, LOLA, COMMANDO], "gun_skin": "", "skins": []}
 var stats := {"wins": 0, "best": 0, "kills": 0, "games": 0,
 	"rp": 1000, "top10": 0, "dmg": 0, "heads": 0, "longest": 0, "best_kills": 0, "time": 0,
 	"modes": {}, "history": [],
@@ -392,6 +393,11 @@ func load_data() -> void:
 	if int(data.get("save_version", 1)) < 3:
 		profile.outfit = LOLA
 		if not profile.owned.has(LOLA): profile.owned.append(LOLA)
+	# v8: the commando became the default character (the gear fits him best);
+	# saves still on the old default switch to him once. Lola stays owned.
+	if int(data.get("save_version", 1)) < 8:
+		if int(profile.outfit) == LOLA: profile.outfit = COMMANDO
+		if not profile.owned.has(COMMANDO): profile.owned.append(COMMANDO)
 	# Team war is gone: its saves go back to solo.
 	if not MODE_NAMES.has(settings.get("mode", "solo")): settings.mode = "solo"
 	# JSON numbers come back as floats; career counters are whole numbers.
@@ -423,7 +429,7 @@ func load_data() -> void:
 func save_data() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"save_version": 7, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
+		f.store_string(JSON.stringify({"save_version": 8, "settings": settings, "profile": profile, "stats": stats, "wallet": wallet}))
 
 func outfit_color() -> Color:
 	return WARDROBE[clampi(int(profile.outfit), 0, WARDROBE.size() - 1)][1]

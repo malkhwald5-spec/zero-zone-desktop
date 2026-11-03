@@ -93,7 +93,9 @@ func _run() -> void:
 		dummy.shape.disabled = false
 		await wait(0.3)
 		# Aim at its chest.
+		# (the shots leave from the camera over the shoulder: aim from there)
 		var to: Vector3 = dummy.global_position + Vector3(0, 1.1, 0) - p.camera.global_position
+		p.yaw = atan2(-to.x, -to.z)
 		p.pitch = atan2(to.y, Vector2(to.x, to.z).length())
 		p.give_weapon(id, Game.WEAPONS[id].mag, {})
 		await wait(0.4)
