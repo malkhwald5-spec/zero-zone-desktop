@@ -131,6 +131,7 @@ func _ready() -> void:
 	model.set_style(Game.outfit_style())
 	model.weapon_skin = String(Game.profile.get("gun_skin", ""))
 	add_child(model)
+	model.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # posed every frame (see _process)
 	_refresh_gear()
 
 	cam_rig = Node3D.new()
@@ -716,7 +717,6 @@ func _physics_process(delta: float) -> void:
 		if vv.length() > 3.0 and vehicle.speed() > 0.0:
 			yaw = lerp_angle(yaw, atan2(-vv.x, -vv.z), minf(1.0, delta * 1.5))
 	_update_camera(delta)
-	_update_model(delta)
 
 func _wish_dir() -> Vector3:
 	var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
@@ -1532,6 +1532,11 @@ var _cam_low_water := false
 
 func _process(delta: float) -> void:
 	if cam_rig == null: return
+	# The body is posed every drawn frame (not every physics tick): the body
+	# itself is drawn interpolated between ticks, and posing the skeleton only
+	# on the ticks made the arms, the gun and the pack step against it when
+	# the frame rate isn't 60 or 30 (45, 90, 120, an uneven phone).
+	_update_model(delta)
 	if state == "dead" and _dead_camera(delta): return
 	var body: Node3D = vehicle if state == "vehicle" and is_instance_valid(vehicle) else self
 	var head := body.get_global_transform_interpolated().origin + _cam_offset

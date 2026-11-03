@@ -62,7 +62,7 @@ func follow(fwd: float, right: float, up: float, look_h := 1.1, k := 4.0, snap :
 		f.y = 0.0
 		f = f.normalized()
 		var r := f.cross(Vector3.UP).normalized()
-		var base: Vector3 = p.global_position
+		var base: Vector3 = p.get_global_transform_interpolated().origin     # as drawn (no tick steps)
 		return [base + f * fwd + r * right + Vector3(0, up, 0), base + Vector3(0, look_h, 0)]
 	if snap:
 		var r0: Array = _follow.call()
@@ -156,7 +156,7 @@ func _seasons() -> void:
 	_cam_k = 3.0
 	_follow = func() -> Array:
 		ang[0] += 0.006
-		var c: Vector3 = p.global_position
+		var c: Vector3 = p.get_global_transform_interpolated().origin
 		var d := Vector3(sin(ang[0] + 0.3), 0, -cos(ang[0] + 0.3))
 		return [c + d * 3.0 + Vector3(0, 1.35, 0), c + Vector3(0, 1.15, 0)]
 	cam.global_position = p.global_position + Vector3(sin(0.3), 0, -cos(0.3)) * 3.0 + Vector3(0, 1.35, 0)
@@ -285,7 +285,8 @@ func _drive(isl) -> void:
 		f.y = 0.0
 		f = f.normalized()
 		var r := f.cross(Vector3.UP).normalized()
-		return [v.global_position + f * 7.0 + r * 3.0 + Vector3(0, 1.6, 0), v.global_position + Vector3(0, 0.9, 0)]
+		var vp: Vector3 = v.get_global_transform_interpolated().origin
+		return [vp + f * 7.0 + r * 3.0 + Vector3(0, 1.6, 0), vp + Vector3(0, 0.9, 0)]
 	_cam_k = 2.5
 	var r0: Array = _follow.call()
 	cam.global_position = r0[0]
@@ -296,7 +297,8 @@ func _drive(isl) -> void:
 		f.y = 0.0
 		f = f.normalized()
 		var r := f.cross(Vector3.UP).normalized()
-		return [v.global_position - f * 8.0 + r * 1.5 + Vector3(0, 2.6, 0), v.global_position + f * 4.0 + Vector3(0, 0.8, 0)]
+		var vp: Vector3 = v.get_global_transform_interpolated().origin
+		return [vp - f * 8.0 + r * 1.5 + Vector3(0, 2.6, 0), vp + f * 4.0 + Vector3(0, 0.8, 0)]
 	await wait(3.5)
 	p.touch_move = Vector2.ZERO
 	await wait(1.0)
