@@ -56,10 +56,16 @@ var _loco_mix: Array = []
 var _loco_vel := Vector2.ZERO   # last ground velocity while moving (the stop steps go by it)
 const XF := 0.25                # seconds to ease from one base pose to the next (idle <-> moving)
 var _xf_t := 0.0
+var _xf_dur := XF              # this hand-over's length (longer to lie down or get up)
 var _xf_rot: Array = []
 var _xf_pos := Vector3.ZERO
 var _base_rot: Array = []       # last frame's base pose (before hands, lean, feet...)
 var _base_pos := Vector3.ZERO
+var _base_rot_prev: Array = []
+var _base_pos_prev := Vector3.ZERO
+var _base_dt := 0.0
+var _xf_vel: Array = []
+var _xf_pv := Vector3.ZERO
 ## Coming to a halt from a walk: [clip, from (s), to (s)] of its stopping steps.
 const STOPS := {"r_stop": [1.0, 2.4], "r_stop_b": [0.55, 1.37]}
 var _stop_clip := ""
@@ -1099,6 +1105,7 @@ func _place_can() -> void:
 ## turn is taken out of the hips and handed to the owner as `turn_yaw`, who
 ## turns the whole model by it, so the feet stay planted as they step round.
 func start_turn(d: int) -> void:
+	if not _loco_on and not _base_rot.is_empty(): _snap_pose(XF)     # (eased into the turn)
 	_set_loco(false)
 	turn_dir = d
 	turn_yaw = 0.0
@@ -1185,6 +1192,31 @@ func _play_moving(name: String, speed: float, max_scale := 2.2) -> void:
 func _dying() -> bool:
 	return _anim.begins_with("mx/death") or _anim == "mx/prone_death"
 
+var _dt := 0.016
+var _was_detail := true
+var _smv := {}
+
+## A value eased to where it should be with no jolt: a critically damped
+## spring, so it sets off gently and settles without overshoot (an on/off
+## touch fades in and out instead of snapping). w: how quickly (1/s).
+func _ease(key: StringName, want: float, w: float) -> float:
+	if not detail: return want             # (far or out of sight: no one sees it ease)
+	var s: Vector2 = _smv.get(key, Vector2(want, 0.0))
+	var n := maxi(1, ceili(_dt * w / 0.4))
+	var h := _dt / n
+	for i in n:
+		s.y += ((want - s.x) * w * w - s.y * 2.0 * w) * h
+		s.x += s.y * h
+	_smv[key] = s
+	return s.x
+
+## The model where it is drawn this frame (the body between physics ticks),
+## so speeds and turns read from it are even at any frame rate.
+func _drawn_xf() -> Transform3D:
+	var par := get_parent() as Node3D
+	if par and par.is_inside_tree(): return par.get_global_transform_interpolated() * transform
+	return global_transform
+
 ## Dead: keep playing the death animation until it ends (owners stop calling set_pose).
 func _process(delta: float) -> void:
 	if _dying() and ap.current_animation_position < ap.current_animation_length:
@@ -1203,6 +1235,18 @@ func _play(name: String, speed_scale: float) -> void:
 		# Cross-fade time runs at the clip's speed: keep it ~0.2 s of real time.
 		ap.play(name, clampf(0.2 * absf(speed_scale), 0.0, 0.4))
 		_anim = name
+		# And from the pose the body was in (eased over a quarter second of
+		# real time): a clip held still or played slowly would otherwise
+		# cross-fade in no time at all, snapping the body into it.
+		if not _base_rot.is_empty() and not _dying():
+			# Down onto the belly or up off it takes the body about half a
+			# second; down into a crouch or up out of it a little more than
+			# a step.
+			var low := func(n: String) -> int:
+				return 2 if n.begins_with("mx/prone") or n == "mx/crawl" else (1 if "crouch" in n else 0)
+			var a0: int = low.call(from)
+			var a1: int = low.call(name)
+			_snap_pose(0.55 if a0 != a1 and maxi(a0, a1) == 2 else (0.35 if a0 != a1 else XF))
 		if _is_cycle(from) and _is_cycle(name) and ap.has_animation(from):
 			# Same foot forward in the new cycle as in the old one.
 			var a0: Animation = ap.get_animation(from)
@@ -1214,6 +1258,10 @@ func _play(name: String, speed_scale: float) -> void:
 ## pose: "stand" | "crouch" | "prone" | "fall" | "chute" | "dead"
 func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -> void:
 	_t = t
+	_dt = clampf(delta, 1e-4, 0.1)
+	if detail != _was_detail:
+		_was_detail = detail
+		_smv.clear()                         # (back in sight: everything starts from where it is)
 	_pack_bounce(delta)
 	# One-shot action (grenade toss) takes over the whole body for a moment.
 	if _action_t > 0.0:
@@ -1542,15 +1590,19 @@ func set_pose(pose: String, speed: float, armed: bool, delta: float, t: float) -
 		body.position.x += peek * PEEK_SHIFT     # weight onto the outer foot
 		_peek_feet(pose)
 		_lean_spine()
-	if pose == "prone" and not downed and speed < 0.2: _prone_legs()
-	if pose == "crouch" and _anim == "mx/crouch_f" and speed < 0.3: _wide_squat()
+	var plk := _ease(&"prone_legs", 1.0 if pose == "prone" and not downed and speed < 0.2 else 0.0, 6.0)
+	if pose == "prone" and not downed and plk > 0.002: _prone_legs(plk)
+	var sqk := _ease(&"squat", 1.0 if pose == "crouch" and _anim == "mx/crouch_f" and speed < 0.3 else 0.0, 7.0)
+	if pose == "crouch" and _anim == "mx/crouch_f" and sqk > 0.002: _wide_squat(sqk)
 	if flinch > 0.0 and pose in ["stand", "crouch", "prone"]:
 		_flinch_spine()
 		flinch = maxf(0.0, flinch - delta * 3.5)
 	if armed and gun.visible:
-		if pose == "stand" and speed < 0.3 and not aiming and recoil < 0.05: _breathe(t)
+		var bk := _ease(&"breathe", 1.0 if pose == "stand" and speed < 0.3 and not aiming and recoil < 0.05 else 0.0, 5.0)
+		if pose == "stand" and bk > 0.002: _breathe(t, bk)
 		_place_gun(pose, delta)
-		if _loco_on and not sprinting: _face_chest(1.0)
+		var fk := _ease(&"face", 1.0 if _loco_on and not sprinting else 0.0, 7.0)
+		if fk > 0.002: _face_chest(fk)
 		_bend_spine(pose)
 		_hold_gun()
 	else:
@@ -1587,9 +1639,7 @@ func _set_loco(on: bool) -> void:
 	_loco_on = on
 	ap.active = not on
 	if not _base_rot.is_empty():
-		_xf_rot = _base_rot.duplicate()
-		_xf_pos = _base_pos
-		_xf_t = XF
+		_snap_pose(XF)
 
 ## Eases the freshly animated pose from the one held when the source changed,
 ## then keeps it as the pose to ease from next time.
@@ -1600,13 +1650,49 @@ func _base_blend(delta: float) -> void:
 	var n := sk.get_bone_count()
 	if _xf_t > 0.0 and _xf_rot.size() == n:
 		_xf_t -= delta
-		var k := smoothstep(0.0, 1.0, 1.0 - maxf(_xf_t, 0.0) / XF)
+		var k := smoothstep(0.0, 1.0, 1.0 - maxf(_xf_t, 0.0) / _xf_dur)
+		# The pose eased from carries on the way it was going, slowing to a
+		# stop (so a new hand-over in the middle of one does not stop the
+		# body dead for a frame).
+		var carry := _xf_vel.size() == n
+		var decay := exp(-delta * 7.0)
 		for i in n:
+			if carry:
+				var v: Vector3 = _xf_vel[i]
+				if v.length_squared() > 1e-8:
+					_xf_rot[i] = (Quaternion(v.normalized(), v.length() * delta) * (_xf_rot[i] as Quaternion)).normalized()
+					_xf_vel[i] = v * decay
 			sk.set_bone_pose_rotation(i, (_xf_rot[i] as Quaternion).slerp(sk.get_bone_pose_rotation(i), k))
+		_xf_pos += _xf_pv * delta
+		_xf_pv *= decay
 		sk.set_bone_pose_position(_hips, _xf_pos.lerp(sk.get_bone_pose_position(_hips), k))
+	var keep := _base_rot_prev
+	_base_rot_prev = _base_rot
+	_base_rot = keep
 	_base_rot.resize(n)
 	for i in n: _base_rot[i] = sk.get_bone_pose_rotation(i)
+	_base_pos_prev = _base_pos
 	_base_pos = sk.get_bone_pose_position(_hips)
+	_base_dt = delta
+
+## Holds the body's pose to ease from (into a new clip, or from the clips to
+## the blend and back), with how each bone was moving.
+func _snap_pose(dur: float) -> void:
+	_xf_rot = _base_rot.duplicate()
+	_xf_pos = _base_pos
+	_xf_pv = Vector3.ZERO
+	_xf_vel.clear()
+	var n := _base_rot.size()
+	if _base_rot_prev.size() == n and _base_dt > 1e-4:
+		_xf_vel.resize(n)
+		for i in n:
+			var dq := ((_base_rot[i] as Quaternion) * (_base_rot_prev[i] as Quaternion).inverse()).normalized()
+			if dq.w < 0.0: dq = -dq
+			var ang := dq.get_angle()
+			_xf_vel[i] = (dq.get_axis() * minf(ang / _base_dt, 12.0)) if ang > 1e-6 else Vector3.ZERO
+		_xf_pv = ((_base_pos - _base_pos_prev) / _base_dt).limit_length(maxf(_base_pos.length(), 0.01) * 4.0)
+	_xf_dur = dur
+	_xf_t = dur
 
 ## Walk or run clips for this ground speed, with a gap between the two
 ## switch points so a stick held near the edge does not flick between them.
@@ -1719,6 +1805,12 @@ const WSCALE := 1.0                            # weapons sized to this character
 
 ## Where the weapon should be for this pose (model space), then eased there.
 ## Positions are the pistol grip (right hand); rotations are pitch, yaw, roll.
+var _hold_pose := ""
+var _hold_from := Transform3D()
+var _hold_t := -1.0
+var _hold_dur := 0.3
+var _hold_chest0 := Vector3.ZERO
+var _chest_nom := {}
 var _still_k := 0.0             # 0..1: standing still, the rifle held across the body
 func _place_gun(pose: String, delta: float) -> void:
 	var pistol := _cls in ["pistol", "melee"]
@@ -1758,14 +1850,15 @@ func _place_gun(pose: String, delta: float) -> void:
 		# the body, stock by the right side of the chest, muzzle down to the
 		# left and a little forward, both hands on it. Moving off it swings
 		# round to point ahead.
-		var still := 1.0 - clampf((_speed - 0.3) / 1.2, 0.0, 1.0)
+		var sp_s := _ease(&"hold_speed", _speed, 10.0)       # (the speed changes in physics steps)
+		var still := 1.0 - clampf((sp_s - 0.3) / 1.2, 0.0, 1.0)
 		_still_k = move_toward(_still_k, still if pose == "stand" and not pistol else 0.0, delta * 3.0)
 		if _still_k > 0.0:
 			var ks := smoothstep(0.0, 1.0, _still_k)
 			var across := Basis.looking_at(Vector3(-0.8, -0.27, -0.53).normalized(), Vector3(0.1, 1.0, 0.3).normalized())
 			pos = pos.lerp(Vector3(0.13, 1.38, -0.3), ks)
 			rot = rot.lerp(across.get_euler(EULER_ORDER_YXZ), ks)
-		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
+		var low := clampf((sp_s - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
 			# Running: muzzle lower and a little more across, still forward.
 			pos = pos.lerp(Vector3(0.14, 1.2, -0.3), low)
@@ -1787,6 +1880,35 @@ func _place_gun(pose: String, delta: float) -> void:
 	pos.y += body.position.y + _gun_drop
 	var b := Basis.from_euler(rot, EULER_ORDER_YXZ)
 	var target := Transform3D(b, pos)
+	# Down into a crouch, onto the belly or back up: the gun goes from where
+	# it was to the new hold at the body's own pace, so the hands keep it.
+	var chest_now := Vector3.ZERO
+	if detail and _bone.has("Spine2"): chest_now = (_sk_to_model() * sk.get_bone_global_pose(_bone["Spine2"])).origin
+	if pose != _hold_pose:
+		if detail and _hold_pose in ["stand", "crouch", "prone"] and pose in ["stand", "crouch", "prone"] and _gun_xf.origin != Vector3.ZERO:
+			_hold_from = _gun_xf
+			_hold_t = 0.0
+			_hold_dur = 0.6 if "prone" in [_hold_pose, pose] else 0.45
+			_hold_chest0 = chest_now
+		_hold_pose = pose
+	if _hold_t >= 0.0:
+		_hold_t += delta
+		var u := clampf(_hold_t / _hold_dur, 0.0, 1.0)
+		var hk := u * u * u * (u * (u * 6.0 - 15.0) + 10.0)      # (sets off and arrives with no push)
+		var tb := _hold_from.basis.orthonormalized().slerp(target.basis.orthonormalized(), hk)
+		if _chest_nom.has(pose) and chest_now != Vector3.ZERO:
+			# Riding on the body: the gun goes from where it sat on the chest
+			# to where it will sit, carried along wherever the chest is on its
+			# way (so it stays within the hands' reach all the way).
+			var o0 := _hold_from.origin - _hold_chest0
+			var o1: Vector3 = target.origin - (_chest_nom[pose] as Vector3)
+			target = Transform3D(tb, chest_now + o0.lerp(o1, hk))
+		else:
+			target = Transform3D(tb, _hold_from.origin.lerp(target.origin, hk))
+		if _hold_t >= _hold_dur: _hold_t = -1.0
+	elif _xf_t <= 0.0 and _speed < 0.3 and pose in ["stand", "crouch", "prone"] and chest_now != Vector3.ZERO:
+		# Settled: where the chest sits in this stance (learnt as it goes).
+		_chest_nom[pose] = (_chest_nom.get(pose, chest_now) as Vector3).lerp(chest_now, minf(1.0, delta * 2.0))
 	if pitch_with_aim:
 		var piv := AIM_PIVOT + Vector3(0, body.position.y, 0)
 		var pr := Basis(Vector3.RIGHT, aim_pitch * (1.0 if aiming else 0.6))
@@ -1799,8 +1921,9 @@ func _place_gun(pose: String, delta: float) -> void:
 	if absf(_turn_lean) > 0.002 or absf(_go_lean) > 0.002:
 		# The gun leans with the body (it turns about the feet).
 		target = Transform3D(Basis.from_euler(Vector3(_go_lean, 0.0, _turn_lean)), Vector3.ZERO) * target
-	var k2 := minf(1.0, delta * 14.0)
-	_gun_xf = Transform3D(_gun_xf.basis.slerp(target.basis.orthonormalized(), k2).orthonormalized(), _gun_xf.origin.lerp(target.origin, k2)) if _gun_xf.origin != Vector3.ZERO else target
+	# (through a change of stance the hold already moves at the body's pace:
+	# the gun keeps up with it closely)
+	_gun_follow(target, 30.0 if _hold_t >= 0.0 else (24.0 if aiming or recoil > 0.05 else 19.0), _hold_t < 0.0)
 	var live := _gun_life(pose, delta, _gun_xf) if detail else _gun_xf
 	# Kick: back into the shoulder and the muzzle up.
 	live.origin += live.basis * Vector3(0, 0.012, 0.06) * recoil
@@ -1816,6 +1939,71 @@ func _place_gun(pose: String, delta: float) -> void:
 		elif p >= 0.6 and p < 0.8: drop = 1.0 - (p - 0.6) / 0.2
 		mag.position = Vector3(0, -0.28 * drop, 0.05 * drop)
 		mag.visible = not (p >= 0.3 and p < 0.45)
+
+## The gun goes from hold to hold on a critically damped spring (position and
+## turn): it sets off gently and arrives without a jolt or overshoot, however
+## suddenly the hold changes (setting off, sprinting, aiming, crouching, lying
+## down). w: how quickly (1/s); 20 is there in about a quarter of a second.
+var _gun_v := Vector3.ZERO
+var _gun_av := Vector3.ZERO
+var _gm := Transform3D()           # (a step ahead: the gun follows this, this follows the hold)
+var _gm_v := Vector3.ZERO
+var _gm_av := Vector3.ZERO
+func _gun_follow(target: Transform3D, w: float, slow_big := true) -> void:
+	var tq := target.basis.orthonormalized().get_rotation_quaternion()
+	if not detail and _gun_xf.origin != Vector3.ZERO:
+		# Far or out of sight: simply eased there.
+		var k := minf(1.0, _dt * 14.0)
+		_gun_xf = Transform3D(Basis(_gun_xf.basis.get_rotation_quaternion().slerp(tq, k)), _gun_xf.origin.lerp(target.origin, k))
+		_gm = _gun_xf
+		_gun_v = Vector3.ZERO
+		_gun_av = Vector3.ZERO
+		_gm_v = Vector3.ZERO
+		_gm_av = Vector3.ZERO
+		return
+	if _gun_xf.origin == Vector3.ZERO:
+		_gun_xf = Transform3D(Basis(tq), target.origin)
+		_gm = _gun_xf
+		_gun_v = Vector3.ZERO
+		_gun_av = Vector3.ZERO
+		_gm_v = Vector3.ZERO
+		_gm_av = Vector3.ZERO
+		return
+	# Two springs one after the other: the gun's speed and its push both
+	# build up from nothing, so even a hold that changes at once is taken
+	# up gently.
+	# A big move (a quarter turn of the gun, half a metre) takes longer than a
+	# small one, as a hand would: no whip on a big change of hold.
+	var far := (target.origin - _gm.origin).length() * 2.5 + _rot_err(tq, _gm.basis.get_rotation_quaternion()).length() * 1.2
+	var w2 := w * 1.6 / (1.0 + far if slow_big else 1.0)
+	var n := maxi(1, ceili(_dt * w2 / 0.4))
+	var h := _dt / n
+	var mq := _gm.basis.get_rotation_quaternion()
+	var mo := _gm.origin
+	var q := _gun_xf.basis.get_rotation_quaternion()
+	var o := _gun_xf.origin
+	for i in n:
+		_gm_v += ((target.origin - mo) * w2 * w2 - _gm_v * 2.0 * w2) * h
+		mo += _gm_v * h
+		_gm_av += (_rot_err(tq, mq) * w2 * w2 - _gm_av * 2.0 * w2) * h
+		mq = _rot_step(mq, _gm_av * h)
+		_gun_v += ((mo - o) * w2 * w2 - _gun_v * 2.0 * w2) * h
+		o += _gun_v * h
+		_gun_av += (_rot_err(mq, q) * w2 * w2 - _gun_av * 2.0 * w2) * h
+		q = _rot_step(q, _gun_av * h)
+	_gm = Transform3D(Basis(mq), mo)
+	_gun_xf = Transform3D(Basis(q), o)
+
+## The turn from `from` to `to` as an axis times angle (shortest way round).
+static func _rot_err(to: Quaternion, from: Quaternion) -> Vector3:
+	var dq := (to * from.inverse()).normalized()
+	if dq.w < 0.0: dq = -dq
+	var ang := dq.get_angle()
+	return dq.get_axis() * ang if ang > 1e-6 else Vector3.ZERO
+
+static func _rot_step(q: Quaternion, st: Vector3) -> Quaternion:
+	if st.length() < 1e-9: return q
+	return (Quaternion(st.normalized(), st.length()) * q).normalized()
 
 ## The gun alive in the hands (as in PUBG): never pinned to the body. It
 ## rides on the chest as the clip moves it (each step, the shoulders' swing),
@@ -1836,21 +2024,28 @@ var _gh := 0.0                   # height lag (m)
 var _gh_v := 0.0
 var _kick_side := 0.0
 var _recoil0 := 0.0
-var _life_pose := ""
+var _land_t := -1.0              # landing dip (seconds since touching down)
+var _land_k := 0.0
+var _vy_f := 0.0
+var _acc_f := 0.0
+var _stride_ph := 0.0
+var _chest_f2 := Quaternion.IDENTITY
+var _chest_f2_p := Vector3.ZERO
 
 func _gun_life(pose: String, delta: float, xf: Transform3D) -> Transform3D:
 	var dt := maxf(delta, 1e-3)
-	var steady := 0.35 if aiming else 1.0
-	if pose != _life_pose:
-		if _life_pose in ["stand", "crouch", "prone"] and pose in ["stand", "crouch", "prone"]:
-			_gs_v.y -= 0.9          # a change of stance: the muzzle dips and comes back
-			_gh_v -= 0.25
-		_life_pose = pose
-		_chest_ok = false
+	# Every share eases in and out (no part of it switches on at once).
+	var steady := _ease(&"life_steady", 0.35 if aiming else 1.0, 9.0)
+	var chest_w := _ease(&"life_chest", 0.0 if pose == "prone" else (0.35 if sprinting else (0.5 if aiming else 0.8)), 6.0)
+	var stride_w := _ease(&"life_stride", 0.0 if pose == "prone" or not _loco_on else smoothstep(0.2, 1.2, _speed), 6.0)
+	var sprint_w := _ease(&"life_sprint", 1.0 if sprinting else 0.0, 6.0)
+	var crouch_w := _ease(&"life_crouch", 1.0 if pose == "crouch" else 0.0, 6.0)
+	var still := _ease(&"life_still", 1.0 - clampf(_speed / 0.8, 0.0, 1.0), 4.0)
 	# 1. On the chest: how the clip moves the upper body now against where it
-	# has been lately (a slow follow), so the steps and the shoulders' swing
-	# carry the gun, but a change of stance or a lean does not pull it off.
-	if _bone.has("Spine2") and pose != "prone":
+	# has been lately (band-passed: the fast follow takes out the pops where
+	# one clip hands over to the next, the slow one what the pose holds), so
+	# each step and the shoulders' swing carry the gun.
+	if _bone.has("Spine2"):
 		var chest: Transform3D = _sk_to_model() * sk.get_bone_global_pose(_bone["Spine2"])
 		var cq := chest.basis.get_rotation_quaternion()
 		if not _chest_ok:
@@ -1858,75 +2053,95 @@ func _gun_life(pose: String, delta: float, xf: Transform3D) -> Transform3D:
 			_chest_ref_p = chest.origin
 			_chest_f = cq
 			_chest_f_p = chest.origin
+			_chest_f2 = cq
+			_chest_f2_p = chest.origin
 			_chest_ok = true
-		# Band-passed: the fast follow takes out the pops where one clip hands
-		# over to the next, the slow one what the pose holds for a while.
-		var kf := minf(1.0, dt * 10.0)
-		_chest_f = _chest_f.slerp(cq, kf)
-		_chest_f_p = _chest_f_p.lerp(chest.origin, kf)
+		var kf := minf(1.0, dt * 14.0)          # (two stages: no corner left in it)
+		_chest_f2 = _chest_f2.slerp(cq, kf)
+		_chest_f2_p = _chest_f2_p.lerp(chest.origin, kf)
+		_chest_f = _chest_f.slerp(_chest_f2, kf)
+		_chest_f_p = _chest_f_p.lerp(_chest_f2_p, kf)
 		var kr := minf(1.0, dt * 3.0)
 		_chest_ref = _chest_ref.slerp(_chest_f, kr)
 		_chest_ref_p = _chest_ref_p.lerp(_chest_f_p, kr)
-		var follow := 0.5 if aiming else 0.8
-		var dq := (_chest_f * _chest_ref.inverse()).normalized()
-		var ang := dq.get_angle()
-		if ang > 0.12: dq = Quaternion.IDENTITY.slerp(dq, 0.12 / ang)
-		var rb := Basis(Quaternion.IDENTITY.slerp(dq, follow * 0.7))
-		var dp := (_chest_f_p - _chest_ref_p).limit_length(0.045) * follow
-		xf = Transform3D(rb * xf.basis, chest.origin + rb * (xf.origin - chest.origin) + dp)
+		if chest_w > 0.002:
+			# (limits eased into, not hit: a hard stop would put a corner in it)
+			var dq := (_chest_f * _chest_ref.inverse()).normalized()
+			if dq.w < 0.0: dq = -dq
+			var ang := dq.get_angle()
+			if ang > 1e-5: dq = Quaternion.IDENTITY.slerp(dq, 0.12 * tanh(ang / 0.12) / ang)
+			var rb := Basis(Quaternion.IDENTITY.slerp(dq, chest_w * 0.7))
+			var dv := _chest_f_p - _chest_ref_p
+			var dl := dv.length()
+			var dp := (dv * (0.045 * tanh(dl / 0.045) / dl) if dl > 1e-6 else Vector3.ZERO) * chest_w
+			xf = Transform3D(rb * xf.basis, chest.origin + rb * (xf.origin - chest.origin) + dp)
 	var off := Vector3.ZERO
 	var rot := Vector3.ZERO            # pitch, yaw, roll (model axes, about the grip)
 	# 2. The stride: dips on each footfall (twice a stride), swings and rolls
 	# with the shoulders, a figure of eight at the muzzle.
-	if pose != "prone" and _speed > 0.4:
-		var ph := (_loco.phase if _loco_on and _loco else _phase() / TAU) * TAU
-		var amp := clampf(_speed / 4.5, 0.15, 1.1) * steady
-		if pose == "crouch": amp *= 0.75
-		if sprinting: amp = 1.35
+	if stride_w > 0.002:
+		# (the stride's own phase; held where it was while the run clips are
+		# off, in the air say, so the bob fades out instead of jumping)
+		if _loco_on and _loco: _stride_ph = _loco.phase
+		var ph := _stride_ph * TAU
+		var amp := lerpf(clampf(0.3 + _ease(&"life_speed", _speed, 8.0) / 5.0, 0.4, 1.1), 1.35, sprint_w) * steady * stride_w * (1.0 - 0.25 * crouch_w)
 		var fall := cos(ph) * cos(ph)          # (smooth through the footfall)
 		off += Vector3(sin(ph) * 0.013, 0.012 - fall * 0.026, 0.0) * amp
 		rot += Vector3(0.018 - fall * 0.036, sin(ph) * 0.035, sin(ph) * 0.05) * amp
 	# 3. Standing (or lying) still: the breath lifts and lowers it, and the
 	# hands never hold it dead still: a slow drift, each on its own clock.
-	var still := 1.0 - clampf(_speed / 0.8, 0.0, 1.0)
-	if still > 0.0:
+	if still > 0.002:
 		var t := _t + _seed * 7.0
 		var br := sin(t * 1.7)
-		var k := still * (0.3 if aiming else 1.0) * (0.5 if pose == "prone" else 1.0)
+		var k := still * lerpf(0.3, 1.0, (steady - 0.35) / 0.65) * (0.5 if pose == "prone" else 1.0)
 		off.y += br * 0.007 * k
 		rot += Vector3(br * 0.014 + sin(t * 0.53) * 0.008, sin(t * 0.37) * 0.028 + sin(t * 0.91) * 0.008, sin(t * 0.29) * 0.035 + sin(t * 0.77) * 0.01) * k
 	# 4. Weight: turning or looking up/down the gun lags and catches up with a
 	# small overshoot; stopping short it swings on, setting off it dips back;
-	# going up it sags, landing it drops and springs back.
-	var yr := global_rotation.y
+	# going up it sags, landing it drops and comes back up.
+	var drawn := _drawn_xf()
+	var fz := drawn.basis.z
+	var yr := atan2(fz.x, fz.z)
 	var yaw_rate := wrapf(yr - _gs_yaw, -PI, PI) / dt if _gs_yaw != INF else 0.0
 	_gs_yaw = yr
 	var pitch_rate := (aim_pitch - _gs_pitch) / dt if _gs_pitch != INF else 0.0
 	_gs_pitch = aim_pitch
-	var accel := (_speed - _gs_speed) / dt
+	_acc_f = lerpf(_acc_f, (_speed - _gs_speed) / dt, minf(1.0, dt * 10.0))
+	var accel := _acc_f
 	_gs_speed = _speed
-	var h := global_position.y
-	var vy := (h - _gs_h) / dt if _gs_h != INF else 0.0
+	var h := drawn.origin.y
+	var vy_raw := (h - _gs_h) / dt if _gs_h != INF else 0.0
 	_gs_h = h
-	if absf(vy) > 35.0: vy = 0.0         # moved (a teleport), not a fall
+	if absf(vy_raw) > 35.0: vy_raw = 0.0         # moved (a teleport), not a fall
+	_vy_f = lerpf(_vy_f, vy_raw, minf(1.0, dt * 14.0))
+	var vy := vy_raw
 	if _gs_vy < -3.0 and vy > _gs_vy + 2.5:
-		var land := minf(-_gs_vy, 9.0)
-		_gs_v.y -= land * 0.22 * steady       # landed: the muzzle drops
-		_gh_v -= land * 0.06
+		_land_k = minf(-_gs_vy, 9.0) / 9.0 * steady
+		_land_t = 0.0
 	_gs_vy = vy
+	var land := 0.0
+	if _land_t >= 0.0:
+		_land_t += dt
+		land = (0.5 - 0.5 * cos(clampf(_land_t / 0.35, 0.0, 1.0) * TAU)) * _land_k     # down and back up, gently
+		if _land_t > 0.35: _land_t = -1.0
 	if recoil > _recoil0 + 0.3:
 		_kick_side = randf_range(-1.0, 1.0)  # a shot: shakes off to a side
 		_gs_v += Vector2(_kick_side * 1.4, 1.2) * (0.45 if aiming else 1.0)
 	_recoil0 = recoil
-	var want := Vector2(clampf(-yaw_rate * 0.03, -0.14, 0.14), clampf(-accel * 0.012 - pitch_rate * 0.035, -0.1, 0.1)) * steady
-	_gs_v += ((want - _gs) * 150.0 - _gs_v * 13.0) * dt
-	_gs += _gs_v * dt
-	_gs = _gs.clamp(Vector2(-0.25, -0.25), Vector2(0.25, 0.25))
-	var want_h := clampf(-vy * 0.006, -0.035, 0.035) * steady
-	_gh_v += ((want_h - _gh) * 120.0 - _gh_v * 12.0) * dt
-	_gh = clampf(_gh + _gh_v * dt, -0.08, 0.08)
-	rot += Vector3(_gs.y, _gs.x, _kick_side * recoil * 0.05)
-	off += Vector3(_gs.x * 0.06, _gs.y * 0.05 + _gh, 0.0)
+	var want := Vector2(clampf(-yaw_rate * 0.03, -0.14, 0.14), clampf(-accel * 0.012 - pitch_rate * 0.035, -0.1, 0.1) - land * 0.12) * steady
+	var n := maxi(1, ceili(dt * 12.0 / 0.4))
+	var hs := dt / n
+	for i in n:
+		_gs_v += ((want - _gs) * 150.0 - _gs_v * 13.0) * hs
+		_gs += _gs_v * hs
+		var want_h := clampf(-_vy_f * 0.006, -0.035, 0.035) * steady - land * 0.04
+		_gh_v += ((want_h - _gh) * 120.0 - _gh_v * 12.0) * hs
+		_gh += _gh_v * hs
+	# (eased into their limits, not stopped dead at them)
+	var gs := Vector2(0.25 * tanh(_gs.x / 0.25), 0.25 * tanh(_gs.y / 0.25))
+	var gh := 0.08 * tanh(_gh / 0.08)
+	rot += Vector3(gs.y, gs.x, _kick_side * recoil * 0.05)
+	off += Vector3(gs.x * 0.06, gs.y * 0.05 + gh, 0.0)
 	return Transform3D(Basis.from_euler(rot, EULER_ORDER_YXZ) * xf.basis, xf.origin + off)
 
 ## Under the canopy: a pendulum (the body about 1.3 m below the risers),
@@ -2090,7 +2305,8 @@ var _go_lean := 0.0
 ## change of speed, so it works the same for the player and the bots.
 func _lean_into_moves(pose: String, speed: float, delta: float) -> void:
 	if delta <= 0.0 or not is_inside_tree(): return
-	var yaw := atan2(global_basis.z.x, global_basis.z.z)
+	var dz := _drawn_xf().basis.z
+	var yaw := atan2(dz.x, dz.z)
 	var rate := 0.0
 	if _yaw0 != INF: rate = wrapf(yaw - _yaw0, -PI, PI) / delta
 	_yaw0 = yaw
@@ -2099,8 +2315,8 @@ func _lean_into_moves(pose: String, speed: float, delta: float) -> void:
 	var on := pose == "stand" and not swimming and _action_t <= 0.0
 	var want_turn := clampf(rate * speed * 0.012, -0.13, 0.13) if on and speed > 2.0 else 0.0
 	var want_go := clampf(-acc * 0.012, -0.09, 0.07) if on and absf(acc) > 1.5 else 0.0
-	_turn_lean = lerpf(_turn_lean, want_turn, clampf(delta * 6.0, 0.0, 1.0))
-	_go_lean = lerpf(_go_lean, want_go, clampf(delta * (8.0 if absf(want_go) > absf(_go_lean) else 3.0), 0.0, 1.0))
+	_turn_lean = _ease(&"turn_lean", want_turn, 7.0)
+	_go_lean = _ease(&"go_lean", want_go, 6.0)
 	if absf(_turn_lean) < 0.002 and absf(_go_lean) < 0.002: return
 	body.rotation.z += _turn_lean
 	body.rotation.x += _go_lean
@@ -2149,12 +2365,12 @@ func _bandage_hands(t: float) -> void:
 
 ## Alive while standing still: the chest rises and falls, the weight eases
 ## from one foot to the other.
-func _breathe(t: float) -> void:
+func _breathe(t: float, k := 1.0) -> void:
 	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
 	var right := (to_sk.basis * Vector3.RIGHT).normalized()
 	var fwd := (to_sk.basis * Vector3.BACK).normalized()
-	var b := sin(t * 1.7) * 0.022
-	var sway := sin(t * 0.45) * 0.03
+	var b := sin(t * 1.7) * 0.022 * k
+	var sway := sin(t * 0.45) * 0.03 * k
 	for bn in ["Spine1", "Spine2"]:
 		if not _bone.has(bn): continue
 		var i: int = _bone[bn]
@@ -2223,18 +2439,18 @@ func _face_chest(amount: float) -> void:
 
 ## Lying still on the belly: legs closer together (the clip spreads them
 ## wide), as in PUBG; one knee a touch bent out.
-func _prone_legs() -> void:
+func _prone_legs(k := 1.0) -> void:
 	if not (_bone.has("Hips") and _bone.has("LeftFoot") and _bone.has("RightFoot")): return
 	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
 	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
 	for nm in ["Left", "Right"]:
 		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Foot"]).origin
 		var knee: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Leg"]).origin
-		var want := Vector3(lerpf(foot.x, hips.x + signf(foot.x - hips.x) * 0.2, 0.75), foot.y, foot.z)
+		var want := Vector3(lerpf(foot.x, hips.x + signf(foot.x - hips.x) * 0.2, 0.75 * k), foot.y, foot.z)
 		_leg(nm, want, (knee - (hips + want) * 0.5).normalized())
 
 ## Squatting still: feet planted wider apart, knees out (as in PUBG).
-func _wide_squat() -> void:
+func _wide_squat(k := 1.0) -> void:
 	if not (_bone.has("Hips") and _bone.has("LeftFoot")): return
 	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
 	var hips: Vector3 = to_m * sk.get_bone_global_pose(_bone["Hips"]).origin
@@ -2242,30 +2458,34 @@ func _wide_squat() -> void:
 		var foot: Vector3 = to_m * sk.get_bone_global_pose(_bone[nm + "Foot"]).origin
 		var sx := signf(foot.x - hips.x)
 		if sx == 0.0: sx = -1.0 if nm == "Left" else 1.0
-		var want := Vector3(hips.x + sx * maxf(absf(foot.x - hips.x), 0.2), foot.y, foot.z)
-		_leg(nm, want, Vector3(sx * 0.6, 0.0, -1.0).normalized())
+		var want := Vector3(lerpf(foot.x, hips.x + sx * maxf(absf(foot.x - hips.x), 0.2), k), foot.y, foot.z)
+		_leg(nm, want, Vector3(sx * 0.6 * k, 0.0, -1.0).normalized())
 
 var _fwd_lean := 0.0
 const CROUCH_HOLD := 0.0     # seconds into crouch_f where both feet are down
 ## Upper body follows the aim up/down; the head looks a bit further.
 func _bend_spine(pose: String) -> void:
-	if pose == "prone": return
+	# (faded out lying down and back in getting up, not dropped and picked up)
+	var bw := _ease(&"bend_w", 0.0 if pose == "prone" else 1.0, 6.0)
+	if bw < 0.002: return
 	var to_sk: Transform3D = sk.global_transform.affine_inverse() * global_transform
 	var axis_sk := (to_sk.basis * Vector3.RIGHT).normalized()
 	var up_sk := (to_sk.basis * Vector3.UP).normalized()
-	var amount := clampf(aim_pitch, -1.0, 1.0) * (0.75 if aiming else 0.5)
+	var amount := clampf(aim_pitch, -1.0, 1.0) * _ease(&"bend_aim", 0.75 if aiming else 0.5, 9.0)
 	# As in PUBG: aiming on your feet the upper body leans into the gun;
 	# running it tips forward, sprinting further.
 	if pose == "stand" and not swimming and _action_t <= 0.0:
 		var want := 0.0
 		if aiming and not (_cls in ["pistol", "melee"]): want = -0.2
 		# (running and sprinting: the clips already lean the right amount)
-		_fwd_lean = lerpf(_fwd_lean, want, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
+		_fwd_lean = _ease(&"fwd_lean", want, 8.0)
 	else:
-		_fwd_lean = lerpf(_fwd_lean, 0.0, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
+		_fwd_lean = _ease(&"fwd_lean", 0.0, 8.0)
 	# Bladed rifle stance: chest turned right (left shoulder forward), head turned back.
 	var twist := (-0.45 if aiming else -0.3) if not (_cls in ["pistol", "melee"]) and not sprinting else 0.0
 	if _anim.begins_with("mx/aim") or _anim.begins_with("mx/fire") or _anim.begins_with("mx/reload") or _anim in ["mx/rifle_idle", "mx/look_around"]: twist = 0.0   # already bladed / turning by itself
+	twist = _ease(&"twist", twist, 9.0)
+	var cheek := _ease(&"cheek", 1.0 if aiming else 0.0, 10.0)
 	for bn in ["Spine", "Spine1", "Spine2", "Neck", "Head"]:
 		if not _bone.has(bn): continue
 		var i: int = _bone[bn]
@@ -2274,15 +2494,16 @@ func _bend_spine(pose: String) -> void:
 		var share := 0.3 if bn.begins_with("Spine") else 0.12
 		var tw := twist / 3.0 if bn.begins_with("Spine") else -twist * 0.5
 		var lean_b := _fwd_lean / 3.0 if bn.begins_with("Spine") else -_fwd_lean * 0.4
-		var q := Quaternion((inv * axis_sk).normalized(), amount * share + lean_b) * Quaternion((inv * up_sk).normalized(), tw)
-		if bn == "Head" and aiming:
-			q = q * Quaternion((inv * axis_sk).normalized(), -0.12)     # cheek down to the sight
+		var q := Quaternion((inv * axis_sk).normalized(), (amount * share + lean_b) * bw) * Quaternion((inv * up_sk).normalized(), tw * bw)
+		if bn == "Head" and cheek > 0.002:
+			q = q * Quaternion((inv * axis_sk).normalized(), -0.12 * cheek * bw)     # cheek down to the sight
 		sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i) * q)
 
 ## Hands on the weapon: right hand at the grip, left hand on the handguard
 ## (or on the magazine while reloading).
 func _hold_gun() -> void:
 	var to_local := global_transform.affine_inverse()
+	_keep_in_reach()
 	var g := gun.global_transform
 	var grip := g * Vector3(0.0, -0.06, 0.07)
 	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32)) if weapon_node else Vector3(0, -0.06, -0.32)
@@ -2332,11 +2553,35 @@ func _hold_gun() -> void:
 	# aiming it sticks out to the side, a little up (as in PUBG).
 	var rpole := Vector3(1, -1, 0.4).lerp(Vector3(0.3, -1, 0.5), _still_k)
 	if aiming and not (_cls in ["pistol", "melee"]): rpole = Vector3(1, 0.1, 0.25)
+	rpole = Vector3(_ease(&"rpole_x", rpole.x, 10.0), _ease(&"rpole_y", rpole.y, 10.0), _ease(&"rpole_z", rpole.z, 10.0))
 	_arm("Right", to_local * rgrip, rpole)
 	if _cls in ["pistol", "melee"] and not aiming and reload_p < 0.0:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:
 		_arm("Left", to_local * fore, Vector3(-1, -1, 0))
+
+var _reach := -1.0
+
+## Never further than the left arm reaches: if the handguard has got beyond
+## it (half-way through getting up, say) the gun is drawn back towards the
+## shoulder, softly (no stop it bumps into), so the hand keeps hold of it.
+func _keep_in_reach() -> void:
+	if not detail: return
+	if not (_bone.has("LeftArm") and _bone.has("LeftForeArm") and _bone.has("LeftHand")) or weapon_node == null: return
+	if _cls in ["pistol", "melee"]: return
+	var to_m := _sk_to_model()
+	if _reach < 0.0:
+		var a := to_m * sk.get_bone_global_rest(_bone["LeftArm"]).origin
+		var b := to_m * sk.get_bone_global_rest(_bone["LeftForeArm"]).origin
+		var c := to_m * sk.get_bone_global_rest(_bone["LeftHand"]).origin
+		_reach = (a.distance_to(b) + b.distance_to(c)) * 0.97
+	var sh := to_m * sk.get_bone_global_pose(_bone["LeftArm"]).origin
+	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32))
+	var fore := gun.transform * (fore_v * WSCALE + Vector3(-0.02, -0.02, 0.06))
+	var d := fore - sh
+	var over := d.length() - _reach
+	var pull := 0.5 * (over + sqrt(over * over + 0.0004)) - 0.01      # smooth max(over, 0)
+	if pull > 0.0005: gun.transform.origin -= d.normalized() * pull
 
 # ---------------------------------------------------------------- feet on the ground
 const FOOT_RAY := 0.6           # how far above/below the feet we look for ground
@@ -2348,27 +2593,31 @@ const HIP_DROP_MAX := 0.32
 func _plant_feet(delta: float) -> void:
 	var k := clampf(delta * 14.0, 0.0, 1.0)
 	if not foot_ik or not is_inside_tree():
-		_foot_dy = [lerpf(_foot_dy[0], 0.0, k), lerpf(_foot_dy[1], 0.0, k)]
-		_hip_drop = lerpf(_hip_drop, 0.0, k)
+		_foot_dy = [_ease(&"foot_dy0", 0.0, 14.0), _ease(&"foot_dy1", 0.0, 14.0)]
+		_hip_drop = _ease(&"hip_drop", 0.0, 14.0)
 		if absf(_hip_drop) < 0.005 and absf(_foot_dy[0]) < 0.005 and absf(_foot_dy[1]) < 0.005: return
 	else:
 		var space := get_world_3d().direct_space_state
-		var up := global_basis.y
+		# (the body where it is drawn: between physics steps it is not where
+		# the physics left it, and the ground under the feet is read from it)
+		var dxf := _drawn_xf()
+		var up := dxf.basis.y.normalized()
+		var to_drawn := dxf * global_transform.affine_inverse()
 		for i in 2:
 			var side: String = ["Left", "Right"][i]
-			var fp: Vector3 = (sk.global_transform * sk.get_bone_global_pose(_bone[side + "Foot"])).origin
-			var flat := fp - up * up.dot(fp - global_position)
+			var fp: Vector3 = to_drawn * (sk.global_transform * sk.get_bone_global_pose(_bone[side + "Foot"])).origin
+			var flat := fp - up * up.dot(fp - dxf.origin)
 			var q := PhysicsRayQueryParameters3D.create(flat + up * FOOT_RAY, flat - up * FOOT_RAY, 1)
 			var hit := space.intersect_ray(q)
 			var dy := 0.0
 			var n := Vector3.UP
 			if hit:
-				dy = clampf(up.dot(hit.position - global_position), -FOOT_RAY, FOOT_RAY * 0.8)
-				n = global_basis.inverse() * hit.normal
+				dy = clampf(up.dot(hit.position - dxf.origin), -FOOT_RAY, FOOT_RAY * 0.8)
+				n = dxf.basis.inverse() * hit.normal
 				if n.y < 0.5: n = Vector3.UP     # a wall, not a floor
-			_foot_dy[i] = lerpf(_foot_dy[i], dy, k)
+			_foot_dy[i] = _ease(&"foot_dy0" if i == 0 else &"foot_dy1", dy, 14.0)     # (no jolt when the ground under it steps)
 			_foot_n[i] = _foot_n[i].lerp(n, k).normalized()
-		_hip_drop = lerpf(_hip_drop, clampf(minf(minf(_foot_dy[0], _foot_dy[1]), 0.0), -HIP_DROP_MAX, 0.0), k)
+		_hip_drop = _ease(&"hip_drop", clampf(minf(minf(_foot_dy[0], _foot_dy[1]), 0.0), -HIP_DROP_MAX, 0.0), 14.0)
 	body.position.y += _hip_drop
 	var inv := global_transform.affine_inverse()
 	for i in 2:
@@ -2601,25 +2850,47 @@ func _build_vest_skin() -> Array:
 
 ## The backpack rides on the back with a little give: it lags when you set
 ## off, swings on when you stop and bounces with the steps.
+var _pack_vf := Vector3.ZERO
+var _pack_acc := Vector3.ZERO
+
+## The pack hangs from its straps at the top: it lags as the body sets off,
+## swings on when it stops, bounces with each step (the back rises and falls
+## under it) and sways side to side on a turn, its bottom swinging most. All
+## from how the back moves as drawn (smoothed), on a soft spring.
 func _pack_bounce(delta: float) -> void:
 	if pack == null or not pack.visible: return
-	var dt := maxf(delta, 1e-3)
-	var p := global_position
+	var dt := clampf(delta, 1e-3, 0.1)
+	var par := pack.get_parent() as Node3D
+	var par_m: Transform3D = global_transform.affine_inverse() * par.global_transform      # its frame on the back (model space)
+	var drawn := _drawn_xf()
+	var p := drawn * (par_m * _pack_base)
 	var v := (p - _pack_prev) / dt if _pack_prev != Vector3.ZERO else Vector3.ZERO
 	_pack_prev = p
-	if v.length() > 40.0: v = _pack_vel
-	var acc := ((v - _pack_vel) / dt).limit_length(30.0)
-	_pack_vel = v
-	var la := global_basis.orthonormalized().inverse() * acc
-	var want := (-la * 0.0025).limit_length(0.035)
-	_pack_sv += ((want - _pack_s) * 220.0 - _pack_sv * 16.0) * dt
-	_pack_s += _pack_sv * dt
+	if v.length() > 40.0: v = _pack_vf          # moved (a teleport)
+	var vf0 := _pack_vf
+	_pack_vf = _pack_vf.lerp(v, minf(1.0, dt * 10.0))       # (the body as drawn moves in straight bits between physics steps)
+	var acc := ((_pack_vf - vf0) / dt).limit_length(25.0)
+	_pack_acc = _pack_acc.lerp(acc, minf(1.0, dt * 6.0))
+	var la := drawn.basis.orthonormalized().inverse() * _pack_acc
+	var want := (-la * 0.003).limit_length(0.05)
+	var n := maxi(1, ceili(dt * 12.0 / 0.4))
+	var h := dt / n
+	for i in n:
+		_pack_sv += ((want - _pack_s) * 100.0 - _pack_sv * 8.0) * h
+		_pack_s += _pack_sv * h
+	_pack_s = _pack_s.limit_length(0.07)
 	# Bent forward (running, sprinting) the pack hangs down the back instead
 	# of riding up over the shoulders with the top of the spine.
 	var to_m: Transform3D = global_transform.affine_inverse() * sk.global_transform
 	var s1_up: Vector3 = (to_m.basis * sk.get_bone_global_pose(_bone.get("Spine1", 0)).basis.y).normalized()
 	var tilt := acos(clampf(s1_up.dot(Vector3.UP), -1.0, 1.0))
-	var slide := clampf((tilt - 0.2) / 0.5, 0.0, 1.0)
-	var d := _pack_s + Vector3(0, -0.17, -0.07) * slide
-	var par := pack.get_parent() as Node3D
-	pack.position = _pack_base + par.global_basis.inverse() * (global_basis * d)
+	var slide := _ease(&"pack_slide", clampf((tilt - 0.2) / 0.5, 0.0, 1.0), 7.0)
+	# Swung from the top: the bottom goes where the spring has it.
+	var arm := 0.35
+	var rm := Basis(Vector3.RIGHT, clampf(-_pack_s.z / arm, -0.3, 0.3)) * Basis(Vector3.BACK, clampf(_pack_s.x / arm, -0.3, 0.3))
+	var pm := par_m.basis.orthonormalized()
+	var r_par := pm.inverse() * rm * pm
+	var top := _pack_base + Vector3(0, pack.mesh.get_aabb().end.y * pack.scale.x, 0) if pack.mesh else _pack_base
+	var d := Vector3(_pack_s.x * 0.3, _pack_s.y, _pack_s.z * 0.3) + Vector3(0, -0.17, -0.07) * slide
+	pack.position = top + r_par * (_pack_base - top) + par_m.basis.inverse() * d
+	pack.quaternion = r_par.get_rotation_quaternion()

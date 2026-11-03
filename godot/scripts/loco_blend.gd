@@ -69,14 +69,53 @@ static func _around(dset: Dictionary, deg: float) -> Array:
 
 ## Works out this frame's mix for moving at `vel` (m/s, x right, y ahead)
 ## and steps the stride on; returns [[clip dict, weight]].
+## Eases a blend weight over time (a critically damped spring), so a clip
+## comes in and goes out smoothly however quickly the speed changes.
+var _ease_s := {}
+func _eased(key: String, want: float, w: float, delta: float) -> float:
+	var s: Vector2 = _ease_s.get(key, Vector2(want, 0.0))
+	var n := maxi(1, ceili(delta * w / 0.4))
+	var h := delta / n
+	for i in n:
+		s.y += ((want - s.x) * w * w - s.y * 2.0 * w) * h
+		s.x += s.y * h
+	_ease_s[key] = s
+	return clampf(s.x, 0.0, 1.0)
+
+func _eased_raw(key: String, want: float, w: float, delta: float) -> float:
+	var s: Vector2 = _ease_s.get(key, Vector2(want, 0.0))
+	var n := maxi(1, ceili(delta * w / 0.4))
+	var h := delta / n
+	for i in n:
+		s.y += ((want - s.x) * w * w - s.y * 2.0 * w) * h
+		s.x += s.y * h
+	_ease_s[key] = s
+	return s.x
+
 func mix(vel: Vector2, armed: bool, sprint: bool, delta: float) -> Array:
 	var speed := vel.length()
-	var deg := rad_to_deg(atan2(vel.x, vel.y)) if speed > 0.05 else 0.0
+	# The heading eased round (a new stick direction turns the blend of the
+	# direction clips over a moment instead of swapping them at once).
+	var dir := vel / speed if speed > 0.05 else Vector2(0, 1)
+	var dx := _eased_raw("dir_x", dir.x, 8.0, delta)
+	var dy := _eased_raw("dir_y", dir.y, 8.0, delta)
+	var deg := rad_to_deg(atan2(dx, dy)) if Vector2(dx, dy).length() > 0.05 else 0.0
 	var walk := _around(ARMED_WALK if armed else EMPTY_WALK, deg)
 	var run_set: Dictionary = (ARMED_RUN if armed else EMPTY_RUN).duplicate()
-	if sprint and absf(deg) < 30.0:
-		run_set[0] = "sprint_f" if armed and ap.has_animation("mx/sprint_f") else "u_sprint"
 	var run := _around(run_set, deg)
+	# Sprinting: the forward run hands over to the sprint clip, eased in and
+	# out (and only heading about straight ahead).
+	var sw := _eased("sprint", (1.0 if sprint else 0.0) * clampf((40.0 - absf(deg)) / 20.0, 0.0, 1.0), 7.0, delta)
+	if sw > 0.001:
+		var sp := "sprint_f" if armed and ap.has_animation("mx/sprint_f") else "u_sprint"
+		var mixed := []
+		for e in run:
+			if e[0] == run_set[0]:
+				if 1.0 - sw > 0.001: mixed.append([e[0], float(e[1]) * (1.0 - sw)])
+				mixed.append([sp, float(e[1]) * sw])
+			else:
+				mixed.append(e)
+		run = mixed
 	var vw := 0.0
 	var vr := 0.0
 	for e in walk: vw += clip(e[0]).spd * float(e[1])
@@ -84,6 +123,7 @@ func mix(vel: Vector2, armed: bool, sprint: bool, delta: float) -> Array:
 	# Between the walk's own pace and the run's: how far towards running.
 	var k := clampf((speed - vw) / maxf(vr - vw, 0.3), 0.0, 1.0)
 	k = k * k * (3.0 - 2.0 * k)
+	k = _eased("run", k, 7.0, delta)        # (the speed can change faster than the clips should)
 	var out := []
 	var stride := 0.0
 	for e in walk:
