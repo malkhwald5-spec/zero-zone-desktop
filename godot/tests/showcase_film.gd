@@ -13,6 +13,7 @@ var world: Node
 var p: Player
 var cam: Camera3D
 var dunes := false
+var moves_only := false
 var _frames := 0
 var _want_pos := Vector3.ZERO
 var _want_look := Vector3.ZERO
@@ -28,6 +29,8 @@ func mark(label: String) -> void:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a == "--map=dunes": dunes = true
+		if a == "--moves": moves_only = true
+		if a.begins_with("--outfit="): Game.profile.outfit = int(a.substr(9))
 	Game.settings.controls = "touch"
 	Game.settings.weather = "clear"
 	Game.settings.mode = "solo"
@@ -214,6 +217,9 @@ func _seasons() -> void:
 	p.touch_move = Vector2.ZERO
 	p.tap_slot(0)
 	await wait(1.0)
+	if moves_only:
+		mark("end")
+		return
 	# 6. Weapon skins.
 	mark("skins")
 	place(p.global_position, p.yaw)

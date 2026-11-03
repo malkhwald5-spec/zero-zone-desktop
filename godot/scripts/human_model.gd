@@ -575,9 +575,10 @@ func _place_back() -> void:
 		z = minf(z, pack.position.z - pack.mesh.get_aabb().size.z * 0.5 * pack.scale.x + 0.04 * u)
 	# As in PUBG: hanging straight down beside the backpack (or the back),
 	# muzzle down, the stock up by the shoulder blade, top of the gun facing out.
-	var side := _back_side_at(z, -1.0, u)
-	var at: Vector3 = rest * side[0]
-	var b := Basis.looking_at(Vector3(-0.1, -1.0, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+	# Slung diagonally across the back, muzzle down to the left hip, the stock
+	# just behind the right shoulder: never above the head, whatever its length.
+	var at: Vector3 = rest * Vector3(0, -0.12 * u, z)
+	var b := Basis.looking_at(Vector3(-0.55, -0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
 	_back_base = rest.affine_inverse() * Transform3D(b, at + b * Vector3(0, 0, 0.12))
 	holder.transform = _back_base
 	_back_pivot = _back_base * Vector3(0, 0, 0.32)      # up by the stock, where the sling holds it
@@ -837,8 +838,8 @@ func _place_back2() -> void:
 		z = minf(z, vest.position.z - vest.mesh.get_aabb().size.z * 0.5 * vest.scale.x - 0.03 * u)
 	if pack and pack.visible and pack.mesh:
 		z = minf(z, pack.position.z - pack.mesh.get_aabb().size.z * 0.5 * pack.scale.x + 0.04 * u)
-	var at: Vector3 = rest * _back_side_at(z, 1.0, u)[0]
-	var b := Basis.looking_at(Vector3(0.1, -1.0, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
+	var at: Vector3 = rest * Vector3(0, -0.12 * u, z - 0.04 * u)
+	var b := Basis.looking_at(Vector3(0.55, -0.83, 0.0).normalized(), Vector3(0, 0, 1)).scaled(Vector3.ONE * WSCALE)
 	h.transform = rest.affine_inverse() * Transform3D(b, at + b * Vector3(0, 0, 0.12))
 	_back2_base = h.transform
 
@@ -891,7 +892,7 @@ static var _gear_cache := {}
 const GEAR_MODELS := {
 	"helmet1": [-PI / 2, "max", 0.31], "helmet2": [0.0, "max", 0.29, "helmet_mich"], "helmet3": [-PI / 2, "max", 0.32, "helmet_tac"],
 	"vest1": [0.0, "keep", 1.0], "vest2": [0.0, "keep", 1.0], "vest3": [-PI / 2, "y", 0.56, "vest_pc", Vector3(0, 0.08, 0.0)],
-	"pack1": [PI, "y", 0.44], "pack2": [PI, "y", 0.48], "pack3": [PI, "y", 0.52],
+	"pack1": [PI, "y", 0.4], "pack2": [PI, "y", 0.43], "pack3": [PI, "y", 0.46],
 }
 ## Fit and colour per model: [scale across, up, front-to-back; colour the
 ## texture is multiplied by]. The soft vest hugs the body (dark police
@@ -1751,7 +1752,7 @@ func _place_gun(pose: String, delta: float) -> void:
 		# right side with the muzzle forward and a little down (seen from the
 		# camera behind the right shoulder it points where you're going).
 		pos = Vector3(0.17, 1.3, -0.26) if not pistol else Vector3(0.12, 1.15, -0.28)
-		rot = Vector3(-0.22, 0.16, 0.1) if not pistol else Vector3(-0.6, 0.2, 0)
+		rot = Vector3(-0.3, 0.06, 0.06) if not pistol else Vector3(-0.6, 0.2, 0)
 		# Standing still (as on PUBG's character art): the rifle held across
 		# the body, stock by the right side of the chest, muzzle down to the
 		# left and a little forward, both hands on it. Moving off it swings
@@ -1766,8 +1767,8 @@ func _place_gun(pose: String, delta: float) -> void:
 		var low := clampf((_speed - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
 			# Running: muzzle lower and a little more across, still forward.
-			pos = pos.lerp(Vector3(0.13, 1.1, -0.3), low)
-			rot = rot.lerp(Vector3(-0.72, 0.38, 0.22), low)
+			pos = pos.lerp(Vector3(0.14, 1.2, -0.3), low)
+			rot = rot.lerp(Vector3(-0.5, 0.12, 0.12), low)
 		pitch_with_aim = low < 0.5 and _still_k < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
 		# Looking the gun over: brought up in front, turned to one side, then the other.
@@ -2165,7 +2166,7 @@ func _bend_spine(pose: String) -> void:
 	if pose == "stand" and not swimming and _action_t <= 0.0:
 		var want := 0.0
 		if aiming and not (_cls in ["pistol", "melee"]): want = -0.2
-		elif _speed > 2.5: want = -clampf((_speed - 2.5) / 3.5, 0.0, 1.0) * (0.12 if sprinting else 0.2)
+		# (running and sprinting: the clips already lean the right amount)
 		_fwd_lean = lerpf(_fwd_lean, want, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
 	else:
 		_fwd_lean = lerpf(_fwd_lean, 0.0, clampf(get_process_delta_time() * 6.0, 0.0, 1.0))
