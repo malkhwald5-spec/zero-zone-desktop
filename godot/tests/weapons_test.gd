@@ -101,11 +101,20 @@ func _run() -> void:
 		await wait(0.4)
 		await shot("hold_" + id)
 		var h0: float = dummy.health
+		# Aimed down the sights (hip fire spreads), on the chest again before
+		# each shot: the camera moves as the body turns and each kick lifts it.
+		if id != "pan": p.aiming = true
 		for k in 3:
+			await wait(0.25)
+			to = dummy.global_position + Vector3(0, 1.1, 0) - p.camera.global_position
+			p.yaw = atan2(-to.x, -to.z)
+			p.pitch = atan2(to.y, Vector2(to.x, to.z).length())
+			await wait(0.1)
 			p.firing = true
 			p._try_fire()
 			await wait(maxf(0.3, float(Game.WEAPONS[id].rate) + 0.05))
 		p.firing = false
+		p.aiming = false
 		check(id + " hurts the target", dummy.health < h0 or dummy.dead, "%.0f -> %.0f" % [h0, dummy.health])
 		p.drop_slot(p.active)
 		await wait(0.1)
