@@ -60,6 +60,10 @@ func _process(d: float) -> void:
 	var lh: Vector3 = sk_xf * m.sk.get_bone_global_pose(m._bone["LeftHand"]).origin
 	var grip: Vector3 = g * Vector3(0.0, -0.06, 0.07)
 	var fore_v: Vector3 = m.weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32)) if m.weapon_node else Vector3(0, -0.06, -0.32)
+	# (sprinting the gun is carried in the left hand, the right one let go:
+	# the two-handed grip is not what is measured then)
+	var carried: bool = (m._smv.get(&"carry", Vector2.ZERO) as Vector2).x > 0.02
+	if carried: return      # (the carry in the left hand replaces this; smooth_probe measures it)
 	var fore: Vector3 = g * (fore_v * HumanModel.WSCALE + Vector3(-0.02, -0.02, 0.06))
 	# The life on top of where the pose puts the gun (the pose's own easing
 	# from one hold to another is left out).
@@ -70,9 +74,12 @@ func _process(d: float) -> void:
 		var s0: Vector3 = (rec[-1]["pos"] as Vector3) - (rec[-2]["pos"] as Vector3)
 		if (s1 - s0).length() > 0.03:
 			print("GUNSPIKE %s frame %d anim %s state %s stance %s vault %.2f pos %s off %s gs %s gh %.3f still %.2f speed %.2f" % [label, rec.size(), m._anim, p.state, p.stance, p.vault_t, p.global_position, live.origin - base.origin, m._gs, m._gh, m._still_k, m._speed])
-	rec.append({"pos": live.origin - base.origin, "dir": (live.basis * Vector3.FORWARD).normalized(), "dir0": (base.basis * Vector3.FORWARD).normalized(), "rgap": rh.distance_to(grip), "lgap": lh.distance_to(fore), "f": clampf(d * 60.0, 0.5, 3.0)})
+	rec.append({"pos": live.origin - base.origin, "dir": (live.basis * Vector3.FORWARD).normalized(), "dir0": (base.basis * Vector3.FORWARD).normalized(), "rgap": 0.0 if carried else rh.distance_to(grip), "lgap": 0.0 if carried else lh.distance_to(fore), "f": clampf(d * 60.0, 0.5, 3.0)})
 
 func report(min_range: float, max_range: float, max_jit := 1.5) -> void:
+	if rec.size() < 3:
+		print("GUNLIFE %s OK carried in the left hand (measured in smooth_probe)" % label)
+		return
 	var lo := Vector3(INF, INF, INF)
 	var hi := -lo
 	var ang := 0.0

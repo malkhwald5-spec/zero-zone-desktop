@@ -37,8 +37,11 @@ func _process(d: float) -> void:
 	var rh: Vector3 = sk_xf * m.sk.get_bone_global_pose(m._bone["RightHand"]).origin
 	var lh: Vector3 = sk_xf * m.sk.get_bone_global_pose(m._bone["LeftHand"]).origin
 	var fore_v: Vector3 = m.weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32)) if m.weapon_node else Vector3(0, -0.06, -0.32)
-	var rgap := rh.distance_to(gg * Vector3(0.0, -0.06, 0.07)) if m.gun.visible else 0.0
-	var lgap := lh.distance_to(gg * (fore_v * HumanModel.WSCALE + Vector3(-0.02, -0.02, 0.06))) if m.gun.visible else 0.0
+	# (sprinting the gun is carried in the left hand, the right one let go:
+	# the two-handed grip is not what is measured then)
+	var carried: bool = (m._smv.get(&"carry", Vector2.ZERO) as Vector2).x > 0.02
+	var rgap := rh.distance_to(gg * Vector3(0.0, -0.06, 0.07)) if m.gun.visible and not carried else 0.0
+	var lgap := lh.distance_to(gg * (fore_v * HumanModel.WSCALE + Vector3(-0.02, -0.02, 0.06))) if m.gun.visible and not carried else 0.0
 	# The pack's bottom (it swings from the top): where it is and points.
 	# (on the back: where it sits against the frame it hangs from, so the
 	# body's own movement is left out and only the pack's is measured)

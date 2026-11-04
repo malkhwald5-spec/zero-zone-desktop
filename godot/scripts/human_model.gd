@@ -2554,7 +2554,20 @@ func _bend_spine(pose: String) -> void:
 ## (or on the magazine while reloading).
 func _hold_gun() -> void:
 	var to_local := global_transform.affine_inverse()
-	_keep_in_reach()
+	# Sprinting (as in PUBG): the right hand lets go and pumps, the left hand
+	# carries the rifle by its handguard, hanging along the forearm, muzzle
+	# down and forward, swinging with the arm. Eased in and out.
+	var carry := _ease(&"carry", 1.0 if sprinting and _loco_on and reload_p < 0.0 and inspect_t < 0.0 and not (_cls in ["pistol", "melee"]) else 0.0, 7.0)
+	var arm_anim := {}
+	if carry > 0.002:
+		for bn in ["RightArm", "RightForeArm"]:
+			if _bone.has(bn): arm_anim[bn] = sk.get_bone_pose_rotation(_bone[bn])
+		var cx := _carry_xf()
+		if cx.origin != Vector3.ZERO:
+			var gt := gun.transform
+			gun.transform = Transform3D(Basis(gt.basis.get_rotation_quaternion().slerp(cx.basis.get_rotation_quaternion(), carry)).scaled(gt.basis.get_scale()), gt.origin.lerp(cx.origin, carry))
+	else:
+		_keep_in_reach()
 	var g := gun.global_transform
 	var grip := g * Vector3(0.0, -0.06, 0.07)
 	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32)) if weapon_node else Vector3(0, -0.06, -0.32)
@@ -2609,9 +2622,58 @@ func _hold_gun() -> void:
 	if _cls in ["pistol", "melee"] and not aiming and reload_p < 0.0:
 		_arm("Left", to_local * (grip + g.basis * Vector3(-0.05, -0.02, 0.02)), Vector3(-1, -1, 0))
 	else:
-		_arm("Left", to_local * fore, Vector3(-1, -1, 0))
+		var lt := to_local * fore
+		if carry > 0.002 and _carry_hand != Vector3.ZERO: lt = lt.lerp(_carry_hand, carry)
+		_arm("Left", lt, Vector3(-1, -1, 0).lerp(Vector3(-1, -0.3, 1), carry))
+	if carry > 0.002:
+		# The right arm goes back to the clip's own pumping as the carry comes
+		# in; the left one carries the gun, swinging lower and calmer.
+		for bn in arm_anim:
+			var i: int = _bone[bn]
+			sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i).slerp(arm_anim[bn], carry))
+
+## Where the gun hangs carried in the left hand: held at its middle, hanging
+## down and a little forward along the arm (model space).
+func _carry_xf() -> Transform3D:
+	if not (_bone.has("LeftForeArm") and _bone.has("LeftHand")) or weapon_node == null: return Transform3D()
+	var to_m := _sk_to_model()
+	var hp: Transform3D = to_m * sk.get_bone_global_pose(_bone["LeftHand"])
+	var e: Vector3 = to_m * sk.get_bone_global_pose(_bone["LeftForeArm"]).origin
+	var fdir_now := (hp.origin - e).normalized()
+	# The arm with the gun swings lower and calmer than the free one: the
+	# clip's hand drawn half-way towards the left hip; smoothed (two stages)
+	# so the clip's own little jumps do not shake the gun.
+	var want := hp.origin.lerp(Vector3(-0.24, 0.92 + body.position.y, -0.12), 0.45)
+	if _carry_f == Vector3.ZERO or _carry_f.distance_to(want) > 0.6:
+		_carry_f = want
+		_carry_f2 = want
+		_carry_d = fdir_now
+		_carry_d2 = fdir_now
+	var k := minf(1.0, _dt * 16.0)
+	_carry_f2 = _carry_f2.lerp(want, k)
+	_carry_f = _carry_f.lerp(_carry_f2, k)
+	_carry_d2 = _carry_d2.lerp(fdir_now, k).normalized()
+	_carry_d = _carry_d.lerp(_carry_d2, k).normalized()
+	_carry_hand = _carry_f
+	var fdir := _carry_d
+	var palm := _carry_hand + fdir * 0.07 * WSCALE
+	# (it hangs by its weight, turning in the hand: the arm's swing only
+	# tilts it a little, the muzzle stays down and a touch forward and out)
+	var a := (fdir * 0.22 + Vector3(0, -1, 0) * 0.8 + Vector3(-0.12, 0, -0.32)).normalized()
+	var hint := Vector3(0, 0, -1) if absf(a.z) < 0.9 else Vector3.UP
+	var b := Basis.looking_at(a, hint)
+	# Held at the middle, just in front of the magazine (as in PUBG): the
+	# barrel hangs down below the hand, only the stock rises behind it.
+	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32))
+	var grip_l := Vector3(-0.02, -0.03, fore_v.z * 0.35) * WSCALE
+	return Transform3D(b, palm - b * grip_l)
 
 var _reach := -1.0
+var _carry_hand := Vector3.ZERO
+var _carry_f := Vector3.ZERO
+var _carry_f2 := Vector3.ZERO
+var _carry_d := Vector3.DOWN
+var _carry_d2 := Vector3.DOWN
 
 ## Never further than the left arm reaches: if the handguard has got beyond
 ## it (half-way through getting up, say) the gun is drawn back towards the
@@ -2905,6 +2967,7 @@ func _build_vest_skin() -> Array:
 ## The backpack rides on the back with a little give: it lags when you set
 ## off, swings on when you stop and bounces with the steps.
 var _pack_vf := Vector3.ZERO
+var _pack_down := Vector3.ZERO
 var _pack_acc := Vector3.ZERO
 
 ## The pack hangs from its straps at the top: it lags as the body sets off,
@@ -2924,9 +2987,9 @@ func _pack_bounce(delta: float) -> void:
 	var vf0 := _pack_vf
 	_pack_vf = _pack_vf.lerp(v, minf(1.0, dt * 10.0))       # (the body as drawn moves in straight bits between physics steps)
 	var acc := ((_pack_vf - vf0) / dt).limit_length(25.0)
-	_pack_acc = _pack_acc.lerp(acc, minf(1.0, dt * 6.0))
+	_pack_acc = _pack_acc.lerp(acc, minf(1.0, dt * 4.0))
 	var la := drawn.basis.orthonormalized().inverse() * _pack_acc
-	var want := (-la * 0.003).limit_length(0.05)
+	var want := (-la * 0.0025).limit_length(0.05)
 	var n := maxi(1, ceili(dt * 12.0 / 0.4))
 	var h := dt / n
 	for i in n:
@@ -2945,6 +3008,11 @@ func _pack_bounce(delta: float) -> void:
 	var pm := par_m.basis.orthonormalized()
 	var r_par := pm.inverse() * rm * pm
 	var top := _pack_base + Vector3(0, pack.mesh.get_aabb().end.y * pack.scale.x, 0) if pack.mesh else _pack_base
-	var d := Vector3(_pack_s.x * 0.3, _pack_s.y, _pack_s.z * 0.3) + Vector3(0, -0.17, -0.07) * slide
-	pack.position = top + r_par * (_pack_base - top) + par_m.basis.inverse() * d
+	var d := Vector3(_pack_s.x * 0.3, _pack_s.y, _pack_s.z * 0.3)
+	# (down the back is along the back itself: a twist of the torso does not
+	# slide it about on it)
+	if _pack_down == Vector3.ZERO or (slide < 0.02 and absf(_speed) < 0.3):
+		# (taken standing upright: "down the back" in the back's own frame)
+		_pack_down = pm.inverse() * Vector3(0, -0.17, -0.07)
+	pack.position = top + r_par * (_pack_base - top) + par_m.basis.inverse() * d + _pack_down * (slide * par_m.basis.inverse().get_scale().x)
 	pack.quaternion = r_par.get_rotation_quaternion()

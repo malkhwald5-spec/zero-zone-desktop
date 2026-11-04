@@ -107,7 +107,8 @@ func mix(vel: Vector2, armed: bool, sprint: bool, delta: float) -> Array:
 	# out (and only heading about straight ahead).
 	var sw := _eased("sprint", (1.0 if sprint else 0.0) * clampf((40.0 - absf(deg)) / 20.0, 0.0, 1.0), 7.0, delta)
 	if sw > 0.001:
-		var sp := "sprint_f" if armed and ap.has_animation("mx/sprint_f") else "u_sprint"
+		# (armed too the arms pump free: the gun is carried in the left hand)
+		var sp := "u_sprint" if ap.has_animation("mx/u_sprint") else "sprint_f"
 		var mixed := []
 		for e in run:
 			if e[0] == run_set[0]:
