@@ -1828,8 +1828,8 @@ func _place_gun(pose: String, delta: float) -> void:
 			rot = Vector3(-1.2, 0, 0)
 		else:
 			# (out in front of the chest, not pressed to it: it shows and swings)
-			pos = Vector3(0.19, 1.1, -0.31)
-			var bb := Basis.looking_at(Vector3(-0.6, 0.66, -0.45).normalized(), Vector3(0, 0, -1))
+			pos = Vector3(0.2, 1.06, -0.38)
+			var bb := Basis.looking_at(Vector3(-0.5, 0.42, -0.75).normalized(), Vector3(0.2, 0.3, -1).normalized())
 			rot = bb.get_euler(EULER_ORDER_YXZ)
 		pitch_with_aim = false
 	elif aiming or recoil > 0.05:
