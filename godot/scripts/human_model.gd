@@ -1827,8 +1827,9 @@ func _place_gun(pose: String, delta: float) -> void:
 			pos = Vector3(0.2, 1.0, -0.12)
 			rot = Vector3(-1.2, 0, 0)
 		else:
-			pos = Vector3(0.16, 1.12, -0.2)
-			var bb := Basis.looking_at(Vector3(-0.62, 0.72, -0.3).normalized(), Vector3(0, 0, -1))
+			# (out in front of the chest, not pressed to it: it shows and swings)
+			pos = Vector3(0.19, 1.1, -0.31)
+			var bb := Basis.looking_at(Vector3(-0.6, 0.66, -0.45).normalized(), Vector3(0, 0, -1))
 			rot = bb.get_euler(EULER_ORDER_YXZ)
 		pitch_with_aim = false
 	elif aiming or recoil > 0.05:
@@ -1861,7 +1862,7 @@ func _place_gun(pose: String, delta: float) -> void:
 		var low := clampf((sp_s - 3.0) / 1.5, 0.0, 1.0) if pose == "stand" else 0.0
 		if low > 0.0 and not pistol:
 			# Running: muzzle lower and a little more across, still forward.
-			pos = pos.lerp(Vector3(0.14, 1.2, -0.3), low)
+			pos = pos.lerp(Vector3(0.16, 1.18, -0.36), low)
 			rot = rot.lerp(Vector3(-0.5, 0.12, 0.12), low)
 		pitch_with_aim = low < 0.5 and _still_k < 0.5
 	if inspect_t >= 0.0 and reload_p < 0.0 and not aiming:
@@ -2029,6 +2030,13 @@ var _land_k := 0.0
 var _vy_f := 0.0
 var _acc_f := 0.0
 var _stride_ph := 0.0
+var _hand_ok := false
+var _hand_f2 := Vector3.ZERO
+var _hand_f := Vector3.ZERO
+var _hand_ref := Vector3.ZERO
+var _line_f2 := Vector3.LEFT
+var _line_f := Vector3.LEFT
+var _line_ref := Vector3.LEFT
 var _chest_f2 := Quaternion.IDENTITY
 var _chest_f2_p := Vector3.ZERO
 
@@ -2041,6 +2049,8 @@ func _gun_life(pose: String, delta: float, xf: Transform3D) -> Transform3D:
 	var sprint_w := _ease(&"life_sprint", 1.0 if sprinting else 0.0, 6.0)
 	var crouch_w := _ease(&"life_crouch", 1.0 if pose == "crouch" else 0.0, 6.0)
 	var still := _ease(&"life_still", 1.0 - clampf(_speed / 0.8, 0.0, 1.0), 4.0)
+	var hand_w := _ease(&"life_hands", 0.0 if pose == "prone" or aiming or not _loco_on else smoothstep(0.5, 4.5, _speed) * (1.0 - 0.3 * crouch_w), 5.0)
+	chest_w *= 1.0 - hand_w        # (the hands already carry the chest's motion: not twice)
 	# 1. On the chest: how the clip moves the upper body now against where it
 	# has been lately (band-passed: the fast follow takes out the pops where
 	# one clip hands over to the next, the slow one what the pose holds), so
@@ -2075,6 +2085,41 @@ func _gun_life(pose: String, delta: float, xf: Transform3D) -> Transform3D:
 			var dl := dv.length()
 			var dp := (dv * (0.045 * tanh(dl / 0.045) / dl) if dl > 1e-6 else Vector3.ZERO) * chest_w
 			xf = Transform3D(rb * xf.basis, chest.origin + rb * (xf.origin - chest.origin) + dp)
+	# 1b. In the hands: how the clip moves the hands on the gun (the arms
+	# rise, fall and swing with each step, more the faster) against where
+	# they have been lately, band-passed and eased into its limits as the
+	# chest is: the gun goes with the arms, not pinned to the body.
+	if hand_w > 0.002 and _bone.has("RightHand") and _bone.has("LeftHand"):
+		var to_m := _sk_to_model()
+		var rh: Vector3 = to_m * sk.get_bone_global_pose(_bone["RightHand"]).origin
+		var lh: Vector3 = to_m * sk.get_bone_global_pose(_bone["LeftHand"]).origin
+		var mid := (rh + lh) * 0.5
+		var line := (lh - rh).normalized() if rh.distance_to(lh) > 0.05 else Vector3.LEFT
+		if not _hand_ok:
+			_hand_f2 = mid
+			_hand_f = mid
+			_hand_ref = mid
+			_line_f2 = line
+			_line_f = line
+			_line_ref = line
+			_hand_ok = true
+		var kf := minf(1.0, dt * 10.0)
+		_hand_f2 = _hand_f2.lerp(mid, kf)
+		_hand_f = _hand_f.lerp(_hand_f2, kf)
+		_line_f2 = _line_f2.lerp(line, kf).normalized()
+		_line_f = _line_f.lerp(_line_f2, kf).normalized()
+		var kr := minf(1.0, dt * 2.5)
+		_hand_ref = _hand_ref.lerp(_hand_f, kr)
+		_line_ref = _line_ref.lerp(_line_f, kr).normalized()
+		var dv := _hand_f - _hand_ref
+		var dl := dv.length()
+		var dp := dv * (0.07 * tanh(dl / 0.07) / dl) if dl > 1e-6 else Vector3.ZERO
+		var ax := _line_ref.cross(_line_f)
+		var ang := asin(clampf(ax.length(), 0.0, 1.0))
+		var rb := Basis(ax.normalized(), 0.18 * tanh(ang / 0.18) * hand_w) if ang > 1e-5 else Basis()
+		xf = Transform3D(rb * xf.basis, xf.origin + dp * hand_w)
+	else:
+		_hand_ok = false
 	var off := Vector3.ZERO
 	var rot := Vector3.ZERO            # pitch, yaw, roll (model axes, about the grip)
 	# 2. The stride: dips on each footfall (twice a stride), swings and rolls
@@ -2088,6 +2133,12 @@ func _gun_life(pose: String, delta: float, xf: Transform3D) -> Transform3D:
 		var fall := cos(ph) * cos(ph)          # (smooth through the footfall)
 		off += Vector3(sin(ph) * 0.013, 0.012 - fall * 0.026, 0.0) * amp
 		rot += Vector3(0.018 - fall * 0.036, sin(ph) * 0.035, sin(ph) * 0.05) * amp
+		# Sprinting the arms pump: the gun swings across with them, once a
+		# stride, out and back.
+		if sprint_w > 0.002:
+			var sw := sin(ph + 0.6)
+			off += Vector3(sw * 0.03, -absf(sw) * 0.015, -sw * 0.02) * sprint_w
+			rot += Vector3(sw * 0.05, sw * 0.1, sw * 0.12) * sprint_w
 	# 3. Standing (or lying) still: the breath lifts and lowers it, and the
 	# hands never hold it dead still: a slow drift, each on its own clock.
 	if still > 0.002:
@@ -2574,14 +2625,17 @@ func _keep_in_reach() -> void:
 		var a := to_m * sk.get_bone_global_rest(_bone["LeftArm"]).origin
 		var b := to_m * sk.get_bone_global_rest(_bone["LeftForeArm"]).origin
 		var c := to_m * sk.get_bone_global_rest(_bone["LeftHand"]).origin
-		_reach = (a.distance_to(b) + b.distance_to(c)) * 0.97
+		_reach = (a.distance_to(b) + b.distance_to(c)) * 0.95
 	var sh := to_m * sk.get_bone_global_pose(_bone["LeftArm"]).origin
 	var fore_v: Vector3 = weapon_node.get_meta("fore", Vector3(0, -0.06, -0.32))
 	var fore := gun.transform * (fore_v * WSCALE + Vector3(-0.02, -0.02, 0.06))
 	var d := fore - sh
 	var over := d.length() - _reach
-	var pull := 0.5 * (over + sqrt(over * over + 0.0004)) - 0.01      # smooth max(over, 0)
-	if pull > 0.0005: gun.transform.origin -= d.normalized() * pull
+	var pull := 0.5 * (over + sqrt(over * over + 0.0016)) - 0.02      # smooth max(over, 0)
+	# (the pull eased, quickly: a jolt of the shoulder is not passed on)
+	var pv := d.normalized() * pull if pull > 0.0005 else Vector3.ZERO
+	pv = Vector3(_ease(&"reach_x", pv.x, 28.0), _ease(&"reach_y", pv.y, 28.0), _ease(&"reach_z", pv.z, 28.0))
+	if pv.length_squared() > 1e-8: gun.transform.origin -= pv
 
 # ---------------------------------------------------------------- feet on the ground
 const FOOT_RAY := 0.6           # how far above/below the feet we look for ground
